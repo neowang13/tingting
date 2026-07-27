@@ -8,7 +8,7 @@ services:
     plan: free
     region: oregon
     buildCommand: NODE_ENV=development pnpm install --frozen-lockfile && NODE_ENV=production pnpm build
-    startCommand: pnpm start -- -H 0.0.0.0 -p $PORT
+    startCommand: pnpm exec next start -H 0.0.0.0 -p $PORT
     healthCheckPath: /api/health
     autoDeployTrigger: commit
     envVars:
