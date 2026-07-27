@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { validateSection } from "@/features/content/schemas";
 import { collectMediaAssetIds } from "@/features/content/media-service";
+import { isSeededPublicMedia } from "@/features/content/public-media";
 import { nextOccurrence } from "@/features/reminders/scheduler";
 import {
   createNotificationProviders,
@@ -822,17 +823,18 @@ export class SupabaseRepository implements DataRepository {
   }
 
   private async promoteMediaForPublish(ids: string[]) {
-    if (ids.length === 0) return [];
+    const uploadedIds = ids.filter((id) => !isSeededPublicMedia(id));
+    if (uploadedIds.length === 0) return [];
     const client = this.client();
     const draftBucket = process.env.SUPABASE_STORAGE_DRAFT_BUCKET ?? "site-media-drafts";
     const publicBucket = process.env.SUPABASE_STORAGE_PUBLIC_BUCKET ?? "site-media";
     const { data, error } = await client
       .from("media_assets")
       .select("id,state,draft_storage_path,published_storage_path,public_url")
-      .in("id", ids);
+      .in("id", uploadedIds);
     if (error) databaseError(error);
     const assets = asRows(data);
-    if (assets.length !== ids.length) {
+    if (assets.length !== uploadedIds.length) {
       throw new ApiError(400, "MEDIA_NOT_FOUND", "One or more referenced media assets do not exist.");
     }
 

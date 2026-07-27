@@ -10,3 +10,7 @@ const publicMedia: Record<string, string | null> = {
 export function resolveSeededPublicMedia(mediaAssetId: string) {
   return publicMedia[mediaAssetId] ?? null;
 }
+
+export function isSeededPublicMedia(mediaAssetId: string) {
+  return Object.hasOwn(publicMedia, mediaAssetId);
+}

@@ -85,6 +85,15 @@ export function SectionEditor({
     setMessage("Unsaved changes.");
   }
 
+  async function refreshRevisions() {
+    const revisionResponse = await fetch(`/api/admin/sections/${section.key}/revisions`);
+    const revisionResult = await revisionResponse.json();
+    if (revisionResult.success) {
+      setRevisions(revisionResult.data);
+      setSelectedRevision(revisionResult.data[0]?.id ?? "");
+    }
+  }
+
   async function request(path: string, method: "PATCH" | "POST", body: unknown) {
     setBusy(true);
     setMessage("Working…");
@@ -98,12 +107,7 @@ export function SectionEditor({
       if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Request failed.");
       setSection(result.data);
       setDraft(result.data.draftContent);
-      const revisionResponse = await fetch(`/api/admin/sections/${section.key}/revisions`);
-      const revisionResult = await revisionResponse.json();
-      if (revisionResult.success) {
-        setRevisions(revisionResult.data);
-        setSelectedRevision(revisionResult.data[0]?.id ?? "");
-      }
+      await refreshRevisions();
       setMessage(
         path.endsWith("/publish")
           ? "Published successfully."
@@ -111,6 +115,48 @@ export function SectionEditor({
             ? "Previous version restored and published."
             : "Draft saved."
       );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function publishCurrentDraft() {
+    setBusy(true);
+    setMessage("Saving and publishing…");
+    try {
+      const saveResponse = await fetch(`/api/admin/sections/${section.key}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: draft,
+          expectedVersion: section.updatedAt
+        })
+      });
+      const saveResult = await saveResponse.json();
+      if (!saveResponse.ok || !saveResult.success) {
+        throw new Error(saveResult.error?.message ?? "Draft could not be saved.");
+      }
+      setSection(saveResult.data);
+      setDraft(saveResult.data.draftContent);
+
+      const publishResponse = await fetch(`/api/admin/sections/${section.key}/publish`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          expectedVersion: saveResult.data.updatedAt
+        })
+      });
+      const publishResult = await publishResponse.json();
+      if (!publishResponse.ok || !publishResult.success) {
+        throw new Error(publishResult.error?.message ?? "Content could not be published.");
+      }
+
+      setSection(publishResult.data);
+      setDraft(publishResult.data.draftContent);
+      await refreshRevisions();
+      setMessage("Published successfully. The public website now uses this content.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
     } finally {
@@ -170,10 +216,8 @@ export function SectionEditor({
             disabled={busy || Boolean(validation)}
             type="button"
             onClick={() => {
-              if (window.confirm("Publish this saved draft to the public website?")) {
-                void request(`/api/admin/sections/${section.key}/publish`, "POST", {
-                  expectedVersion: section.updatedAt
-                });
+              if (window.confirm("Save and publish the current content to the public website?")) {
+                void publishCurrentDraft();
               }
             }}
           >

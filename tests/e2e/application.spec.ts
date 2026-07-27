@@ -105,6 +105,12 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await expect(page.getByLabel("Heading", { exact: true })).toHaveValue("Find Your Perfect Rental");
   await expect(page.getByRole("button", { name: "Save Draft" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish" })).toBeVisible();
+  await page.getByLabel("Heading", { exact: true }).fill("Published Directly From Admin");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Publish" }).click();
+  await expect(page.getByText("Published successfully. The public website now uses this content.")).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Published Directly From Admin" })).toBeVisible();
 
   await page.goto("/admin/automation/service-accounts");
   await page.getByLabel("Account name").fill("E2E OpenClaw Operations");
