@@ -9,13 +9,16 @@ import {
 import { getRepository } from "@/data/repository";
 import {
   pauseInputSchema,
+  reminderSettingsInputSchema,
   notificationEventFilterSchema,
   schedulePreviewSchema,
   tenantListFilterSchema,
   testNotificationConfirmationSchema,
   testNotificationSchema
 } from "@/lib/schemas";
-import { nextOccurrence } from "@/features/reminders/scheduler";
+import {
+  nextReminderOccurrence
+} from "@/features/reminders/scheduler";
 import {
   estimateSmsSegments,
   renderTemplate,
@@ -27,6 +30,9 @@ import {
   createTestSendPreviewToken,
   verifyTestSendPreviewToken
 } from "@/features/notifications/test-send-preview";
+import {
+  formatRentDueDate
+} from "@/features/reminders/due-date";
 import { getAutomationRepository } from "@/data/automation-repository";
 import {
   serviceAccountCreateSchema,
@@ -222,9 +228,20 @@ export async function POST(request: Request, context: Context) {
     }
     if (resource === "schedules" && id === "next-run") {
       const input = schedulePreviewSchema.parse(body);
+      const settings = await repository.getPause();
+      const occurrence = nextReminderOccurrence({
+        rentDueDay: input.rentDueDay,
+        leadDays: settings.leadDays,
+        localTime: settings.localTime,
+        timezone: settings.timezone,
+        afterInstant: new Date().toISOString()
+      });
       return ok({
-        nextRunAt: nextOccurrence({ ...input, afterInstant: new Date().toISOString() }),
-        timezone: input.timezone
+        ...occurrence,
+        leadDays: settings.leadDays,
+        localTime: settings.localTime,
+        emailTemplateId: settings.emailTemplateId,
+        timezone: settings.timezone
       }, requestId);
     }
     if (resource === "templates" && !id) return ok(await repository.createTemplate(body, actorId), requestId, 201);
@@ -233,21 +250,32 @@ export async function POST(request: Request, context: Context) {
     }
     if (resource === "notifications" && id === "test-preview") {
       const payload = testNotificationSchema.parse(body);
-      const [{ tenant }, templates, contacts] = await Promise.all([
+      const [{ tenant }, templates, contacts, settings] = await Promise.all([
         repository.getTenant(payload.tenantId),
         repository.listTemplates(),
-        repository.getTestContacts()
+        repository.getTestContacts(),
+        repository.getPause()
       ]);
       const channel = payload.channel;
       const template = templates.find((item) => item.id === payload.templateId && item.channel === channel && item.isActive);
       if (!template) throw new ApiError(400, "TEMPLATE_CHANNEL_MISMATCH", "Choose an active template for the selected channel.");
       const destination = channel === "email" ? contacts.email : contacts.phoneE164;
       if (!destination) throw new ApiError(409, "TEST_DESTINATION_MISSING", `Save an administrator-owned test ${channel} destination first.`);
+      const leadDays = payload.leadDays ?? settings.leadDays;
+      const localTime = payload.localTime ?? settings.localTime;
+      const timezone = payload.timezone ?? settings.timezone;
+      const occurrence = nextReminderOccurrence({
+        rentDueDay: tenant.rentDueDay,
+        leadDays,
+        localTime,
+        timezone,
+        afterInstant: new Date().toISOString()
+      });
       const context: TemplateContext = {
         tenant_name: tenant.fullName,
         property: tenant.propertyLabel,
         unit: tenant.unitLabel ?? "",
-        due_date: "the first of the month",
+        due_date: formatRentDueDate(occurrence.dueDate),
         business_name: "Ting Ting Xu Real Estate",
         business_phone: "604-872-6896",
         business_email: "info@tingtingxu.ca"
@@ -264,13 +292,22 @@ export async function POST(request: Request, context: Context) {
           tenantId: tenant.id,
           channel,
           templateId: template.id,
-          requestId: payload.requestId
+          templateVersion: template.updatedAt,
+          requestId: payload.requestId,
+          dueDate: occurrence.dueDate,
+          leadDays,
+          localTime,
+          timezone,
+          renderedSubject: subject,
+          renderedBody,
+          destination
         }),
         tenantId: tenant.id,
         channel,
         templateId: template.id,
         subject,
         body: renderedBody,
+        dueDate: occurrence.dueDate,
         smsSegments: channel === "sms" ? estimateSmsSegments(renderedBody) : 0,
         destinationMasked,
         providerMode: channel === "email"
@@ -282,7 +319,7 @@ export async function POST(request: Request, context: Context) {
       await assertRecentAuthentication(prepared.admin);
       await assertActionRateLimit(actorId, "notification-test", 5, 10 * 60);
       const input = testNotificationConfirmationSchema.parse(body);
-      verifyTestSendPreviewToken(input.previewToken, {
+      const preview = verifyTestSendPreviewToken(input.previewToken, {
         actorId,
         tenantId: input.tenantId,
         channel: input.channel,
@@ -293,7 +330,14 @@ export async function POST(request: Request, context: Context) {
         tenantId: input.tenantId,
         channel: input.channel,
         templateId: input.templateId,
-        requestId: input.requestId
+        requestId: input.requestId,
+        dueDate: preview.dueDate,
+        leadDays: preview.leadDays,
+        localTime: preview.localTime,
+        timezone: preview.timezone,
+        renderedSubject: preview.renderedSubject,
+        renderedBody: preview.renderedBody,
+        destination: preview.destination
       }, actorId), requestId, 201);
     }
     if (resource === "notifications" && id === "batches" && !action) {
@@ -390,6 +434,10 @@ export async function PATCH(request: Request, context: Context) {
     }
     if (resource === "settings" && id === "reminders" && !action) {
       await assertRecentAuthentication(prepared.admin);
+      if ("leadDays" in body || "localTime" in body || "emailTemplateId" in body) {
+        const input = reminderSettingsInputSchema.parse(body);
+        return ok(await repository.saveReminderSettings(input, actorId), requestId);
+      }
       const input = pauseInputSchema.parse(body);
       return ok(await repository.setPause(input.paused, input.expectedVersion, actorId), requestId);
     }

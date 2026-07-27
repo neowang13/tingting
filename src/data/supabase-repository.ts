@@ -1,8 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { validateSection } from "@/features/content/schemas";
+import { upgradePropertyServicesContent } from "@/features/content/property-services";
 import { collectMediaAssetIds } from "@/features/content/media-service";
 import { isSeededPublicMedia } from "@/features/content/public-media";
-import { nextOccurrence } from "@/features/reminders/scheduler";
+import {
+  isRentalV2Payload,
+  parseRentalPayload
+} from "@/features/rentals/v2";
 import {
   createNotificationProviders,
   resolveNotificationProviderModes
@@ -15,6 +19,7 @@ import type {
   NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
+  ReminderSettings,
   RentalListing,
   SectionRevision,
   SectionKey,
@@ -26,6 +31,7 @@ import type {
 import {
   batchConfirmSchema,
   notificationPreviewSchema,
+  reminderSettingsInputSchema,
   rentalInputSchema,
   scheduleInputSchema,
   templateInputSchema,
@@ -92,18 +98,25 @@ function databaseError(error: { code?: string; message: string } | null): never 
   throw new ApiError(
     conflictCodes.has(error?.code ?? "") ? 409 : 500,
     conflictCodes.has(error?.code ?? "") ? "VERSION_CONFLICT" : "DATABASE_ERROR",
-    conflictCodes.has(error?.code ?? "") ? "This record changed after it was loaded." : "The database request failed."
+    conflictCodes.has(error?.code ?? "")
+      ? "This record changed after it was loaded. Refresh the page before trying again."
+      : "We could not save this change because the database is unavailable. Nothing after the last confirmed save was applied. Try again."
   );
 }
 
 function mapSection(value: unknown): SiteSection {
   const row = asRow(value);
+  const key = text(row, "key") as SectionKey;
   return {
-    key: text(row, "key") as SectionKey,
+    key,
     displayName: text(row, "display_name"),
     schemaVersion: numberValue(row, "schema_version"),
-    draftContent: row.draft_content,
-    publishedContent: row.published_content,
+    draftContent: key === "property_services"
+      ? upgradePropertyServicesContent(row.draft_content)
+      : row.draft_content,
+    publishedContent: key === "property_services"
+      ? upgradePropertyServicesContent(row.published_content)
+      : row.published_content,
     publishedAt: nullableText(row, "published_at"),
     updatedAt: text(row, "updated_at")
   };
@@ -133,7 +146,22 @@ function mapRental(value: unknown): RentalListing {
       isCover: booleanValue(image, "isCover")
     };
   });
-  return {
+  const propertyRow = row.property && typeof row.property === "object" && !Array.isArray(row.property)
+    ? asRow(row.property)
+    : null;
+  const parkingRow = row.parking && typeof row.parking === "object" && !Array.isArray(row.parking)
+    ? asRow(row.parking)
+    : null;
+  const storageRow = row.storage && typeof row.storage === "object" && !Array.isArray(row.storage)
+    ? asRow(row.storage)
+    : null;
+  const petsRow = row.pets && typeof row.pets === "object" && !Array.isArray(row.pets)
+    ? asRow(row.pets)
+    : null;
+  const contactRow = row.contact && typeof row.contact === "object" && !Array.isArray(row.contact)
+    ? asRow(row.contact)
+    : null;
+  const listing: RentalListing = {
     id: text(row, "id"),
     slug: text(row, "slug"),
     title: text(row, "title"),
@@ -155,6 +183,71 @@ function mapRental(value: unknown): RentalListing {
     updatedAt: text(row, "updated_at"),
     publishedAt: nullableText(row, "published_at")
   };
+  if (propertyRow) {
+    listing.property = {
+      id: nullableText(propertyRow, "id"),
+      propertyType: nullableText(propertyRow, "propertyType") as NonNullable<RentalListing["property"]>["propertyType"],
+      buildingName: nullableText(propertyRow, "buildingName"),
+      unitNumber: nullableText(propertyRow, "unitNumber"),
+      streetAddress: text(propertyRow, "streetAddress"),
+      neighbourhood: nullableText(propertyRow, "neighbourhood"),
+      city: text(propertyRow, "city"),
+      provinceCode: nullableText(propertyRow, "provinceCode"),
+      postalCode: nullableText(propertyRow, "postalCode"),
+      countryCode: "CA",
+      updatedAt: nullableText(propertyRow, "updatedAt") ?? text(row, "updated_at")
+    };
+    listing.currencyCode = "CAD";
+    listing.denCount = Number(row.den_count ?? 0);
+    listing.availabilityStatus = nullableText(row, "availability_status") as RentalListing["availabilityStatus"];
+    listing.furnishedStatus = nullableText(row, "furnished_status") as RentalListing["furnishedStatus"];
+    listing.leaseType = nullableText(row, "lease_type") as RentalListing["leaseType"];
+    listing.minimumLeaseMonths = row.minimum_lease_months == null ? null : Number(row.minimum_lease_months);
+    listing.smokingPolicy = nullableText(row, "smoking_policy") as RentalListing["smokingPolicy"];
+    listing.creditCheckRequired = row.credit_check_required == null ? null : Boolean(row.credit_check_required);
+    listing.referencesRequired = row.references_required == null ? null : Boolean(row.references_required);
+    listing.amenityCodes = Array.isArray(row.amenity_codes) ? row.amenity_codes.map(String) : [];
+    listing.includedUtilityCodes = Array.isArray(row.included_utility_codes)
+      ? row.included_utility_codes.map(String)
+      : [];
+    listing.fees = Array.isArray(row.fees) ? row.fees as RentalListing["fees"] : [];
+    listing.parking = parkingRow ? {
+      available: Boolean(parkingRow.available),
+      type: nullableText(parkingRow, "type") as NonNullable<RentalListing["parking"]>["type"],
+      stalls: parkingRow.stalls == null ? null : Number(parkingRow.stalls),
+      included: parkingRow.included == null ? null : Boolean(parkingRow.included),
+      visitorAvailable: parkingRow.visitorAvailable == null ? null : Boolean(parkingRow.visitorAvailable),
+      notes: nullableText(parkingRow, "notes")
+    } : undefined;
+    listing.storage = storageRow ? {
+      available: Boolean(storageRow.available),
+      lockers: storageRow.lockers == null ? null : Number(storageRow.lockers),
+      included: storageRow.included == null ? null : Boolean(storageRow.included),
+      notes: nullableText(storageRow, "notes")
+    } : undefined;
+    listing.pets = petsRow ? {
+      status: nullableText(petsRow, "status") as NonNullable<RentalListing["pets"]>["status"],
+      catsAllowed: Boolean(petsRow.catsAllowed),
+      dogsAllowed: Boolean(petsRow.dogsAllowed),
+      maxCount: petsRow.maxCount == null ? null : Number(petsRow.maxCount),
+      sizeLimitLbs: petsRow.sizeLimitLbs == null ? null : Number(petsRow.sizeLimitLbs),
+      notes: nullableText(petsRow, "notes")
+    } : undefined;
+    listing.contact = contactRow ? {
+      mode: text(contactRow, "mode") as "site_default" | "custom",
+      name: nullableText(contactRow, "name"),
+      email: nullableText(contactRow, "email"),
+      phone: nullableText(contactRow, "phone")
+    } : undefined;
+    listing.utilitiesNotes = nullableText(row, "utilities_notes");
+    listing.amenityNotes = nullableText(row, "amenity_notes");
+    listing.draftDigest = nullableText(row, "draft_digest");
+    listing.publishedSourceDigest = nullableText(row, "published_source_digest");
+    listing.reviewRequiredFields = Array.isArray(row.review_required_fields)
+      ? row.review_required_fields.map(String)
+      : [];
+  }
+  return listing;
 }
 
 function mapTenant(value: unknown): Tenant {
@@ -164,6 +257,8 @@ function mapTenant(value: unknown): Tenant {
     fullName: text(row, "full_name"),
     propertyLabel: text(row, "property_label"),
     unitLabel: nullableText(row, "unit_label"),
+    moveInDate: nullableText(row, "move_in_date"),
+    rentDueDay: "rent_due_day" in row ? numberValue(row, "rent_due_day") : 1,
     email: nullableText(row, "email"),
     phoneE164: nullableText(row, "phone_e164"),
     preferredChannels: stringArray(row, "preferred_channels") as Tenant["preferredChannels"],
@@ -317,6 +412,23 @@ export class SupabaseRepository implements DataRepository {
     }));
   }
 
+  async getPublicSection(key: SectionKey) {
+    const { data, error } = await this.client()
+      .from("public_site_sections")
+      .select("key,schema_version,published_content,published_at")
+      .eq("key", key)
+      .maybeSingle();
+    if (error) databaseError(error);
+    if (!data) return null;
+    const row = asRow(data);
+    return {
+      key: text(row, "key") as SectionKey,
+      schemaVersion: numberValue(row, "schema_version"),
+      publishedContent: row.published_content,
+      publishedAt: nullableText(row, "published_at")
+    };
+  }
+
   async resolvePublicMedia(ids: string[]) {
     if (ids.length === 0) return {};
     const { data, error } = await this.client()
@@ -379,8 +491,14 @@ export class SupabaseRepository implements DataRepository {
   }
 
   async listRentals(includePrivate = true) {
-    const source = includePrivate ? "admin_rental_listings" : "public_rental_listings";
-    const { data, error } = await this.client().from(source).select("*").order("sort_order");
+    const source = includePrivate ? "admin_rental_listings_v2" : "public_rental_listings_v2";
+    let { data, error } = await this.client().from(source).select("*").order("sort_order");
+    if (error && ["42P01", "PGRST205"].includes(error.code ?? "")) {
+      const legacySource = includePrivate ? "admin_rental_listings" : "public_rental_listings";
+      const legacy = await this.client().from(legacySource).select("*").order("sort_order");
+      data = legacy.data;
+      error = legacy.error;
+    }
     if (error) databaseError(error);
     return asRows(data).map((row) =>
       mapRental({
@@ -392,13 +510,66 @@ export class SupabaseRepository implements DataRepository {
     );
   }
 
+  async getPublicRentalBySlug(slug: string) {
+    const detail = await this.client()
+      .from("public_rental_listing_details")
+      .select("*")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (!detail.error && detail.data) {
+      const row = asRow(detail.data);
+      return mapRental({
+        status: "published",
+        created_at: row.published_at,
+        updated_at: row.published_at,
+        ...row
+      });
+    }
+    if (
+      detail.error &&
+      !["42P01", "PGRST205"].includes(detail.error.code ?? "")
+    ) {
+      databaseError(detail.error);
+    }
+
+    const legacy = await this.client()
+      .from("public_rental_listings")
+      .select("*")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (legacy.error) databaseError(legacy.error);
+    if (!legacy.data) return null;
+    const row = asRow(legacy.data);
+    return mapRental({
+      status: "published",
+      created_at: row.published_at,
+      updated_at: row.published_at,
+      images: [],
+      ...row
+    });
+  }
+
   async getRental(id: string) {
-    const { data, error } = await this.client().from("admin_rental_listings").select("*").eq("id", id).single();
+    let { data, error } = await this.client().from("admin_rental_listings_v2").select("*").eq("id", id).single();
+    if (error && ["42P01", "PGRST205"].includes(error.code ?? "")) {
+      const legacy = await this.client().from("admin_rental_listings").select("*").eq("id", id).single();
+      data = legacy.data;
+      error = legacy.error;
+    }
     if (error) databaseError(error);
     return mapRental(data);
   }
 
   async createRental(payload: unknown, actorId: string) {
+    if (isRentalV2Payload(payload)) {
+      const { v2 } = parseRentalPayload(payload);
+      return mapRental(await this.rpc("save_rental_listing_v2", {
+        p_id: null,
+        p_payload: v2,
+        p_expected_updated_at: null,
+        p_actor_id: actorId
+      }));
+    }
     const input = rentalInputSchema.parse(payload);
     return mapRental(await this.rpc("save_rental_listing", {
       p_id: null,
@@ -409,6 +580,15 @@ export class SupabaseRepository implements DataRepository {
   }
 
   async updateRental(id: string, payload: unknown, expectedVersion: unknown, actorId: string) {
+    if (isRentalV2Payload(payload)) {
+      const { v2 } = parseRentalPayload(payload);
+      return mapRental(await this.rpc("save_rental_listing_v2", {
+        p_id: id,
+        p_payload: v2,
+        p_expected_updated_at: expectedVersion,
+        p_actor_id: actorId
+      }));
+    }
     const input = rentalInputSchema.parse(payload);
     return mapRental(await this.rpc("save_rental_listing", {
       p_id: id,
@@ -425,6 +605,10 @@ export class SupabaseRepository implements DataRepository {
     actorId: string
   ) {
     const rental = await this.getRental(id);
+    const coverCount = rental.images.filter((image) => image.isCover).length;
+    if (action === "publish" && coverCount !== 1 && !rental.coverImageUrl) {
+      throw new ApiError(400, "COVER_IMAGE_REQUIRED", "Choose exactly one cover image before publishing.");
+    }
     const media = action === "publish"
       ? await this.promoteMediaForPublish(rental.images.map((image) => image.mediaAssetId))
       : [];
@@ -522,22 +706,21 @@ export class SupabaseRepository implements DataRepository {
     }));
   }
 
-  async saveSchedule(tenantId: string, payload: unknown, expectedVersion: unknown, actorId: string) {
-    const input = scheduleInputSchema.parse(payload);
-    const nextRunAt = input.isEnabled
-      ? nextOccurrence({
-          dayOfMonth: input.dayOfMonth,
-          localTime: input.localTime,
-          timezone: input.timezone,
-          afterInstant: new Date().toISOString()
-        })
-      : null;
-    return mapSchedule(await this.rpc("save_reminder_schedule", {
-      p_tenant_id: tenantId,
-      p_payload: { ...input, nextRunAt },
-      p_expected_updated_at: expectedVersion,
-      p_actor_id: actorId
-    }));
+  async saveSchedule(
+    tenantId: string,
+    payload: unknown,
+    expectedVersion: unknown,
+    actorId: string
+  ): Promise<ReminderSchedule> {
+    scheduleInputSchema.parse(payload);
+    void tenantId;
+    void expectedVersion;
+    void actorId;
+    throw new ApiError(
+      409,
+      "GLOBAL_REMINDER_POLICY",
+      "Per-tenant reminder schedules are read-only. Update the payment due date on the tenant or the global Reminder settings."
+    );
   }
 
   async listTemplates() {
@@ -610,7 +793,14 @@ export class SupabaseRepository implements DataRepository {
     if (error) databaseError(error);
     const row = asRow(data);
     const value = asRow(row.value);
-    return { paused: Boolean(value.paused), updatedAt: text(row, "updated_at") };
+    return {
+      paused: Boolean(value.paused),
+      leadDays: Number.isInteger(Number(value.leadDays)) ? Number(value.leadDays) : 3,
+      localTime: typeof value.localTime === "string" ? value.localTime.slice(0, 5) : "09:00",
+      timezone: typeof value.timezone === "string" ? value.timezone : "America/Vancouver",
+      emailTemplateId: nullableText(value, "emailTemplateId"),
+      updatedAt: text(row, "updated_at")
+    } satisfies ReminderSettings;
   }
 
   async setPause(paused: boolean, expectedVersion: unknown, actorId: string) {
@@ -619,7 +809,37 @@ export class SupabaseRepository implements DataRepository {
       p_expected_updated_at: expectedVersion,
       p_actor_id: actorId
     }));
-    return { paused: booleanValue(data, "paused"), updatedAt: text(data, "updated_at") };
+    const settings = await this.getPause();
+    return {
+      ...settings,
+      paused: booleanValue(data, "paused"),
+      updatedAt: text(data, "updated_at")
+    };
+  }
+
+  async saveReminderSettings(payload: unknown, actorId: string) {
+    const input = reminderSettingsInputSchema.parse(payload);
+    const data = asRow(await this.rpc("save_global_reminder_settings", {
+      p_payload: {
+        paused: input.paused,
+        leadDays: input.leadDays,
+        localTime: input.localTime,
+        timezone: input.timezone,
+        emailTemplateId: input.emailTemplateId
+      },
+      p_expected_updated_at: input.expectedVersion,
+      p_actor_id: actorId
+    }));
+    return {
+      paused: Boolean(data.paused),
+      leadDays: Number(data.leadDays),
+      localTime: String(data.localTime).slice(0, 5),
+      timezone: String(data.timezone),
+      emailTemplateId: nullableText(data, "emailTemplateId"),
+      recalculatedTenants: Number(data.recalculatedTenants ?? 0),
+      preservedDueTenants: Number(data.preservedDueTenants ?? 0),
+      updatedAt: String(data.updatedAt)
+    } satisfies ReminderSettings;
   }
 
   async getTestContacts(): Promise<TestContacts> {
@@ -655,6 +875,22 @@ export class SupabaseRepository implements DataRepository {
 
   async createTestEvent(payload: unknown, actorId: string) {
     const input = testNotificationSchema.parse(payload);
+    if (
+      input.dueDate &&
+      input.renderedBody !== undefined &&
+      input.destination
+    ) {
+      return mapEvent(await this.rpc("create_global_test_notification_event", {
+        p_tenant_id: input.tenantId,
+        p_template_id: input.templateId,
+        p_request_id: input.requestId,
+        p_actor_id: actorId,
+        p_due_date: input.dueDate,
+        p_rendered_subject: input.renderedSubject ?? null,
+        p_rendered_body: input.renderedBody,
+        p_destination: input.destination
+      }));
+    }
     return mapEvent(await this.rpc("create_test_notification_event", {
       p_tenant_id: input.tenantId,
       p_channel: input.channel,

@@ -9,6 +9,7 @@ import type {
   NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
+  ReminderSettings,
   RentalListing,
   SectionRevision,
   SectionKey,
@@ -23,6 +24,7 @@ export interface DataRepository {
   dashboard(): Promise<DashboardSummary>;
   listSections(): Promise<SiteSection[]>;
   listPublicSections(): Promise<PublicSiteSection[]>;
+  getPublicSection(key: SectionKey): Promise<PublicSiteSection | null>;
   resolvePublicMedia(ids: string[]): Promise<Record<string, string | null>>;
   getSection(key: SectionKey): Promise<SiteSection>;
   listSectionRevisions(key: SectionKey): Promise<SectionRevision[]>;
@@ -35,6 +37,7 @@ export interface DataRepository {
     actorId: string
   ): Promise<SiteSection>;
   listRentals(includePrivate?: boolean): Promise<RentalListing[]>;
+  getPublicRentalBySlug(slug: string): Promise<RentalListing | null>;
   getRental(id: string): Promise<RentalListing>;
   createRental(payload: unknown, actorId: string): Promise<RentalListing>;
   updateRental(id: string, payload: unknown, expectedVersion: unknown, actorId: string): Promise<RentalListing>;
@@ -75,8 +78,9 @@ export interface DataRepository {
   createBatch(payload: unknown, actorId: string): Promise<NotificationBatch>;
   confirmBatch(id: string, payload: unknown, actorId: string): Promise<NotificationBatch>;
   retryEvent(id: string, actorId: string): Promise<NotificationEvent>;
-  getPause(): Promise<{ paused: boolean; updatedAt: string }>;
-  setPause(paused: boolean, expectedVersion: unknown, actorId: string): Promise<{ paused: boolean; updatedAt: string }>;
+  getPause(): Promise<ReminderSettings>;
+  setPause(paused: boolean, expectedVersion: unknown, actorId: string): Promise<ReminderSettings>;
+  saveReminderSettings(payload: unknown, actorId: string): Promise<ReminderSettings>;
   getTestContacts(): Promise<TestContacts>;
   setTestContacts(payload: unknown, actorId: string): Promise<TestContacts>;
   createTestEvent(payload: unknown, actorId: string): Promise<NotificationEvent>;
@@ -110,6 +114,15 @@ class MemoryRepository implements DataRepository {
       publishedAt
     }));
   }
+  async getPublicSection(key: SectionKey) {
+    const section = store.getSection(key);
+    return {
+      key: section.key,
+      schemaVersion: section.schemaVersion,
+      publishedContent: section.publishedContent,
+      publishedAt: section.publishedAt
+    };
+  }
   async resolvePublicMedia(ids: string[]) {
     return Object.fromEntries(ids.map((id) => [id, resolveDemoMedia(id) ?? resolveSeededPublicMedia(id)]));
   }
@@ -125,6 +138,7 @@ class MemoryRepository implements DataRepository {
     return store.rollbackSection(key, revisionId, expectedVersion);
   }
   async listRentals(includePrivate = true) { return store.listRentals(includePrivate); }
+  async getPublicRentalBySlug(slug: string) { return store.getPublicRentalBySlug(slug); }
   async getRental(id: string) { return store.getRental(id); }
   async createRental(payload: unknown) { return store.createRental(payload); }
   async updateRental(id: string, payload: unknown, expectedVersion: unknown) {
@@ -158,6 +172,7 @@ class MemoryRepository implements DataRepository {
   async retryEvent(id: string) { return store.retryEvent(id); }
   async getPause() { return store.getPause(); }
   async setPause(paused: boolean, expectedVersion: unknown) { return store.setPause(paused, expectedVersion); }
+  async saveReminderSettings(payload: unknown) { return store.saveReminderSettings(payload); }
   async getTestContacts() { return store.getTestContacts(); }
   async setTestContacts(payload: unknown) { return store.setTestContacts(payload); }
   async createTestEvent(payload: unknown) { return store.createTestEvent(payload); }

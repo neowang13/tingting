@@ -6,6 +6,13 @@ import type {
   SiteSection,
   Tenant
 } from "@/lib/contracts";
+import {
+  rentalManagementService,
+  upgradePropertyServicesContent
+} from "@/features/content/property-services";
+import {
+  getSeededServicePageContent
+} from "@/features/content/service-pages";
 
 const now = "2026-07-24T12:00:00.000Z";
 const mediaHero = "10000000-0000-4000-8000-000000000001";
@@ -114,7 +121,8 @@ const content: Record<SiteSection["key"], unknown> = {
           primaryCtaLabel: "Request Strata Support",
           secondaryCtaLabel: "Ask a Question"
         }
-      }
+      },
+      structuredClone(rentalManagementService)
     ],
     primaryCta: { label: "Request a Service", href: "/#contact" }
   },
@@ -172,7 +180,12 @@ const content: Record<SiteSection["key"], unknown> = {
       linkedin: "https://www.linkedin.com/"
     },
     disclosureParagraphs: ["Independent real-estate professional. Information is subject to change."]
-  }
+  },
+  service_renovation: getSeededServicePageContent("service_renovation"),
+  service_handyman: getSeededServicePageContent("service_handyman"),
+  service_maintenance: getSeededServicePageContent("service_maintenance"),
+  service_strata: getSeededServicePageContent("service_strata"),
+  service_rental_management: getSeededServicePageContent("service_rental_management")
 };
 
 const sectionNames: Record<SiteSection["key"], string> = {
@@ -183,15 +196,20 @@ const sectionNames: Record<SiteSection["key"], string> = {
   featured_rentals: "Featured Rentals",
   about: "About",
   contact: "Contact",
-  footer: "Footer"
+  footer: "Footer",
+  service_renovation: "Renovation",
+  service_handyman: "Handyman service",
+  service_maintenance: "Property maintenance",
+  service_strata: "Strata service",
+  service_rental_management: "Rental management"
 };
 
 export const demoSections: SiteSection[] = Object.entries(content).map(([key, value]) => ({
   key: key as SiteSection["key"],
   displayName: sectionNames[key as SiteSection["key"]],
-  schemaVersion: 1,
-  draftContent: structuredClone(value),
-  publishedContent: structuredClone(value),
+  schemaVersion: key === "property_services" ? 3 : 1,
+  draftContent: structuredClone(key === "property_services" ? upgradePropertyServicesContent(value) : value),
+  publishedContent: structuredClone(key === "property_services" ? upgradePropertyServicesContent(value) : value),
   publishedAt: now,
   updatedAt: now
 }));
@@ -249,6 +267,8 @@ export const demoTenants: Tenant[] = [
     fullName: "Demo Tenant",
     propertyLabel: "1231 Howe Street",
     unitLabel: "1104",
+    moveInDate: "2026-06-01",
+    rentDueDay: 1,
     email: "tenant@example.com",
     phoneE164: "+16045550101",
     preferredChannels: ["email", "sms"],

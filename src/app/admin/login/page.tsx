@@ -15,13 +15,19 @@ export default async function LoginPage({
 }) {
   const { error, reset } = await searchParams;
   return (
-    <main className="admin-body" style={{ display: "grid", placeItems: "center", padding: 20 }}>
-      <section className="card" style={{ width: "min(440px, 100%)" }}>
-        <div className="eyebrow">TING TING XU</div>
-        <h1>Admin Sign In</h1>
-        {reset === "success" && <p role="status">Password updated. Sign in with the new password.</p>}
-        {error && loginMessages[error] && <p role="alert">{loginMessages[error]}</p>}
+    <main className="admin-body admin-auth-page">
+      <section className="admin-auth-card">
+        <div className="admin-auth-brand">Ting Ting Admin</div>
+        <h1>Sign in</h1>
+        <p className="admin-auth-intro">
+          Access the management console for the website, rentals and rent reminders.
+        </p>
+        {reset === "success" && <p className="form-status success" role="status">Password updated. Sign in with the new password.</p>}
+        {error && loginMessages[error] && <p className="form-status error" role="alert">{loginMessages[error]}</p>}
         <LoginForm authMode={isDemoMode() ? "local" : "supabase"} />
+        <p className="admin-auth-help">
+          Too many attempts, an expired session, or a disabled account will show a clear message here instead of the form above.
+        </p>
       </section>
     </main>
   );

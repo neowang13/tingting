@@ -201,10 +201,10 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
           </div>
         </>
       )}
-      <button className="button" disabled={busy} type="submit" style={{ marginTop: 16 }}>
-        {busy ? "Checking…" : stage === "password" ? "Sign In" : "Verify"}
+      <button className="button" disabled={busy} type="submit">
+        {busy ? "Checking…" : stage === "password" ? "Sign In" : "Verify and continue"}
       </button>
-      {error && <p role="alert" aria-live="assertive">{error}</p>}
+      {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
     </form>
   );
 }

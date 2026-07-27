@@ -1,4 +1,4 @@
-export const sectionKeys = [
+export const homepageSectionKeys = [
   "header",
   "hero",
   "rental_search",
@@ -9,7 +9,31 @@ export const sectionKeys = [
   "footer"
 ] as const;
 
+export const servicePageSectionKeys = [
+  "service_renovation",
+  "service_handyman",
+  "service_maintenance",
+  "service_strata",
+  "service_rental_management"
+] as const;
+
+export const sectionKeys = [
+  ...homepageSectionKeys,
+  ...servicePageSectionKeys
+] as const;
+
+export type HomepageSectionKey = (typeof homepageSectionKeys)[number];
+export type ServicePageSectionKey = (typeof servicePageSectionKeys)[number];
 export type SectionKey = (typeof sectionKeys)[number];
+
+export function isHomepageSectionKey(key: SectionKey): key is HomepageSectionKey {
+  return (homepageSectionKeys as readonly SectionKey[]).includes(key);
+}
+
+export function isServicePageSectionKey(key: SectionKey): key is ServicePageSectionKey {
+  return (servicePageSectionKeys as readonly SectionKey[]).includes(key);
+}
+
 export type Channel = "email" | "sms";
 export type ContactStatus =
   | "unconfirmed"
@@ -20,6 +44,19 @@ export type ContactStatus =
   | "complained"
   | "suppressed";
 export type RentalStatus = "draft" | "published" | "archived";
+export type PropertyType =
+  | "apartment"
+  | "condo"
+  | "townhome"
+  | "house"
+  | "basement_suite"
+  | "room"
+  | "other";
+export type AvailabilityStatus = "available_now" | "available_on" | "contact";
+export type FurnishedStatus = "unfurnished" | "furnished" | "partly_furnished";
+export type LeaseType = "fixed_term" | "month_to_month" | "flexible";
+export type SmokingPolicy = "not_allowed" | "outdoor_only" | "allowed" | "contact";
+export type PetStatus = "not_allowed" | "considered" | "allowed";
 export type NotificationStatus =
   | "scheduled"
   | "processing"
@@ -95,6 +132,28 @@ export interface RentalListing extends Versioned {
   images: RentalImage[];
   createdAt: string;
   publishedAt: string | null;
+  property?: RentalProperty;
+  currencyCode?: "CAD";
+  denCount?: number;
+  availabilityStatus?: AvailabilityStatus | null;
+  furnishedStatus?: FurnishedStatus | null;
+  leaseType?: LeaseType | null;
+  minimumLeaseMonths?: number | null;
+  parking?: RentalParking;
+  storage?: RentalStorage;
+  pets?: RentalPetPolicy;
+  smokingPolicy?: SmokingPolicy | null;
+  creditCheckRequired?: boolean | null;
+  referencesRequired?: boolean | null;
+  amenityCodes?: string[];
+  includedUtilityCodes?: string[];
+  fees?: RentalFee[];
+  contact?: RentalContact;
+  utilitiesNotes?: string | null;
+  amenityNotes?: string | null;
+  draftDigest?: string | null;
+  publishedSourceDigest?: string | null;
+  reviewRequiredFields?: string[];
 }
 
 export interface RentalImage {
@@ -105,11 +164,70 @@ export interface RentalImage {
   isCover: boolean;
 }
 
+export interface RentalProperty extends Versioned {
+  id: string | null;
+  propertyType: PropertyType | null;
+  buildingName: string | null;
+  unitNumber: string | null;
+  streetAddress: string;
+  neighbourhood: string | null;
+  city: string;
+  provinceCode: string | null;
+  postalCode: string | null;
+  countryCode: "CA";
+}
+
+export interface RentalParking {
+  available: boolean | null;
+  type: "underground" | "garage" | "surface" | "street" | "carport" | "other" | null;
+  stalls: number | null;
+  included: boolean | null;
+  visitorAvailable: boolean | null;
+  notes: string | null;
+}
+
+export interface RentalStorage {
+  available: boolean | null;
+  lockers: number | null;
+  included: boolean | null;
+  notes: string | null;
+}
+
+export interface RentalPetPolicy {
+  status: PetStatus | null;
+  catsAllowed: boolean;
+  dogsAllowed: boolean;
+  maxCount: number | null;
+  sizeLimitLbs: number | null;
+  notes: string | null;
+}
+
+export interface RentalContact {
+  mode: "site_default" | "custom";
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+export interface RentalFee {
+  id?: string;
+  feeType: "security_deposit" | "pet_deposit" | "parking" | "storage" | "move_in" | "other";
+  label: string | null;
+  amountCents: number;
+  frequency: "one_time" | "monthly";
+  refundable: boolean;
+  required: boolean;
+  notes: string | null;
+  sortOrder: number;
+}
+
 export interface Tenant extends Versioned {
   id: string;
   fullName: string;
   propertyLabel: string;
   unitLabel: string | null;
+  moveInDate: string | null;
+  rentDueDay: number;
   email: string | null;
   phoneE164: string | null;
   preferredChannels: Channel[];
@@ -156,6 +274,17 @@ export interface ReminderSchedule extends Versioned {
   nextRunAt: string | null;
   lastProcessedAt: string | null;
   createdAt: string;
+}
+
+export interface ReminderSettings {
+  paused: boolean;
+  leadDays: number;
+  localTime: string;
+  timezone: string;
+  emailTemplateId: string | null;
+  updatedAt: string;
+  recalculatedTenants?: number;
+  preservedDueTenants?: number;
 }
 
 export interface NotificationEvent {

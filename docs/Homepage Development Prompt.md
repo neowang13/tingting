@@ -177,8 +177,9 @@ neutral local placeholder and make the missing asset obvious in code/documentati
   2. handyman
   3. maintenance
   4. strata
+  5. rental_management
 - Do not allow items to be added, removed, renamed structurally, or reordered.
-- Present the four services as compact, equal-height items with simple icons.
+- Present the five services as compact, equal-height items with simple icons.
 - Keep the section visually lighter than the rental cards.
 - Each service CTA must reveal its nested `detail` content in an accessible
   modal, drawer, or in-page detail panel.

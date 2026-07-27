@@ -17,3 +17,5 @@ playwright-report
 supabase/.branches
 supabase/.temp
 .gstack/deploy-reports
+.gstack/
+.tmp/

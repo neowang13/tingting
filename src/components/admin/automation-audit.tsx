@@ -1,11 +1,12 @@
+import Link from "next/link";
+
 type AuditRecord = Record<string, unknown>;
 
 export function AutomationAudit({ events }: { events: AuditRecord[] }) {
   return (
-    <section aria-labelledby="automation-audit-heading">
-      <div className="admin-list-toolbar">
-        <div><p className="eyebrow">APPEND-ONLY HISTORY</p><h2 id="automation-audit-heading">Automation audit</h2></div>
-        <span>{events.length} recent events</span>
+    <section className="prototype-page automation-detail-page" aria-labelledby="automation-audit-heading">
+      <div className="prototype-breadcrumb">
+        <Link href="/admin/automation">Automation &amp; imports</Link> / <span id="automation-audit-heading">Automation audit</span>
       </div>
       {events.length === 0 ? (
         <div className="card empty-state">
@@ -16,7 +17,7 @@ export function AutomationAudit({ events }: { events: AuditRecord[] }) {
         <div className="table-scroll" tabIndex={0} aria-label="Scrollable automation audit table">
           <table className="admin-table">
             <caption className="sr-only">Automation service-account audit history</caption>
-            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Request</th></tr></thead>
+            <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Request ID</th></tr></thead>
             <tbody>{events.map((event) => {
               const serviceAccountRaw = event.automation_service_accounts as unknown;
               const serviceAccount = (Array.isArray(serviceAccountRaw) ? serviceAccountRaw[0] : serviceAccountRaw) as { name?: string } | undefined;
@@ -37,4 +38,3 @@ export function AutomationAudit({ events }: { events: AuditRecord[] }) {
     </section>
   );
 }
-

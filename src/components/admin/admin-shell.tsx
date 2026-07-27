@@ -1,50 +1,49 @@
 import Link from "next/link";
 import type { AdminIdentity } from "@/lib/auth";
+import { AdminNavigation } from "@/components/admin/admin-navigation";
 import { LogoutButton } from "@/components/admin/logout-button";
-
-const navigation = [
-  ["Dashboard", "/admin"],
-  ["Website Content", "/admin/content"],
-  ["Rentals", "/admin/rentals"],
-  ["Tenants", "/admin/tenants"],
-  ["Automation", "/admin/automation"],
-  ["Send Reminder", "/admin/notifications/send"],
-  ["Templates", "/admin/notifications/templates"],
-  ["Delivery History", "/admin/notifications/history"],
-  ["Settings", "/admin/settings"]
-] as const;
 
 export function AdminShell({
   admin,
   title,
+  description,
   children
 }: {
   admin: AdminIdentity;
   title: string;
+  description?: string;
   children: React.ReactNode;
 }) {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <Link href="/"><strong>TING TING XU</strong><br /><small>ADMIN</small></Link>
-        <nav aria-label="Admin navigation">
-          {navigation.map(([label, href]) => <Link href={href} key={href}>{label}</Link>)}
-        </nav>
+        <Link className="admin-brand" href="/">
+          <strong>Ting Ting Admin</strong>
+          <small>Property &amp; rentals console</small>
+        </Link>
+        <div className="admin-desktop-navigation">
+          <AdminNavigation />
+        </div>
+        <details className="admin-mobile-navigation">
+          <summary>Admin menu</summary>
+          <AdminNavigation />
+        </details>
       </aside>
       <main className="admin-main">
-        <div className="admin-topbar">
-          <div>
-            <div className="eyebrow">ADMINISTRATION</div>
-            <h1 style={{ margin: "0.35rem 0" }}>{title}</h1>
+        <header className="admin-topbar">
+          <div className="admin-page-heading">
+            <h1>{title}</h1>
+            {description && <p className="admin-page-description">{description}</p>}
           </div>
-          <div style={{ textAlign: "right" }}>
-            <strong>{admin.displayName}</strong><br />
-            <small>{admin.email}</small>
-            <br />
+          <div className="admin-user">
+            <div>
+              <strong>{admin.displayName.split(/\s+/).slice(0, 2).join(" ")}</strong>
+              <small>{admin.email}</small>
+            </div>
             <LogoutButton />
           </div>
-        </div>
-        {children}
+        </header>
+        <div className="admin-content">{children}</div>
       </main>
     </div>
   );

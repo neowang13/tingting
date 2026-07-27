@@ -6,7 +6,15 @@ interface TestSendPreviewClaims {
   tenantId: string;
   channel: "email" | "sms";
   templateId: string;
+  templateVersion: string;
   requestId: string;
+  dueDate: string;
+  leadDays: number;
+  localTime: string;
+  timezone: string;
+  renderedSubject: string | null;
+  renderedBody: string;
+  destination: string;
   expiresAt: number;
 }
 
@@ -42,7 +50,10 @@ export function createTestSendPreviewToken(
 
 export function verifyTestSendPreviewToken(
   token: string,
-  expected: Omit<TestSendPreviewClaims, "expiresAt">,
+  expected: Pick<
+    TestSendPreviewClaims,
+    "actorId" | "tenantId" | "channel" | "templateId" | "requestId"
+  >,
   now = Date.now()
 ) {
   try {
@@ -65,6 +76,7 @@ export function verifyTestSendPreviewToken(
     ) {
       throw new Error("expired or mismatched claims");
     }
+    return claims;
   } catch {
     throw new ApiError(
       409,

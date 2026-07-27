@@ -3,6 +3,11 @@
 Status: Proposed  
 Last updated: 2026-07-26
 
+> Compatibility amendment (2026-07-27): reminder schedule resources remain
+> readable for v1 clients, but per-tenant timing/template/channel/status writes
+> are retired and return `409 GLOBAL_REMINDER_POLICY`. OpenClaw may update the
+> tenant payment due day or the global Reminder settings instead.
+
 ## 1. Objective
 
 The owner must be able to give OpenClaw natural-language instructions to:

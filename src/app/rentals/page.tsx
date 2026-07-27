@@ -1,5 +1,5 @@
 import Link from "next/link";
-import Image from "next/image";
+import { RentalCard } from "@/components/public/rental-card";
 import { getRepository } from "@/data/repository";
 import { rentalSearchQuerySchema } from "@/lib/schemas";
 import type { Metadata } from "next";
@@ -43,7 +43,7 @@ export default async function RentalsPage({ searchParams }: Props) {
     if (query.priceRange === "over-3000" && rental.monthlyRentCents < 300_000) return false;
     if (
       query.propertyType &&
-      !`${rental.title} ${rental.description}`.toLocaleLowerCase().includes(query.propertyType)
+      rental.property?.propertyType !== query.propertyType
     ) return false;
     return true;
   });
@@ -63,32 +63,25 @@ export default async function RentalsPage({ searchParams }: Props) {
               <option value="over-3000">$3,000+</option>
             </select>
           </label>
+          <label>Property type
+            <select name="propertyType" defaultValue={query.propertyType ?? ""}>
+              <option value="">Any type</option>
+              <option value="apartment">Apartment</option>
+              <option value="condo">Condo</option>
+              <option value="townhome">Townhome</option>
+              <option value="house">House</option>
+              <option value="basement_suite">Basement suite</option>
+              <option value="room">Room</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
           <label>Beds<input name="beds" type="number" min="0" defaultValue={query.beds} /></label>
           <label>Baths<input name="baths" type="number" min="0" defaultValue={query.baths} /></label>
           <button className="button" type="submit">Apply filters</button>
         </form>
         {rentals.length ? (
           <div className="rental-grid">
-            {rentals.map((rental) => (
-              <article className="rental-card" key={rental.id}>
-                {rental.coverImageUrl ? (
-                  <Image
-                    src={rental.coverImageUrl}
-                    alt={`${rental.title} in ${rental.city}`}
-                    width={800}
-                    height={500}
-                    sizes="(max-width: 700px) 100vw, 50vw"
-                  />
-                ) : <div className="rental-image-placeholder" role="img" aria-label={rental.title} />}
-                <div className="rental-card-body">
-                  <strong>${(rental.monthlyRentCents / 100).toLocaleString()} / month</strong>
-                  <h2>{rental.title}</h2>
-                  <p>{rental.addressLine}, {rental.city}</p>
-                  <p>{rental.bedrooms} bed · {rental.bathrooms} bath</p>
-                  <Link className="text-link" href={`/rentals/${rental.slug}`}>View rental →</Link>
-                </div>
-              </article>
-            ))}
+            {rentals.map((rental) => <RentalCard rental={rental} key={rental.id} />)}
           </div>
         ) : (
           <div className="empty-state">

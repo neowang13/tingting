@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type ImportRecord = Record<string, unknown>;
@@ -39,10 +40,9 @@ export function TenantImportHistory({ imports }: { imports: ImportRecord[] }) {
   }
 
   return (
-    <section aria-labelledby="import-history-heading">
-      <div className="admin-list-toolbar">
-        <div><p className="eyebrow">MASKED TENANT DATA</p><h2 id="import-history-heading">Import history</h2></div>
-        <span>{records.length} batches</span>
+    <section className="prototype-page automation-detail-page" aria-labelledby="import-history-heading">
+      <div className="prototype-breadcrumb">
+        <Link href="/admin/automation">Automation &amp; imports</Link> / <span id="import-history-heading">Import history</span>
       </div>
       {records.length === 0 ? (
         <div className="card empty-state">
@@ -53,7 +53,7 @@ export function TenantImportHistory({ imports }: { imports: ImportRecord[] }) {
         <div className="table-scroll" tabIndex={0} aria-label="Scrollable tenant import table">
           <table className="admin-table">
             <caption className="sr-only">Tenant import status and aggregate row outcomes</caption>
-            <thead><tr><th>File</th><th>Source</th><th>Status</th><th>Rows</th><th>New / Update</th><th>Blocking</th><th>Retention</th><th>Actions</th></tr></thead>
+            <thead><tr><th>File / Digest</th><th>Source</th><th>Status</th><th>Rows</th><th>New/Update</th><th>Conflict/Invalid</th><th /></tr></thead>
             <tbody>{records.map((record) => {
               const counts = (record.counts ?? {}) as Record<string, number>;
               const id = String(record.id);
@@ -65,30 +65,30 @@ export function TenantImportHistory({ imports }: { imports: ImportRecord[] }) {
               const sourceDeletedAt = record.sourceDeletedAt ?? record.source_deleted_at;
               return (
                 <tr key={id}>
-                  <td><strong>{String(record.originalFilename ?? record.original_filename ?? "Import")}</strong><br /><small>Digest {String(record.sourceDigest ?? record.source_digest ?? "").slice(0, 18)}…</small></td>
+                  <td>{String(record.originalFilename ?? record.original_filename ?? "Import")}<br /><small>sha256:{String(record.sourceDigest ?? record.source_digest ?? "").slice(0, 8)}…</small></td>
                   <td>{String(record.sourceSystem ?? record.source_system ?? "—")}</td>
-                  <td><span className={`status ${status}`}>{status}</span></td>
+                  <td className={`prototype-status ${statusTone(status)}`}>{statusLabel(status)}</td>
                   <td>{Number(record.rowCount ?? record.row_count ?? 0)}</td>
                   <td>{Number(counts.new ?? record.new_count ?? 0)} / {Number(counts.update ?? record.update_count ?? 0)}</td>
-                  <td>{Number(counts.conflict ?? record.conflict_count ?? 0)} conflicts · {Number(counts.invalid ?? record.invalid_count ?? 0)} invalid</td>
-                  <td>{sourceDeletedAt
-                    ? `Source deleted ${new Date(String(sourceDeletedAt)).toLocaleString()}`
-                    : `Source expires ${new Date(String(record.rawFileExpiresAt ?? record.raw_file_expires_at)).toLocaleString()}`}</td>
+                  <td>{Number(counts.conflict ?? record.conflict_count ?? 0)} / {Number(counts.invalid ?? record.invalid_count ?? 0)}</td>
                   <td>
                     <div className="table-actions">
-                      <a href={`/api/admin/automation/imports/${encodeURIComponent(id)}/errors.csv`}>Sanitized errors</a>
-                      <button
-                        className="icon-text-button"
-                        disabled={busyId === id || status === "completed" || status === "cancelled"}
-                        type="button"
-                        onClick={() => void runAction(id, "cancel")}
-                      >Cancel</button>
-                      <button
-                        className="icon-text-button danger-text"
-                        disabled={busyId === id || Boolean(sourceDeletedAt)}
-                        type="button"
-                        onClick={() => void runAction(id, "delete-source")}
-                      >Delete source</button>
+                      <a className="row-action" href={`/api/admin/automation/imports/${encodeURIComponent(id)}/errors.csv`}>Download errors</a>
+                      <details className="prototype-more-actions">
+                        <summary>More</summary>
+                        <button
+                          className="icon-text-button"
+                          disabled={busyId === id || status === "completed" || status === "cancelled"}
+                          type="button"
+                          onClick={() => void runAction(id, "cancel")}
+                        >Cancel import</button>
+                        <button
+                          className="icon-text-button danger-text"
+                          disabled={busyId === id || Boolean(sourceDeletedAt)}
+                          type="button"
+                          onClick={() => void runAction(id, "delete-source")}
+                        >Delete source file</button>
+                      </details>
                     </div>
                   </td>
                 </tr>
@@ -100,4 +100,12 @@ export function TenantImportHistory({ imports }: { imports: ImportRecord[] }) {
       <p className="admin-save-status" aria-live="polite">{message}</p>
     </section>
   );
+}
+
+function statusLabel(status: string) {
+  return status === "completed" ? "Completed" : status === "cancelled" ? "Cancelled" : "Needs review";
+}
+
+function statusTone(status: string) {
+  return status === "completed" ? "success" : status === "cancelled" ? "neutral" : "waiting";
 }

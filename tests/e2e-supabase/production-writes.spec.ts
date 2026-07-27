@@ -104,7 +104,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
   await expect(page.getByLabel("Six-digit code")).toBeVisible();
   await page.getByLabel("Six-digit code").fill(currentTotp(totpSecret));
   await page.getByRole("button", { name: "Verify" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
 
   const cookies = await page.context().cookies();
   expect(cookies.some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))).toBe(true);
@@ -169,26 +169,79 @@ test("production Cookie authentication covers critical Supabase writes", async (
   const rentalInput = {
     slug: runId,
     title: `Test rental ${runId}`,
-    addressLine: "100 Test Only Street",
-    neighbourhood: "Test",
-    city: "Vancouver",
-    monthlyRentCents: 250000,
-    bedrooms: 1,
-    bathrooms: 1,
-    squareFeet: 600,
-    availableOn: null,
-    petPolicy: null,
+    property: {
+      id: null,
+      expectedVersion: null,
+      propertyType: "apartment",
+      buildingName: null,
+      unitNumber: "T-1",
+      streetAddress: "100 Test Only Street",
+      neighbourhood: "Test",
+      city: "Vancouver",
+      provinceCode: "BC",
+      postalCode: "V6B 1A1",
+      countryCode: "CA"
+    },
+    pricing: { monthlyRentCents: 250000, currencyCode: "CAD" },
+    layout: {
+      bedrooms: 1,
+      bathrooms: 1,
+      denCount: 0,
+      squareFeet: 600,
+      furnishedStatus: "unfurnished"
+    },
+    availability: {
+      status: "available_now",
+      availableOn: null,
+      leaseType: "fixed_term",
+      minimumLeaseMonths: 12
+    },
+    parking: {
+      available: false,
+      type: null,
+      stalls: null,
+      included: null,
+      visitorAvailable: false,
+      notes: null
+    },
+    storage: { available: false, lockers: null, included: null, notes: null },
+    pets: {
+      status: "not_allowed",
+      catsAllowed: false,
+      dogsAllowed: false,
+      maxCount: null,
+      sizeLimitLbs: null,
+      notes: null
+    },
+    smokingPolicy: "not_allowed",
+    applicationRequirements: { creditCheckRequired: true, referencesRequired: true },
+    amenityCodes: ["balcony", "dishwasher"],
+    includedUtilityCodes: ["water"],
+    fees: [],
+    contact: { mode: "site_default", name: null, email: null, phone: null },
+    utilitiesNotes: null,
+    amenityNotes: null,
     description: "Dedicated Supabase E2E record. Not a real listing.",
-    sortOrder: 9999,
-    coverImageUrl: null,
     images: [{ mediaAssetId: coverMedia.id, sortOrder: 0, isCover: true }]
   };
-  const rental = expectSuccess<Versioned & { id: string; status: string }>(
+  const rental = expectSuccess<Versioned & {
+    id: string;
+    status: string;
+    property: { id: string; updatedAt: string };
+  }>(
     await adminApi(page, "/api/admin/rentals", "POST", rentalInput)
   );
   const updatedRental = expectSuccess<Versioned & { id: string; status: string }>(
     await adminApi(page, `/api/admin/rentals/${rental.id}`, "PATCH", {
-      rental: { ...rentalInput, title: `Updated test rental ${runId}` },
+      rental: {
+        ...rentalInput,
+        title: `Updated test rental ${runId}`,
+        property: {
+          ...rentalInput.property,
+          id: rental.property.id,
+          expectedVersion: rental.property.updatedAt
+        }
+      },
       expectedVersion: rental.updatedAt
     })
   );
@@ -235,6 +288,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
     fullName: `Test Tenant ${runId}`,
     propertyLabel: "100 Test Only Street",
     unitLabel: "T-1",
+    moveInDate: "2026-07-01",
     email: "tenant-e2e@example.test",
     phoneE164: "+16045550199",
     preferredChannels: ["email", "sms"],
@@ -248,6 +302,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
     contactPermissionUpdatedAt: permissionTime,
     timezone: "America/Vancouver",
     internalNotes: runId,
+    rentDueDay: 1,
     isActive: true
   };
   const tenant = expectSuccess<Versioned & { id: string }>(
@@ -265,8 +320,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
     })
   );
 
-  const schedule = expectSuccess<Versioned & { isEnabled: boolean; nextRunAt: string | null }>(
-    await adminApi(page, `/api/admin/tenants/${tenant.id}/schedule`, "POST", {
+  const legacyScheduleWrite = await adminApi(page, `/api/admin/tenants/${tenant.id}/schedule`, "POST", {
       schedule: {
         rentDueDay: 1,
         dayOfMonth: 31,
@@ -278,28 +332,12 @@ test("production Cookie authentication covers critical Supabase writes", async (
         isEnabled: true
       },
       expectedVersion: null
-    })
-  );
-  expect(schedule.isEnabled).toBe(true);
-  expect(schedule.nextRunAt).toBeTruthy();
-  const disabledSchedule = expectSuccess<{ isEnabled: boolean; nextRunAt: string | null }>(
-    await adminApi(page, `/api/admin/tenants/${tenant.id}/schedule`, "POST", {
-      schedule: {
-        rentDueDay: 1,
-        dayOfMonth: 31,
-        localTime: "09:00",
-        timezone: "America/Vancouver",
-        channels: ["email"],
-        emailTemplateId: emailTemplate.id,
-        smsTemplateId: null,
-        isEnabled: false
-      },
-      expectedVersion: schedule.updatedAt
-    })
-  );
-  expect(disabledSchedule).toMatchObject({ isEnabled: false, nextRunAt: null });
+    });
+  expect(legacyScheduleWrite.status).toBe(409);
+  expect(legacyScheduleWrite.body.error?.code).toBe("GLOBAL_REMINDER_POLICY");
   const projectedTenants = expectSuccess<Array<{
     id: string;
+    moveInDate: string | null;
     scheduleStatus: string;
     nextRunAt: string | null;
     lastDeliveryStatus: string | null;
@@ -310,6 +348,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
   expect(projectedTenants).toEqual([
     expect.objectContaining({
       id: tenant.id,
+      moveInDate: "2026-07-01",
       scheduleStatus: "disabled",
       nextRunAt: null
     })
@@ -352,7 +391,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
     providerMode: "mock",
     subject: "Test reminder for 100 Test Only Street"
   });
-  expect(testPreview.body).toContain("the first of the month");
+  expect(testPreview.body).toContain("August 1, 2026");
   const testEvent = expectSuccess<{ id: string; source: string; destinationMasked: string }>(
     await adminApi(page, "/api/admin/notifications/test", "POST", {
       tenantId: tenant.id,
@@ -476,9 +515,8 @@ test("production Cookie authentication covers critical Supabase writes", async (
     .in("action", [
       "section.published",
       "section.rolled_back",
-      "rental.saved",
+      "rental.v2.saved",
       "tenant.created",
-      "schedule.saved",
       "notification.batch_created",
       "notification.batch_confirmed",
       "auth.login_succeeded",
@@ -490,9 +528,8 @@ test("production Cookie authentication covers critical Supabase writes", async (
   expect(audit.data?.map((row) => row.action)).toEqual(expect.arrayContaining([
     "section.published",
     "section.rolled_back",
-    "rental.saved",
+    "rental.v2.saved",
     "tenant.created",
-    "schedule.saved",
     "notification.batch_created",
     "notification.batch_confirmed",
     "auth.login_succeeded",

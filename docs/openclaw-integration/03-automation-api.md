@@ -5,6 +5,11 @@ Version: `v1`
 Base path: `/api/automation/v1`  
 Last updated: 2026-07-26
 
+> Compatibility amendment (2026-07-27): v1 schedule GET responses remain
+> available. Schedule enable/disable previews and per-tenant schedule mutations
+> return `409 GLOBAL_REMINDER_POLICY`; the global reminder policy is the only
+> writable timing/template/channel source of truth.
+
 The Automation API is a private, server-to-server API for the
 `tingting-operations` OpenClaw Skill. It reuses the existing application
 response envelope and repository rules but has separate authentication,

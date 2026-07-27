@@ -6,6 +6,13 @@
 **Status:** Adversarially reviewed; implementation awaits client confirmations and environment provisioning  
 **Last updated:** 2026-07-24  
 **Architecture:** Low-traffic full-stack monolith  
+
+> **2026-07-27 reminder-policy amendment:** The scheduling sections below are
+> retained as historical v1 context. The implemented source of truth is
+> [Reminder Global Scheduling Change Plan](./Reminder%20Global%20Scheduling%20Change%20Plan.md):
+> tenant payment due day plus one global lead time, local send time, timezone,
+> and email template. Legacy per-tenant schedule writes return
+> `GLOBAL_REMINDER_POLICY`.
 **Primary runtime:** Next.js + TypeScript  
 **Database:** Supabase Postgres  
 **Production hosting:** Render paid Web Service (Starter initially)  
@@ -590,7 +597,7 @@ type SectionDefinition<T> = {
 | `header` | brand name, brand subtitle, navigation labels, contact CTA label/link | Navigation identities and count are fixed: Rent, Service, About, Contact CTA | `/` and all public routes |
 | `hero` | eyebrow, heading, body, background image/alt text, primary CTA label/link | One image, one CTA, no arbitrary blocks | `/` |
 | `rental_search` | field labels/placeholders, option labels, submit label | Location, property type, price, beds, and baths controls are fixed; search behavior is code-owned | `/` |
-| `property_services` | eyebrow, heading, body, primary CTA, four service titles/summaries/detail copy/CTAs | Fixed tuple identities: renovation, handyman, maintenance, strata; items cannot be added, removed, or reordered | `/` and service detail presentation |
+| `property_services` | eyebrow, heading, body, primary CTA, five service titles/summaries/detail copy/CTAs | Fixed tuple identities: renovation, handyman, maintenance, strata, rental_management; items cannot be added, removed, or reordered | `/` and service detail presentation |
 | `featured_rentals` | eyebrow, heading, intro, view-all CTA, empty-state text/CTA | Listing cards come from `rental_listings`; section itself is fixed | `/` |
 | `about` | eyebrow, heading, one to three paragraphs, portrait/alt text, optional CTA | One portrait and a maximum of three paragraphs | `/` |
 | `contact` | heading, body, visible contact details, field labels, submit label, success/error copy | Form field identities and delivery behavior are code-owned | `/` |
@@ -607,7 +614,7 @@ Field limits:
 - Internal links must use an allowlisted public route; external/social links require `https`.
 - Images require a media asset ID and non-empty alt text of at most 160 characters.
 
-Service detail copy is nested within `property_services`; it is not represented by four independently addable website sections. Changing this registry requires a code migration, schema-version increment, revision compatibility test, PRD update, and client approval.
+Service detail copy is nested within `property_services`; it is not represented by five independently addable website sections. Changing this registry requires a code migration, schema-version increment, revision compatibility test, PRD update, and client approval.
 
 ### Exhaustive section schemas
 
@@ -704,7 +711,8 @@ const propertyServicesSchema = z.object({
     serviceCardSchema.extend({ key: z.literal('renovation') }).strict(),
     serviceCardSchema.extend({ key: z.literal('handyman') }).strict(),
     serviceCardSchema.extend({ key: z.literal('maintenance') }).strict(),
-    serviceCardSchema.extend({ key: z.literal('strata') }).strict()
+    serviceCardSchema.extend({ key: z.literal('strata') }).strict(),
+    serviceCardSchema.extend({ key: z.literal('rental_management') }).strict()
   ]),
   primaryCta: z.object({
     label: shortText,
@@ -787,7 +795,7 @@ export const sectionSchemas = {
 } satisfies Record<SectionKey, z.ZodTypeAny>;
 ```
 
-All objects are strict: unknown fields fail validation. The four Property Services identities and all navigation/form control identities are fixed tuples. Admins may edit their approved content, but cannot add, remove, rename, or reorder structural items.
+All objects are strict: unknown fields fail validation. The five Property Services identities and all navigation/form control identities are fixed tuples. Admins may edit their approved content, but cannot add, remove, rename, or reorder structural items.
 
 ### Safe rich text
 

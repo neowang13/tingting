@@ -52,6 +52,185 @@ export const rentalInputSchema = z
     }
   });
 
+export const propertyTypeSchema = z.enum([
+  "apartment",
+  "condo",
+  "townhome",
+  "house",
+  "basement_suite",
+  "room",
+  "other"
+]);
+export const availabilityStatusSchema = z.enum(["available_now", "available_on", "contact"]);
+export const furnishedStatusSchema = z.enum(["unfurnished", "furnished", "partly_furnished"]);
+export const leaseTypeSchema = z.enum(["fixed_term", "month_to_month", "flexible"]);
+export const smokingPolicySchema = z.enum(["not_allowed", "outdoor_only", "allowed", "contact"]);
+export const petStatusSchema = z.enum(["not_allowed", "considered", "allowed"]);
+
+const nullableTrimmed = (maximum: number) => z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? null : value,
+  z.string().trim().max(maximum).nullable()
+);
+
+const rentalImageInputSchema = z.object({
+  mediaAssetId: z.uuid(),
+  sortOrder: z.number().int().nonnegative(),
+  isCover: z.boolean()
+}).strict();
+
+export const rentalListingV2InputSchema = z.object({
+  slug: z.string().trim().min(2).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  title: z.string().trim().min(1).max(120),
+  property: z.object({
+    id: z.uuid().nullable(),
+    expectedVersion: isoTimestampSchema.nullable(),
+    propertyType: propertyTypeSchema,
+    buildingName: nullableTrimmed(120),
+    unitNumber: nullableTrimmed(40),
+    streetAddress: z.string().trim().min(1).max(160),
+    neighbourhood: nullableTrimmed(100),
+    city: z.string().trim().min(1).max(100),
+    provinceCode: z.preprocess(
+      (value) => typeof value === "string" && value.trim() ? value.trim().toUpperCase() : null,
+      z.string().length(2).nullable()
+    ),
+    postalCode: z.preprocess(
+      (value) => {
+        if (typeof value !== "string" || !value.trim()) return null;
+        const compact = value.toUpperCase().replace(/\s+/g, "");
+        return compact.length === 6 ? `${compact.slice(0, 3)} ${compact.slice(3)}` : value.toUpperCase().trim();
+      },
+      z.string().regex(/^[A-Z]\d[A-Z] \d[A-Z]\d$/).nullable()
+    ),
+    countryCode: z.literal("CA")
+  }).strict(),
+  pricing: z.object({
+    monthlyRentCents: z.number().int().positive(),
+    currencyCode: z.literal("CAD")
+  }).strict(),
+  layout: z.object({
+    bedrooms: z.number().min(0).max(20),
+    bathrooms: z.number().min(0).max(20),
+    denCount: z.number().int().min(0).max(20).default(0),
+    squareFeet: z.number().int().positive().nullable(),
+    furnishedStatus: furnishedStatusSchema.nullable()
+  }).strict(),
+  availability: z.object({
+    status: availabilityStatusSchema.nullable(),
+    availableOn: z.iso.date().nullable(),
+    leaseType: leaseTypeSchema.nullable(),
+    minimumLeaseMonths: z.number().int().positive().max(120).nullable()
+  }).strict(),
+  parking: z.object({
+    available: z.boolean(),
+    type: z.enum(["underground", "garage", "surface", "street", "carport", "other"]).nullable(),
+    stalls: z.number().int().nonnegative().nullable(),
+    included: z.boolean().nullable(),
+    visitorAvailable: z.boolean(),
+    notes: nullableTrimmed(500)
+  }).strict(),
+  storage: z.object({
+    available: z.boolean(),
+    lockers: z.number().int().nonnegative().nullable(),
+    included: z.boolean().nullable(),
+    notes: nullableTrimmed(500)
+  }).strict(),
+  pets: z.object({
+    status: petStatusSchema.nullable(),
+    catsAllowed: z.boolean(),
+    dogsAllowed: z.boolean(),
+    maxCount: z.number().int().positive().max(20).nullable(),
+    sizeLimitLbs: z.number().int().positive().max(500).nullable(),
+    notes: nullableTrimmed(500)
+  }).strict(),
+  smokingPolicy: smokingPolicySchema.nullable(),
+  applicationRequirements: z.object({
+    creditCheckRequired: z.boolean(),
+    referencesRequired: z.boolean()
+  }).strict(),
+  amenityCodes: z.array(z.string().regex(/^[a-z0-9_]+$/)).max(100),
+  includedUtilityCodes: z.array(z.string().regex(/^[a-z0-9_]+$/)).max(30),
+  fees: z.array(z.object({
+    id: z.uuid().optional(),
+    feeType: z.enum(["security_deposit", "pet_deposit", "parking", "storage", "move_in", "other"]),
+    label: nullableTrimmed(120),
+    amountCents: z.number().int().positive(),
+    frequency: z.enum(["one_time", "monthly"]),
+    refundable: z.boolean(),
+    required: z.boolean(),
+    notes: nullableTrimmed(500),
+    sortOrder: z.number().int().nonnegative()
+  }).strict()).max(30),
+  contact: z.object({
+    mode: z.enum(["site_default", "custom"]),
+    name: nullableTrimmed(120),
+    email: z.preprocess(
+      (value) => typeof value === "string" && value.trim() ? normalizeEmail(value) : null,
+      z.email().nullable()
+    ),
+    phone: nullableTrimmed(30)
+  }).strict(),
+  utilitiesNotes: nullableTrimmed(500),
+  amenityNotes: nullableTrimmed(500),
+  description: z.string().trim().min(1).max(5000),
+  images: z.array(rentalImageInputSchema).max(20)
+}).strict().superRefine((value, ctx) => {
+  if (new Set(value.images.map((image) => image.mediaAssetId)).size !== value.images.length) {
+    ctx.addIssue({ code: "custom", path: ["images"], message: "Each rental image may be selected once." });
+  }
+  if (value.images.filter((image) => image.isCover).length > 1) {
+    ctx.addIssue({ code: "custom", path: ["images"], message: "Choose only one cover image." });
+  }
+  if (value.availability.status === "available_on" && !value.availability.availableOn) {
+    ctx.addIssue({ code: "custom", path: ["availability", "availableOn"], message: "Choose the available date." });
+  }
+  if (value.availability.status !== "available_on" && value.availability.availableOn) {
+    ctx.addIssue({ code: "custom", path: ["availability", "availableOn"], message: "Available date must be empty for this selection." });
+  }
+  if (value.availability.leaseType === "fixed_term" && !value.availability.minimumLeaseMonths) {
+    ctx.addIssue({ code: "custom", path: ["availability", "minimumLeaseMonths"], message: "Enter the minimum fixed lease term." });
+  }
+  if (!value.parking.available && (value.parking.type || value.parking.stalls || value.parking.included)) {
+    ctx.addIssue({ code: "custom", path: ["parking"], message: "Clear parking details when parking is unavailable." });
+  }
+  if (value.parking.available && (!value.parking.type || value.parking.stalls === null || value.parking.included === null)) {
+    ctx.addIssue({ code: "custom", path: ["parking"], message: "Complete the parking details." });
+  }
+  if (!value.storage.available && (value.storage.lockers || value.storage.included)) {
+    ctx.addIssue({ code: "custom", path: ["storage"], message: "Clear storage details when storage is unavailable." });
+  }
+  if (value.storage.available && (value.storage.lockers === null || value.storage.included === null)) {
+    ctx.addIssue({ code: "custom", path: ["storage"], message: "Complete the storage details." });
+  }
+  if (value.pets.status === "not_allowed" && (
+    value.pets.catsAllowed || value.pets.dogsAllowed || value.pets.maxCount || value.pets.sizeLimitLbs
+  )) {
+    ctx.addIssue({ code: "custom", path: ["pets"], message: "Clear pet details when pets are not allowed." });
+  }
+  if (value.contact.mode === "custom" && (!value.contact.name || (!value.contact.email && !value.contact.phone))) {
+    ctx.addIssue({ code: "custom", path: ["contact"], message: "Custom contact requires a name and an email or phone." });
+  }
+  value.fees.forEach((fee, index) => {
+    if (fee.feeType === "other" && !fee.label) {
+      ctx.addIssue({ code: "custom", path: ["fees", index, "label"], message: "Name the other fee." });
+    }
+  });
+});
+
+export function publishRequirementPaths(input: z.infer<typeof rentalListingV2InputSchema>): string[] {
+  const missing: string[] = [];
+  if (!input.property.provinceCode) missing.push("property.provinceCode");
+  if (!input.property.postalCode) missing.push("property.postalCode");
+  if (!input.availability.status) missing.push("availability.status");
+  if (!input.layout.furnishedStatus) missing.push("layout.furnishedStatus");
+  if (!input.availability.leaseType) missing.push("availability.leaseType");
+  if (!input.smokingPolicy) missing.push("smokingPolicy");
+  if (!input.pets.status) missing.push("pets.status");
+  if (input.images.length < 1) missing.push("images");
+  if (input.images.filter((image) => image.isCover).length !== 1) missing.push("images.cover");
+  return missing;
+}
+
 const channelSchema = z.enum(["email", "sms"]);
 const notificationStatusSchema = z.enum([
   "scheduled",
@@ -97,6 +276,8 @@ export const tenantInputSchema = z
     fullName: z.string().trim().min(1).max(120),
     propertyLabel: z.string().trim().min(1).max(160),
     unitLabel: z.string().trim().max(60).nullable().default(null),
+    moveInDate: z.iso.date().nullable().optional(),
+    rentDueDay: z.number().int().min(1).max(31).default(1),
     email: z.preprocess(
       (value) => typeof value === "string" && value.trim() ? normalizeEmail(value) : null,
       z.email().nullable()
@@ -146,9 +327,7 @@ export const scheduleInputSchema = z
   .strict();
 
 export const schedulePreviewSchema = z.object({
-  dayOfMonth: z.number().int().min(1).max(31),
-  localTime: z.string().regex(/^\d{2}:\d{2}$/),
-  timezone: z.string().refine(isValidTimezone, "Enter a valid IANA timezone.")
+  rentDueDay: z.number().int().min(1).max(31)
 }).strict();
 
 export const templateInputSchema = z
@@ -214,6 +393,20 @@ export const pauseInputSchema = z
   })
   .strict();
 
+export const reminderSettingsInputSchema = z
+  .object({
+    paused: z.boolean(),
+    leadDays: z.number().int().min(0).max(31),
+    localTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
+    timezone: z
+      .string()
+      .refine(isValidTimezone, "Enter a valid IANA timezone.")
+      .refine((value) => value === "America/Vancouver", "Timezone must be America/Vancouver."),
+    emailTemplateId: z.uuid(),
+    expectedVersion: isoTimestampSchema
+  })
+  .strict();
+
 export const testContactsInputSchema = z.object({
   email: z.email().nullable(),
   phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/).nullable(),
@@ -224,11 +417,25 @@ export const testNotificationSchema = z.object({
   tenantId: z.uuid(),
   channel: channelSchema,
   templateId: z.uuid(),
-  requestId: z.uuid()
+  requestId: z.uuid(),
+  leadDays: z.number().int().min(0).max(31).optional(),
+  localTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/).optional(),
+  timezone: z
+    .string()
+    .refine(isValidTimezone, "Enter a valid IANA timezone.")
+    .optional(),
+  dueDate: z.iso.date().optional(),
+  renderedSubject: z.string().max(500).nullable().optional(),
+  renderedBody: z.string().max(5000).optional(),
+  destination: z.string().max(320).optional()
 }).strict();
 
-export const testNotificationConfirmationSchema = testNotificationSchema.extend({
-  previewToken: z.string().min(40).max(4096)
+export const testNotificationConfirmationSchema = z.object({
+  tenantId: z.uuid(),
+  channel: channelSchema,
+  templateId: z.uuid(),
+  requestId: z.uuid(),
+  previewToken: z.string().min(40).max(12000)
 }).strict();
 
 export const contactInputSchema = z
@@ -262,7 +469,7 @@ export const contactInputSchema = z
 export const rentalSearchQuerySchema = z
   .object({
     location: z.string().trim().max(120).optional(),
-    propertyType: z.enum(["apartment", "townhome", "house"]).optional(),
+    propertyType: propertyTypeSchema.optional(),
     priceRange: z.enum(["under-2500", "2500-3000", "over-3000"]).optional(),
     beds: z.coerce.number().int().min(0).max(20).optional(),
     baths: z.coerce.number().int().min(0).max(20).optional()

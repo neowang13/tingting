@@ -1,0 +1,92 @@
+[
+  {
+    "id": "DATE-001",
+    "afterInstant": "2026-07-27T20:00:00Z",
+    "rentDueDay": 1,
+    "leadDays": 3,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2026-07-29",
+    "expectedUtc": "2026-07-29T16:00:00Z",
+    "expectedDueDate": "2026-08-01"
+  },
+  {
+    "id": "DATE-002",
+    "afterInstant": "2026-08-02T00:00:00Z",
+    "rentDueDay": 1,
+    "leadDays": 3,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2026-08-29",
+    "expectedUtc": "2026-08-29T16:00:00Z",
+    "expectedDueDate": "2026-09-01"
+  },
+  {
+    "id": "DATE-003",
+    "afterInstant": "2026-08-01T00:00:00Z",
+    "rentDueDay": 15,
+    "leadDays": 3,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2026-08-12",
+    "expectedUtc": "2026-08-12T16:00:00Z",
+    "expectedDueDate": "2026-08-15"
+  },
+  {
+    "id": "DATE-004",
+    "afterInstant": "2027-02-01T00:00:00Z",
+    "rentDueDay": 31,
+    "leadDays": 3,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2027-02-25",
+    "expectedUtc": "2027-02-25T17:00:00Z",
+    "expectedDueDate": "2027-02-28"
+  },
+  {
+    "id": "DATE-005",
+    "afterInstant": "2028-02-01T00:00:00Z",
+    "rentDueDay": 31,
+    "leadDays": 3,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2028-02-26",
+    "expectedUtc": "2028-02-26T17:00:00Z",
+    "expectedDueDate": "2028-02-29"
+  },
+  {
+    "id": "DATE-006",
+    "afterInstant": "2026-07-27T20:00:00Z",
+    "rentDueDay": 1,
+    "leadDays": 0,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2026-08-01",
+    "expectedUtc": "2026-08-01T16:00:00Z",
+    "expectedDueDate": "2026-08-01"
+  },
+  {
+    "id": "DATE-007",
+    "afterInstant": "2026-06-30T20:00:00Z",
+    "rentDueDay": 1,
+    "leadDays": 31,
+    "localTime": "09:00",
+    "expectedSendLocalDate": "2026-07-01",
+    "expectedUtc": "2026-07-01T16:00:00Z",
+    "expectedDueDate": "2026-08-01"
+  },
+  {
+    "id": "DATE-008",
+    "afterInstant": "2026-03-01T00:00:00Z",
+    "rentDueDay": 10,
+    "leadDays": 2,
+    "localTime": "02:30",
+    "expectedSendLocalDate": "2026-03-08",
+    "expectedUtc": "2026-03-08T10:30:00Z",
+    "expectedDueDate": "2026-03-10"
+  },
+  {
+    "id": "DATE-009",
+    "afterInstant": "2026-10-15T00:00:00Z",
+    "rentDueDay": 3,
+    "leadDays": 2,
+    "localTime": "01:30",
+    "expectedSendLocalDate": "2026-11-01",
+    "expectedUtc": "2026-11-01T08:30:00Z",
+    "expectedDueDate": "2026-11-03"
+  }
+]

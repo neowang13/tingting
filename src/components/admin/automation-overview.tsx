@@ -29,63 +29,48 @@ export function AutomationOverview({ summary }: { summary: Summary }) {
   ].filter((warning): warning is string => Boolean(warning));
 
   return (
-    <div className="admin-editor-stack">
-      {warnings.length > 0 && (
-        <section className="warning-stack" aria-labelledby="automation-warnings-heading">
-          <h2 id="automation-warnings-heading">Needs attention</h2>
-          {warnings.map((warning) => (
-            <p className="warning-callout" key={warning}>{warning}</p>
-          ))}
-        </section>
-      )}
+    <div className="prototype-page automation-overview-page">
       <div className="metric-grid">
         <Metric label="Active service accounts" value={summary.activeServiceAccounts} />
-        <Metric label="Requests (24 hours)" value={summary.requestsLast24Hours} />
-        <Metric label="Failures (24 hours)" value={summary.failuresLast24Hours} />
+        <Metric label="Requests (24h)" value={summary.requestsLast24Hours} />
+        <Metric label="Failures (24h)" value={summary.failuresLast24Hours} tone="danger" />
         <Metric label="Pending confirmations" value={summary.activeConfirmations} />
       </div>
-      <div className="dashboard-status-grid">
-        <section className="card">
-          <p className="eyebrow">ACCESS</p>
+      <div className="prototype-action-grid">
+        <Link className="prototype-action-card" href="/admin/automation/service-accounts">
           <h2>OpenClaw service accounts</h2>
-          <p>Create, rotate, revoke, or deactivate scoped credentials. Tokens are displayed once.</p>
-          <Link className="text-link" href="/admin/automation/service-accounts">
-            Manage service accounts →
-          </Link>
-        </section>
-        <section className="card">
-          <p className="eyebrow">TENANT DATA</p>
+          <p>Create, rotate and manage automation credentials →</p>
+        </Link>
+        <Link className="prototype-action-card" href="/admin/automation/imports">
           <h2>Import history</h2>
-          <p>{summary.unresolvedImports} imports require review. Destinations remain masked.</p>
-          <Link className="text-link" href="/admin/automation/imports">Review imports →</Link>
-        </section>
-        <section className="card">
-          <p className="eyebrow">TRACEABILITY</p>
+          <p>Tenant import batches from OpenClaw →</p>
+        </Link>
+        <Link className="prototype-action-card" href="/admin/automation/audit">
           <h2>Automation audit</h2>
-          <p>
-            Last successful activity:{" "}
-            {summary.lastSuccessfulRequest
-              ? new Date(summary.lastSuccessfulRequest).toLocaleString()
-              : "No automation activity recorded"}
-          </p>
-          <Link className="text-link" href="/admin/automation/audit">Open audit history →</Link>
-        </section>
-        <section className="card">
-          <p className="eyebrow">SAFETY STATE</p>
+          <p>Trace of automated actions →</p>
+        </Link>
+        <section className="prototype-action-card static">
           <h2>Delivery controls</h2>
-          <dl className="status-list">
-            <div><dt>Data backend</dt><dd>{summary.health.dataBackend}</dd></div>
-            <div><dt>Email provider</dt><dd>{summary.health.emailProviderMode}</dd></div>
-            <div><dt>SMS provider</dt><dd>{summary.health.smsProviderMode}</dd></div>
-            <div><dt>Force pause</dt><dd>{summary.health.remindersForcePaused ? "Active" : "Off"}</dd></div>
-            <div><dt>Global pause</dt><dd>{summary.health.remindersGlobalPaused ? "Paused" : "Active"}</dd></div>
-          </dl>
+          <p>
+            Data backend: {displayMode(summary.health.dataBackend)} · Email provider:{" "}
+            {displayMode(summary.health.emailProviderMode)} · SMS provider: {displayMode(summary.health.smsProviderMode)}
+          </p>
         </section>
       </div>
+      {warnings.length > 0 && (
+        <section className="prototype-attention" aria-labelledby="automation-warnings-heading">
+          <span className="sr-only" id="automation-warnings-heading">Needs attention</span>
+          {warnings.map((warning) => <span key={warning}>{warning}</span>)}
+        </section>
+      )}
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
-  return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
+function Metric({ label, value, tone }: { label: string; value: number; tone?: "danger" }) {
+  return <div className="metric"><span>{label}</span><strong className={tone}>{value}</strong></div>;
+}
+
+function displayMode(value: string) {
+  return value ? value[0].toUpperCase() + value.slice(1) : "Unknown";
 }

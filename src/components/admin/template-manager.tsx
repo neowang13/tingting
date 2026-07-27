@@ -11,7 +11,7 @@ import type { NotificationTemplate } from "@/lib/contracts";
 export function TemplateManager({ initialTemplates }: { initialTemplates: NotificationTemplate[] }) {
   const [templates, setTemplates] = useState(initialTemplates);
   return (
-    <div className="admin-editor-stack">
+    <div className="prototype-page email-templates-page">
       <TemplateForm
         template={null}
         onSaved={(template) => setTemplates((current) => [...current, template])}
@@ -72,7 +72,7 @@ function TemplateForm({
       const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Template could not be saved.");
       onSaved(result.data);
-      setMessage("Template saved as a new immutable revision.");
+      setMessage("Template saved. Tenant schedules can now use this latest version.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Template could not be saved.");
     } finally {
@@ -80,16 +80,13 @@ function TemplateForm({
     }
   }
 
-  return (
-    <form className="card admin-form template-card" onSubmit={submit}>
-      <div className="admin-card-heading">
-        <div><p className="eyebrow">{template ? "MESSAGE TEMPLATE" : "NEW TEMPLATE"}</p><h2>{template?.name ?? "Create a template"}</h2></div>
-        {template && <span className={`status ${template.isActive ? "published" : "draft"}`}>{template.isActive ? "Active" : "Inactive"}</span>}
-      </div>
+  const editor = (
+    <>
+      {!template && <h2>New template</h2>}
       <div className="template-layout">
         <div className="field-grid">
-          <label className="field"><span>Name</span><input name="name" required defaultValue={template?.name} /></label>
-          <label className="field"><span>Channel</span>
+          <label className="field"><span>Template name</span><input name="name" required defaultValue={template?.name} placeholder="e.g. Monthly rent reminder" /></label>
+          <label className="field"><span>Type</span>
             <select
               value={channel}
               disabled={Boolean(template)}
@@ -103,29 +100,43 @@ function TemplateForm({
             </select>
           </label>
           {channel === "email" && (
-            <label className="field field-wide"><span>Subject</span><input required value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
+            <label className="field field-wide"><span>Subject</span><input required value={subject} placeholder="Your rent is due soon" onChange={(event) => setSubject(event.target.value)} /></label>
           )}
-          <label className="field field-wide"><span>Message</span><textarea rows={7} required value={body} onChange={(event) => setBody(event.target.value)} /></label>
-          <label className="check-field field-wide"><input name="isActive" type="checkbox" defaultChecked={template?.isActive ?? false} /> Active and available for sending</label>
-          <p className="field-help field-wide">
-            Allowed variables: {"{{tenant_name}}"}, {"{{property}}"}, {"{{unit}}"}, {"{{due_date}}"}, {"{{business_name}}"}, {"{{business_phone}}"}, {"{{business_email}}"}
-          </p>
+          <label className="field field-wide"><span>Message</span><textarea rows={4} required value={body} placeholder={"Hi {{tenant_name}}, your rent of ... is due {{due_date}}."} onChange={(event) => setBody(event.target.value)} /></label>
+          <p className="field-help field-wide">Variables: tenant_name, property, unit, due_date, business_name, business_phone, business_email</p>
+          <label className="check-field field-wide"><input name="isActive" type="checkbox" defaultChecked={template?.isActive ?? false} /> Make available for rent reminders</label>
         </div>
         <aside className="template-preview" aria-live="polite">
-          <strong>Preview with sample data</strong>
+          <strong>Live preview</strong>
           {preview.error ? <p className="form-status error">{preview.error}</p> : (
             <>
               {preview.subject && <h3>{preview.subject}</h3>}
-              <p>{preview.body || "Start writing to see a preview."}</p>
+              <p>{preview.body || "Fill in a subject and message to see a rendered preview using sample tenant data."}</p>
               {channel === "sms" && <small>Estimated segments: {estimateSmsSegments(preview.body)}</small>}
             </>
           )}
         </aside>
       </div>
-      <button className="button secondary" disabled={busy || Boolean(preview.error)} type="submit">
-        {template ? "Save new revision" : "Create template"}
-      </button>
-      <p className="admin-save-status" aria-live="polite">{message}</p>
-    </form>
+      <div className="prototype-form-actions">
+        <button className="button" disabled={busy || Boolean(preview.error)} type="submit">
+          Save template
+        </button>
+      </div>
+      {message && <p className="admin-save-status" aria-live="polite">{message}</p>}
+    </>
   );
+
+  if (template) {
+    return (
+      <details className="prototype-existing-template">
+        <summary>
+          <span><strong>{template.name}</strong><small>{channel === "email" ? "Email" : "SMS"} · Used by active reminder schedules</small></span>
+          <span className={`prototype-status ${template.isActive ? "success" : "neutral"}`}>{template.isActive ? "Active" : "Inactive"}</span>
+        </summary>
+        <form className="admin-form prototype-existing-template-form" onSubmit={submit}>{editor}</form>
+      </details>
+    );
+  }
+
+  return <form className="prototype-form-card admin-form template-card" onSubmit={submit}>{editor}</form>;
 }

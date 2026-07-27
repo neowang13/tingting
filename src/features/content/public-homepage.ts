@@ -3,14 +3,14 @@ import { getRepository } from "@/data/repository";
 import { sectionSchemas, validateSection } from "@/features/content/schemas";
 import { collectMediaAssetIds } from "@/features/content/media-service";
 import {
-  sectionKeys,
+  homepageSectionKeys,
+  type HomepageSectionKey,
   type PublicSiteSection,
-  type RentalListing,
-  type SectionKey
+  type RentalListing
 } from "@/lib/contracts";
 
 type ParsedSections = {
-  [Key in SectionKey]: ReturnType<(typeof sectionSchemas)[Key]["parse"]>;
+  [Key in HomepageSectionKey]: ReturnType<(typeof sectionSchemas)[Key]["parse"]>;
 };
 
 export interface PublicHomepageData {
@@ -19,7 +19,7 @@ export interface PublicHomepageData {
   mediaUrls: Record<string, string | null>;
 }
 
-function parsePublishedSection<Key extends SectionKey>(
+function parsePublishedSection<Key extends HomepageSectionKey>(
   key: Key,
   sections: PublicSiteSection[]
 ): ParsedSections[Key] {
@@ -43,7 +43,7 @@ export async function loadPublicHomepageData(): Promise<PublicHomepageData> {
   const repository = getRepository();
   const publishedSections = await repository.listPublicSections();
   const sections = Object.fromEntries(
-    sectionKeys.map((key) => [key, parsePublishedSection(key, publishedSections)])
+    homepageSectionKeys.map((key) => [key, parsePublishedSection(key, publishedSections)])
   ) as ParsedSections;
 
   const rentals = (await repository
@@ -58,7 +58,7 @@ export async function loadPublicHomepageData(): Promise<PublicHomepageData> {
   };
 }
 
-export async function loadAdminPreviewData(key: SectionKey): Promise<PublicHomepageData> {
+export async function loadAdminPreviewData(key: HomepageSectionKey): Promise<PublicHomepageData> {
   const repository = getRepository();
   const data = await loadPublicHomepageData();
   const section = await repository.getSection(key);

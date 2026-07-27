@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { sectionKeys, type SectionKey } from "@/lib/contracts";
+import { upgradePropertyServicesContent } from "@/features/content/property-services";
+import { serviceIconKeys } from "@/features/content/service-pages";
 
 const shortText = z.string().trim().min(1).max(40);
 const headingText = z.string().trim().min(1).max(120);
@@ -63,31 +65,17 @@ const rentalSearchSchema = z
   })
   .strict();
 
-const serviceDetailSchema = z
-  .object({
-    eyebrow: z.string().trim().min(1).max(80),
-    heading: headingText,
-    body: bodyText,
-    includedHeading: shortText,
-    includedItems: z.array(z.string().trim().min(1).max(120)).min(1).max(8),
-    processHeading: shortText,
-    processBody: bodyText,
-    primaryCtaLabel: shortText,
-    secondaryCtaLabel: shortText
-  })
-  .strict();
-
 const serviceCardSchema = z
   .object({
     title: z.string().trim().min(1).max(60),
     summary: z.string().trim().min(1).max(180),
-    ctaLabel: shortText,
-    detail: serviceDetailSchema
+    ctaLabel: shortText
   })
   .strict();
 
-const propertyServicesSchema = z
-  .object({
+const propertyServicesSchema = z.preprocess(
+  upgradePropertyServicesContent,
+  z.object({
     eyebrow: z.string().trim().min(1).max(80),
     heading: headingText,
     body: bodyText,
@@ -95,11 +83,13 @@ const propertyServicesSchema = z
       serviceCardSchema.extend({ key: z.literal("renovation") }),
       serviceCardSchema.extend({ key: z.literal("handyman") }),
       serviceCardSchema.extend({ key: z.literal("maintenance") }),
-      serviceCardSchema.extend({ key: z.literal("strata") })
+      serviceCardSchema.extend({ key: z.literal("strata") }),
+      serviceCardSchema.extend({ key: z.literal("rental_management") })
     ]),
     primaryCta: z.object({ label: shortText, href: z.literal("/#contact") }).strict()
   })
-  .strict();
+  .strict()
+);
 
 const featuredRentalsSchema = z
   .object({
@@ -172,6 +162,77 @@ const footerSchema = z
   })
   .strict();
 
+const servicePageCardSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    body: z.string().trim().min(1).max(240),
+    icon: z.enum(serviceIconKeys),
+    image: mediaRefSchema.optional()
+  })
+  .strict();
+
+const servicePageShape = {
+  eyebrow: z.string().trim().min(1).max(80),
+  title: headingText,
+  description: z.string().trim().min(1).max(500),
+  heroImage: mediaRefSchema,
+  heroPosition: z.string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(
+      /^(?:left|center|right|\d{1,3}%)(?:\s+(?:top|center|bottom|\d{1,3}%))?$/,
+      "Choose a valid image focal point."
+    ),
+  servicesEyebrow: z.string().trim().min(1).max(80),
+  servicesTitle: headingText,
+  services: z.tuple([
+    servicePageCardSchema,
+    servicePageCardSchema,
+    servicePageCardSchema,
+    servicePageCardSchema
+  ]),
+  highlightTitle: z.string().trim().min(1).max(80),
+  highlightBody: z.string().trim().min(1).max(240),
+  storyEyebrow: z.string().trim().min(1).max(80),
+  storyTitle: headingText,
+  storyBody: bodyText,
+  storyImage: mediaRefSchema,
+  benefits: z.tuple([
+    servicePageCardSchema,
+    servicePageCardSchema,
+    servicePageCardSchema,
+    servicePageCardSchema
+  ]),
+  galleryEyebrow: z.string().trim().min(1).max(80),
+  galleryTitle: headingText,
+  ctaTitle: headingText,
+  ctaBody: z.string().trim().min(1).max(240)
+} as const;
+
+const renovationServicePageSchema = z
+  .object({
+    ...servicePageShape,
+    gallery: z.tuple([
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema
+    ])
+  })
+  .strict();
+
+const standardServicePageSchema = z
+  .object({
+    ...servicePageShape,
+    gallery: z.tuple([
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema
+    ])
+  })
+  .strict();
+
 export const sectionSchemas = {
   header: headerSchema,
   hero: heroSchema,
@@ -180,7 +241,12 @@ export const sectionSchemas = {
   featured_rentals: featuredRentalsSchema,
   about: aboutSchema,
   contact: contactSchema,
-  footer: footerSchema
+  footer: footerSchema,
+  service_renovation: renovationServicePageSchema,
+  service_handyman: standardServicePageSchema,
+  service_maintenance: standardServicePageSchema,
+  service_strata: standardServicePageSchema,
+  service_rental_management: standardServicePageSchema
 } satisfies Record<SectionKey, z.ZodType>;
 
 export const sectionKeySchema = z.enum(sectionKeys);

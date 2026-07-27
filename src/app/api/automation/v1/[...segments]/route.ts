@@ -29,7 +29,6 @@ import {
   rentalUpdateSchema,
   requestIdSchema,
   scheduleSaveSchema,
-  scheduleStatusPreviewSchema,
   tenantUpdateSchema
 } from "@/features/automation/schemas";
 import { nextOccurrence } from "@/features/reminders/scheduler";
@@ -484,64 +483,11 @@ export async function POST(request: Request, context: Context) {
     if (resource === "tenants" && id && action === "schedule-status-previews") {
       routeName = "schedules.statusPreview";
       authorize(actor, routeName);
-      assertMutationAvailable("confirmations");
-      const input = scheduleStatusPreviewSchema.parse(rawBody);
-      const result = await idempotent(request, actor, bodyDigest, async () => {
-        const current = await getRepository().getTenant(id);
-        if (!current.schedule || current.schedule.updatedAt !== input.expectedVersion) {
-          throw new ApiError(409, "VERSION_CONFLICT", "The schedule changed after it was loaded.");
-        }
-        const templates = await getRepository().listTemplates();
-        const eligibility = scheduleEligibility(current.tenant, current.schedule, templates);
-        if (input.enabled && eligibility.some((item) => !item.eligible)) {
-          throw new ApiError(422, "CHANNEL_INELIGIBLE", "One or more selected channels are not eligible.", {
-            channels: eligibility.map((item) => ({
-              channel: item.channel,
-              eligible: item.eligible,
-              status: item.status
-            }))
-          });
-        }
-        const health = await repository.health();
-        const nextRunAt = nextOccurrence({
-          dayOfMonth: current.schedule.dayOfMonth,
-          localTime: current.schedule.localTime,
-          timezone: current.schedule.timezone,
-          afterInstant: new Date().toISOString()
-        });
-        const requiredAcknowledgements = [
-          "schedule_configuration_reviewed",
-          "selected_recipients_and_channels_reviewed"
-        ];
-        if (
-          (health.emailProviderMode === "live" || health.smsProviderMode === "live") &&
-          !health.remindersForcePaused &&
-          !health.remindersGlobalPaused
-        ) requiredAcknowledgements.push("real_delivery_warning");
-        const confirmation = await repository.createConfirmation({
-          actor: actor!,
-          action: input.enabled ? "schedule.enable" : "schedule.disable",
-          targetType: "reminder_schedule",
-          targetId: id,
-          targetVersion: current.schedule.updatedAt,
-          payload: { enabled: input.enabled, nextRunAt, eligibility },
-          summary: {
-            title: `${input.enabled ? "Enable" : "Disable"} monthly reminder schedule`,
-            effects: [
-              input.enabled
-                ? `The existing reminder worker will evaluate this schedule. Next candidate: ${nextRunAt}.`
-                : "Future occurrences will no longer be materialized."
-            ],
-            warnings: health.effectiveReminderPause ||
-              (health.emailProviderMode !== "live" && health.smsProviderMode !== "live")
-              ? ["Real delivery remains blocked by the current pause/provider safety state."]
-              : ["Real delivery is active after confirmation."]
-          },
-          requiredAcknowledgements
-        });
-        return { status: 201, data: { confirmation, eligibility, health } };
-      });
-      return success(result.data, requestId, result.status);
+      throw new ApiError(
+        409,
+        "GLOBAL_REMINDER_POLICY",
+        "Per-tenant schedule enable and disable actions are retired. Update the tenant payment due date or global Reminder settings."
+      );
     }
     if (resource === "confirmations" && id && action === "execute") {
       routeName = "confirmations.execute";

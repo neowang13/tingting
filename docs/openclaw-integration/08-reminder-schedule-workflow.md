@@ -3,6 +3,11 @@
 Status: Proposed  
 Last updated: 2026-07-26
 
+> Superseded for writes on 2026-07-27. This document describes the historical
+> v1 schedule shape. Per-tenant schedule writes now return
+> `GLOBAL_REMINDER_POLICY`; schedules are derived from each tenant's payment due
+> day and the single global Reminder settings record.
+
 ## 1. Goal
 
 OpenClaw can prepare and enable the existing MVP monthly rent-reminder schedule

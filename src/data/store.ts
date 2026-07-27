@@ -7,12 +7,18 @@ import {
   demoTenants
 } from "@/data/demo";
 import { validateSection } from "@/features/content/schemas";
-import { nextOccurrence } from "@/features/reminders/scheduler";
+import {
+  nextReminderOccurrence
+} from "@/features/reminders/scheduler";
 import {
   estimateSmsSegments,
   renderTemplate,
   type TemplateContext
 } from "@/features/notifications/template-renderer";
+import {
+  formatRentDueDate,
+  rentDueDateForOccurrence
+} from "@/features/reminders/due-date";
 import {
   createNotificationProviders,
   resolveNotificationProviderModes
@@ -23,6 +29,13 @@ import {
   promoteDemoMedia,
   resolveDemoMedia
 } from "@/features/content/media-service";
+import {
+  aggregateDigest,
+  isRentalV2Payload,
+  parseRentalPayload,
+  rentalToV2,
+  rentalV2Fields
+} from "@/features/rentals/v2";
 import { ApiError } from "@/lib/api";
 import type {
   Channel,
@@ -32,6 +45,7 @@ import type {
   NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
+  ReminderSettings,
   RentalListing,
   SectionRevision,
   SectionKey,
@@ -43,7 +57,8 @@ import type {
 import {
   batchConfirmSchema,
   notificationPreviewSchema,
-  rentalInputSchema,
+  reminderSettingsInputSchema,
+  publishRequirementPaths,
   scheduleInputSchema,
   templateInputSchema,
   testContactsInputSchema,
@@ -55,6 +70,7 @@ interface MemoryState {
   sections: SiteSection[];
   revisions: SectionRevision[];
   rentals: RentalListing[];
+  rentalPublishedSnapshots: Record<string, RentalListing>;
   tenants: Tenant[];
   schedules: ReminderSchedule[];
   templates: NotificationTemplate[];
@@ -64,6 +80,10 @@ interface MemoryState {
   batchConfirmationKeys: Record<string, string>;
   eventPayloads: Record<string, { destination: string; subject: string | null; body: string }>;
   remindersPaused: boolean;
+  reminderLeadDays: number;
+  reminderLocalTime: string;
+  reminderTimezone: string;
+  reminderEmailTemplateId: string | null;
   settingsUpdatedAt: string;
   lastWorkerRunAt: string | null;
   lastWorkerStatus: string | null;
@@ -91,10 +111,16 @@ function clone<T>(value: T): T {
 }
 
 function initialState(): MemoryState {
+  const rentals = clone(demoRentals);
   return {
     sections: clone(demoSections),
     revisions: [],
-    rentals: clone(demoRentals),
+    rentals,
+    rentalPublishedSnapshots: Object.fromEntries(
+      rentals
+        .filter((rental) => rental.status === "published" && rental.publishedAt)
+        .map((rental) => [rental.id, clone(rental)])
+    ),
     tenants: clone(demoTenants),
     schedules: clone(demoSchedules),
     templates: clone(demoTemplates),
@@ -104,6 +130,10 @@ function initialState(): MemoryState {
     batchConfirmationKeys: {},
     eventPayloads: {},
     remindersPaused: true,
+    reminderLeadDays: 3,
+    reminderLocalTime: "09:00",
+    reminderTimezone: "America/Vancouver",
+    reminderEmailTemplateId: demoTemplates.find((template) => template.channel === "email")?.id ?? null,
     settingsUpdatedAt: new Date().toISOString(),
     lastWorkerRunAt: null,
     lastWorkerStatus: null,
@@ -142,6 +172,78 @@ function findOr404<T extends { id: string }>(items: T[], id: string, label: stri
   const item = items.find((candidate) => candidate.id === id);
   if (!item) throw new ApiError(404, "NOT_FOUND", `${label} was not found.`);
   return item;
+}
+
+function isEmailReminderEligible(tenant: Tenant) {
+  return Boolean(
+    tenant.isActive &&
+    !tenant.archivedAt &&
+    tenant.email &&
+    tenant.emailContactStatus === "allowed"
+  );
+}
+
+function calculateDerivedOccurrence(
+  tenant: Tenant,
+  afterInstant: string,
+  catchUpBeforeDueDate = false
+) {
+  return nextReminderOccurrence({
+    rentDueDay: tenant.rentDueDay,
+    leadDays: state().reminderLeadDays,
+    localTime: state().reminderLocalTime,
+    timezone: state().reminderTimezone,
+    afterInstant,
+    catchUpBeforeDueDate
+  });
+}
+
+function upsertDerivedSchedule(
+  tenant: Tenant,
+  now: string,
+  options: { recompute: boolean; catchUpBeforeDueDate?: boolean } = { recompute: true }
+) {
+  const existing = state().schedules.find((item) => item.tenantId === tenant.id);
+  const eligible = isEmailReminderEligible(tenant);
+  const occurrence = eligible && options.recompute
+    ? calculateDerivedOccurrence(tenant, now, options.catchUpBeforeDueDate)
+    : null;
+
+  if (existing) {
+    existing.rentDueDay = tenant.rentDueDay;
+    existing.dayOfMonth = occurrence
+      ? Number(occurrence.sendLocalDate.slice(-2))
+      : existing.dayOfMonth;
+    existing.localTime = state().reminderLocalTime;
+    existing.timezone = state().reminderTimezone;
+    existing.channels = ["email"];
+    existing.emailTemplateId = state().reminderEmailTemplateId;
+    existing.smsTemplateId = null;
+    existing.isEnabled = eligible;
+    if (!eligible) existing.nextRunAt = null;
+    else if (occurrence) existing.nextRunAt = occurrence.nextRunAt;
+    existing.updatedAt = now;
+    return existing;
+  }
+
+  const schedule: ReminderSchedule = {
+    id: crypto.randomUUID(),
+    tenantId: tenant.id,
+    rentDueDay: tenant.rentDueDay,
+    dayOfMonth: occurrence ? Number(occurrence.sendLocalDate.slice(-2)) : 1,
+    localTime: state().reminderLocalTime,
+    timezone: state().reminderTimezone,
+    channels: ["email"],
+    emailTemplateId: state().reminderEmailTemplateId,
+    smsTemplateId: null,
+    isEnabled: eligible,
+    nextRunAt: occurrence?.nextRunAt ?? null,
+    lastProcessedAt: null,
+    createdAt: now,
+    updatedAt: now
+  };
+  state().schedules.push(schedule);
+  return schedule;
 }
 
 export const store = {
@@ -221,8 +323,14 @@ export const store = {
   listRentals(includePrivate = true) {
     const rentals = includePrivate
       ? state().rentals
-      : state().rentals.filter((item) => item.status === "published");
+      : Object.values(state().rentalPublishedSnapshots);
     return clone(rentals.sort((a, b) => a.sortOrder - b.sortOrder));
+  },
+
+  getPublicRentalBySlug(slug: string) {
+    const rental = Object.values(state().rentalPublishedSnapshots)
+      .find((item) => item.slug === slug);
+    return rental ? clone(rental) : null;
   },
 
   getRental(id: string) {
@@ -230,19 +338,39 @@ export const store = {
   },
 
   createRental(payload: unknown) {
-    const input = rentalInputSchema.parse(payload);
-    if (state().rentals.some((item) => item.slug === input.slug)) {
+    const isV2 = isRentalV2Payload(payload);
+    const { v2, legacy } = parseRentalPayload(payload);
+    if (state().rentals.some((item) => item.slug === legacy.slug)) {
       throw new ApiError(409, "SLUG_CONFLICT", "A rental already uses this slug.");
     }
     const now = new Date().toISOString();
+    const fields = rentalV2Fields(v2, now);
     const rental: RentalListing = {
       id: crypto.randomUUID(),
-      ...input,
-      images: input.images.map((image) => {
+      ...fields,
+      sortOrder: legacy.sortOrder,
+      coverImageUrl: legacy.coverImageUrl,
+      property: {
+        ...fields.property,
+        id: crypto.randomUUID()
+      },
+      images: legacy.images.map((image) => {
         const asset = getDemoMediaAsset(image.mediaAssetId);
         if (!asset) throw new ApiError(400, "MEDIA_NOT_FOUND", "A selected rental image was not found.");
         return { ...image, url: asset.previewUrl, alt: asset.altText };
       }),
+      draftDigest: aggregateDigest(v2),
+      publishedSourceDigest: null,
+      reviewRequiredFields: isV2 ? [] : [
+        "property.propertyType",
+        "property.provinceCode",
+        "property.postalCode",
+        "availability.status",
+        "layout.furnishedStatus",
+        "availability.leaseType",
+        "smokingPolicy",
+        "pets.status"
+      ],
       status: "draft",
       createdAt: now,
       updatedAt: now,
@@ -255,19 +383,40 @@ export const store = {
   updateRental(id: string, payload: unknown, expectedVersion: unknown) {
     const rental = findOr404(state().rentals, id, "Rental");
     assertVersion(rental.updatedAt, expectedVersion);
-    const input = rentalInputSchema.parse(payload);
-    if (rental.publishedAt && input.slug !== rental.slug) {
+    const isV2 = isRentalV2Payload(payload);
+    const { v2, legacy } = parseRentalPayload(payload);
+    if (rental.publishedAt && legacy.slug !== rental.slug) {
       throw new ApiError(409, "SLUG_IMMUTABLE", "The rental URL cannot change after first publish.");
     }
-    if (state().rentals.some((item) => item.id !== id && item.slug === input.slug)) {
+    if (state().rentals.some((item) => item.id !== id && item.slug === legacy.slug)) {
       throw new ApiError(409, "SLUG_CONFLICT", "A rental already uses this slug.");
     }
-    const images = input.images.map((image) => {
+    if (
+      isV2 &&
+      rental.property?.updatedAt &&
+      v2.property.expectedVersion !== rental.property.updatedAt
+    ) {
+      throw new ApiError(409, "VERSION_CONFLICT", "This property's address changed after it was loaded.");
+    }
+    const images = legacy.images.map((image) => {
       const asset = getDemoMediaAsset(image.mediaAssetId);
       if (!asset) throw new ApiError(400, "MEDIA_NOT_FOUND", "A selected rental image was not found.");
       return { ...image, url: asset.previewUrl, alt: asset.altText };
     });
-    Object.assign(rental, input, { images, updatedAt: new Date().toISOString() });
+    const now = new Date().toISOString();
+    const fields = rentalV2Fields(v2, now);
+    Object.assign(rental, fields, {
+      property: {
+        ...fields.property,
+        id: rental.property?.id ?? v2.property.id ?? crypto.randomUUID()
+      },
+      sortOrder: rental.sortOrder,
+      coverImageUrl: rental.coverImageUrl,
+      images,
+      draftDigest: aggregateDigest(v2),
+      reviewRequiredFields: isV2 ? [] : rental.reviewRequiredFields,
+      updatedAt: now
+    });
     return clone(rental);
   },
 
@@ -275,6 +424,17 @@ export const store = {
     const rental = findOr404(state().rentals, id, "Rental");
     assertVersion(rental.updatedAt, expectedVersion);
     const coverCount = rental.images.filter((image) => image.isCover).length;
+    if (action === "publish" && rental.draftDigest) {
+      const missing = [
+        ...publishRequirementPaths(rentalToV2(rental)),
+        ...(rental.reviewRequiredFields ?? [])
+      ];
+      if (missing.length > 0) {
+        throw new ApiError(400, "PUBLISH_REQUIREMENTS_MISSING", "Complete the listing before publishing.", {
+          fields: [...new Set(missing)]
+        });
+      }
+    }
     if (action === "publish" && coverCount !== 1 && !rental.coverImageUrl) {
       throw new ApiError(400, "COVER_IMAGE_REQUIRED", "Choose exactly one cover image before publishing.");
     }
@@ -291,6 +451,12 @@ export const store = {
     rental.status = action === "publish" ? "published" : action === "archive" ? "archived" : "draft";
     rental.publishedAt = action === "publish" ? now : rental.publishedAt;
     rental.updatedAt = now;
+    if (action === "publish") {
+      rental.publishedSourceDigest = rental.draftDigest ?? rental.publishedSourceDigest ?? null;
+      state().rentalPublishedSnapshots[rental.id] = clone(rental);
+    } else {
+      delete state().rentalPublishedSnapshots[rental.id];
+    }
     return clone(rental);
   },
 
@@ -342,11 +508,16 @@ export const store = {
     const tenant: Tenant = {
       id: crypto.randomUUID(),
       ...input,
+      moveInDate: input.moveInDate ?? null,
       archivedAt: null,
       createdAt: now,
       updatedAt: now
     };
     state().tenants.push(tenant);
+    upsertDerivedSchedule(tenant, now, {
+      recompute: true,
+      catchUpBeforeDueDate: true
+    });
     return clone(tenant);
   },
 
@@ -354,7 +525,15 @@ export const store = {
     const tenant = findOr404(state().tenants, id, "Tenant");
     assertVersion(tenant.updatedAt, expectedVersion);
     const input = tenantInputSchema.parse(payload);
-    Object.assign(tenant, input, { updatedAt: new Date().toISOString() });
+    const previousDueDay = tenant.rentDueDay;
+    const wasEligible = isEmailReminderEligible(tenant);
+    const now = new Date().toISOString();
+    Object.assign(tenant, input, { updatedAt: now });
+    const isEligible = isEmailReminderEligible(tenant);
+    upsertDerivedSchedule(tenant, now, {
+      recompute: previousDueDay !== tenant.rentDueDay || (!wasEligible && isEligible),
+      catchUpBeforeDueDate: !wasEligible && isEligible
+    });
     return clone(tenant);
   },
 
@@ -375,68 +554,14 @@ export const store = {
   },
 
   saveSchedule(tenantId: string, payload: unknown, expectedVersion: unknown) {
-    const tenant = findOr404(state().tenants, tenantId, "Tenant");
-    const input = scheduleInputSchema.parse(payload);
-    if (input.isEnabled && (!tenant.isActive || tenant.archivedAt)) {
-      throw new ApiError(400, "TENANT_INACTIVE", "An inactive tenant cannot have an enabled schedule.");
-    }
-    if (
-      input.isEnabled &&
-      input.channels.includes("email") &&
-      (!tenant.email || tenant.emailContactStatus !== "allowed")
-    ) {
-      throw new ApiError(400, "EMAIL_NOT_ELIGIBLE", "Email must be present and allowed before enabling.");
-    }
-    if (
-      input.isEnabled &&
-      input.channels.includes("sms") &&
-      (!tenant.phoneE164 || tenant.smsContactStatus !== "allowed")
-    ) {
-      throw new ApiError(400, "SMS_NOT_ELIGIBLE", "SMS must be present and allowed before enabling.");
-    }
-    if (input.channels.includes("email")) {
-      const template = state().templates.find((item) => item.id === input.emailTemplateId);
-      if (!template || template.channel !== "email" || !template.isActive) {
-        throw new ApiError(400, "EMAIL_TEMPLATE_REQUIRED", "Select an active email template.");
-      }
-    }
-    if (input.channels.includes("sms")) {
-      const template = state().templates.find((item) => item.id === input.smsTemplateId);
-      if (!template || template.channel !== "sms" || !template.isActive) {
-        throw new ApiError(400, "SMS_TEMPLATE_REQUIRED", "Select an active SMS template.");
-      }
-    }
-    const existing = state().schedules.find((item) => item.tenantId === tenantId);
-    const now = new Date().toISOString();
-    const nextRunAt = input.isEnabled
-      ? nextOccurrence({
-          dayOfMonth: input.dayOfMonth,
-          localTime: input.localTime,
-          timezone: input.timezone,
-          afterInstant: now
-        })
-      : null;
-
-    if (existing) {
-      assertVersion(existing.updatedAt, expectedVersion);
-      Object.assign(existing, input, { nextRunAt, updatedAt: now });
-      return clone(existing);
-    }
-
-    if (expectedVersion !== null && expectedVersion !== undefined) {
-      throw new ApiError(409, "VERSION_CONFLICT", "The schedule does not exist yet.");
-    }
-    const schedule: ReminderSchedule = {
-      id: crypto.randomUUID(),
-      tenantId,
-      ...input,
-      nextRunAt,
-      lastProcessedAt: null,
-      createdAt: now,
-      updatedAt: now
-    };
-    state().schedules.push(schedule);
-    return clone(schedule);
+    findOr404(state().tenants, tenantId, "Tenant");
+    scheduleInputSchema.parse(payload);
+    void expectedVersion;
+    throw new ApiError(
+      409,
+      "GLOBAL_REMINDER_POLICY",
+      "Per-tenant reminder schedules are read-only. Update the payment due date on the tenant or the global Reminder settings."
+    );
   },
 
   listTemplates() {
@@ -556,7 +681,10 @@ export const store = {
       if (!template) {
         throw new ApiError(400, "TEMPLATE_NOT_AVAILABLE", `Select an active ${channel} template.`);
       }
-      const context = templateContext(sampleTenant);
+      const context = templateContext(
+        sampleTenant,
+        dueDateForTenant(sampleTenant.id, new Date().toISOString())
+      );
       return [{
         channel,
         subject: template.subjectTemplate ? renderTemplate(template.subjectTemplate, context) : null,
@@ -660,7 +788,7 @@ export const store = {
       if (state().events.some((event) => event.occurrenceKey === occurrenceKey)) continue;
       const tenant = findOr404(state().tenants, recipient.tenantId, "Tenant");
       const template = findOr404(state().templates, recipient.templateId, "Template");
-      const context = templateContext(tenant);
+      const context = templateContext(tenant, dueDateForTenant(tenant.id, now));
       const event: NotificationEvent = {
         id: crypto.randomUUID(),
         tenantId: tenant.id,
@@ -719,7 +847,14 @@ export const store = {
   },
 
   getPause() {
-    return { paused: state().remindersPaused, updatedAt: state().settingsUpdatedAt };
+    return {
+      paused: state().remindersPaused,
+      leadDays: state().reminderLeadDays,
+      localTime: state().reminderLocalTime,
+      timezone: state().reminderTimezone,
+      emailTemplateId: state().reminderEmailTemplateId,
+      updatedAt: state().settingsUpdatedAt
+    } satisfies ReminderSettings;
   },
 
   setPause(paused: boolean, expectedVersion: unknown) {
@@ -727,6 +862,59 @@ export const store = {
     state().remindersPaused = paused;
     state().settingsUpdatedAt = new Date().toISOString();
     return this.getPause();
+  },
+
+  saveReminderSettings(payload: unknown) {
+    const input = reminderSettingsInputSchema.parse(payload);
+    assertVersion(state().settingsUpdatedAt, input.expectedVersion);
+    const template = state().templates.find((item) => item.id === input.emailTemplateId);
+    if (!template || template.channel !== "email" || !template.isActive) {
+      throw new ApiError(
+        400,
+        "EMAIL_TEMPLATE_REQUIRED",
+        "Choose an active email template with a current revision."
+      );
+    }
+
+    const timingChanged =
+      input.leadDays !== state().reminderLeadDays ||
+      input.localTime !== state().reminderLocalTime ||
+      input.timezone !== state().reminderTimezone;
+    const now = new Date().toISOString();
+    let recalculatedTenants = 0;
+    let preservedDueTenants = 0;
+
+    state().remindersPaused = input.paused;
+    state().reminderLeadDays = input.leadDays;
+    state().reminderLocalTime = input.localTime;
+    state().reminderTimezone = input.timezone;
+    state().reminderEmailTemplateId = input.emailTemplateId;
+
+    for (const tenant of state().tenants) {
+      const schedule = state().schedules.find((item) => item.tenantId === tenant.id);
+      if (timingChanged && schedule?.nextRunAt && Date.parse(schedule.nextRunAt) <= Date.parse(now)) {
+        preservedDueTenants += 1;
+        schedule.localTime = input.localTime;
+        schedule.timezone = input.timezone;
+        schedule.emailTemplateId = input.emailTemplateId;
+        schedule.updatedAt = now;
+        continue;
+      }
+      const derived = upsertDerivedSchedule(tenant, now, {
+        recompute: timingChanged && isEmailReminderEligible(tenant)
+      });
+      derived.emailTemplateId = input.emailTemplateId;
+      derived.localTime = input.localTime;
+      derived.timezone = input.timezone;
+      if (timingChanged && isEmailReminderEligible(tenant)) recalculatedTenants += 1;
+    }
+
+    state().settingsUpdatedAt = now;
+    return {
+      ...this.getPause(),
+      recalculatedTenants,
+      preservedDueTenants
+    } satisfies ReminderSettings;
   },
 
   getTestContacts() {
@@ -751,7 +939,10 @@ export const store = {
     if (template.channel !== input.channel || !template.isActive) {
       throw new ApiError(400, "TEST_TEMPLATE_INVALID", "Select an active template for the requested channel.");
     }
-    const destination = input.channel === "email" ? state().testContacts.email : state().testContacts.phoneE164;
+    const configuredDestination = input.channel === "email"
+      ? state().testContacts.email
+      : state().testContacts.phoneE164;
+    const destination = input.destination ?? configuredDestination;
     if (!destination) {
       throw new ApiError(400, "TEST_DESTINATION_NOT_CONFIGURED", "Configure the admin-owned test destination first.");
     }
@@ -778,11 +969,20 @@ export const store = {
       updatedAt: now
     };
     state().events.push(event);
-    const context = templateContext(tenant);
+    const context = templateContext(
+      tenant,
+      input.dueDate
+        ? formatRentDueDate(input.dueDate)
+        : dueDateForTenant(tenant.id, now)
+    );
     state().eventPayloads[event.id] = {
       destination,
-      subject: template.subjectTemplate ? renderTemplate(template.subjectTemplate, context) : null,
-      body: renderTemplate(template.bodyTemplate, context)
+      subject: input.renderedSubject !== undefined
+        ? input.renderedSubject
+        : template.subjectTemplate
+          ? renderTemplate(template.subjectTemplate, context)
+          : null,
+      body: input.renderedBody ?? renderTemplate(template.bodyTemplate, context)
     };
     return clone(event);
   },
@@ -842,22 +1042,30 @@ export const store = {
 
     for (const schedule of dueSchedules) {
       const tenant = findOr404(state().tenants, schedule.tenantId, "Tenant");
-      const occurrenceDate = localDate(schedule.nextRunAt ?? startedAt, schedule.timezone);
+      const plannedFor = schedule.nextRunAt ?? startedAt;
+      const occurrence = nextReminderOccurrence({
+        rentDueDay: tenant.rentDueDay,
+        leadDays: state().reminderLeadDays,
+        localTime: state().reminderLocalTime,
+        timezone: state().reminderTimezone,
+        afterInstant: new Date(Date.parse(plannedFor) - 1).toISOString()
+      });
+      const occurrenceDate = occurrence.sendLocalDate;
       const expired = now.getTime() - Date.parse(schedule.nextRunAt ?? startedAt) > 24 * 60 * 60_000;
-      for (const channel of schedule.channels) {
+      for (const channel of ["email"] as const) {
         const occurrenceKey = `scheduled:${schedule.id}:${occurrenceDate}:${channel}`;
         if (state().events.some((event) => event.occurrenceKey === occurrenceKey)) continue;
-        const destination = channel === "email" ? tenant.email : tenant.phoneE164;
-        const permission = channel === "email" ? tenant.emailContactStatus : tenant.smsContactStatus;
-        const templateId = channel === "email" ? schedule.emailTemplateId : schedule.smsTemplateId;
+        const destination = tenant.email;
+        const permission = tenant.emailContactStatus;
+        const templateId = state().reminderEmailTemplateId;
         const template = state().templates.find((item) => item.id === templateId);
         const eligible =
           tenant.isActive &&
           !tenant.archivedAt &&
-          tenant.preferredChannels.includes(channel) &&
           permission === "allowed" &&
           Boolean(destination) &&
-          Boolean(template?.isActive);
+          template?.channel === "email" &&
+          Boolean(template.isActive);
         const status: NotificationEvent["status"] = expired ? "expired" : eligible ? "scheduled" : "skipped";
         const event: NotificationEvent = {
           id: crypto.randomUUID(),
@@ -880,7 +1088,10 @@ export const store = {
         state().events.push(event);
         occurrencesCreated += 1;
         if (eligible && template && destination) {
-          const context = templateContext(tenant);
+          const context = templateContext(
+            tenant,
+            formatRentDueDate(occurrence.dueDate)
+          );
           state().eventPayloads[event.id] = {
             destination,
             subject: template.subjectTemplate ? renderTemplate(template.subjectTemplate, context) : null,
@@ -889,12 +1100,18 @@ export const store = {
         }
       }
       schedule.lastProcessedAt = startedAt;
-      schedule.nextRunAt = nextOccurrence({
-        dayOfMonth: schedule.dayOfMonth,
-        localTime: schedule.localTime,
-        timezone: schedule.timezone,
+      const next = nextReminderOccurrence({
+        rentDueDay: tenant.rentDueDay,
+        leadDays: state().reminderLeadDays,
+        localTime: state().reminderLocalTime,
+        timezone: state().reminderTimezone,
         afterInstant: startedAt
       });
+      schedule.nextRunAt = next.nextRunAt;
+      schedule.dayOfMonth = Number(next.sendLocalDate.slice(-2));
+      schedule.localTime = state().reminderLocalTime;
+      schedule.timezone = state().reminderTimezone;
+      schedule.emailTemplateId = state().reminderEmailTemplateId;
       schedule.updatedAt = startedAt;
     }
 
@@ -983,16 +1200,25 @@ function maskDestination(value: string | null, channel: Channel) {
   return `${value.slice(0, 3)}***${value.slice(-2)}`;
 }
 
-function templateContext(tenant: Tenant): TemplateContext {
+function templateContext(tenant: Tenant, dueDate: string): TemplateContext {
   return {
     tenant_name: tenant.fullName,
     property: tenant.propertyLabel,
     unit: tenant.unitLabel ?? "",
-    due_date: "the first of the month",
+    due_date: dueDate,
     business_name: "Ting Ting Xu Real Estate",
     business_phone: "604-872-6896",
     business_email: "info@tingtingxu.ca"
   };
+}
+
+function dueDateForTenant(tenantId: string, instant: string) {
+  const tenant = findOr404(state().tenants, tenantId, "Tenant");
+  const schedule = state().schedules.find((item) => item.tenantId === tenantId);
+  const occurrenceLocalDate = localDate(instant, tenant.timezone);
+  return formatRentDueDate(
+    rentDueDateForOccurrence(occurrenceLocalDate, schedule?.rentDueDay ?? 1)
+  );
 }
 
 function localDate(instant: string, timezone: string) {

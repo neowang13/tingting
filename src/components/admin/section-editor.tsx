@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { validateSection } from "@/features/content/schemas";
 import type { MediaAsset, SectionRevision, SiteSection } from "@/lib/contracts";
 import { MediaLibrary } from "@/components/admin/media-library";
+import { contentFieldLabel, sectionAdminCopy } from "@/features/content/admin-copy";
 
 type JsonObject = Record<string, unknown>;
 type Path = Array<string | number>;
@@ -17,14 +18,6 @@ const multilineNames = new Set([
   "successMessage",
   "errorMessage"
 ]);
-
-function labelFor(key: string | number) {
-  if (typeof key === "number") return `Item ${key + 1}`;
-  return key
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replaceAll("_", " ")
-    .replace(/^./, (value) => value.toUpperCase());
-}
 
 function updateAtPath(value: unknown, path: Path, nextValue: unknown): unknown {
   if (path.length === 0) return nextValue;
@@ -68,7 +61,7 @@ export function SectionEditor({
   const [draft, setDraft] = useState<unknown>(initialSection.draftContent);
   const [revisions, setRevisions] = useState(initialRevisions);
   const [selectedRevision, setSelectedRevision] = useState(initialRevisions[0]?.id ?? "");
-  const [message, setMessage] = useState("No unsaved changes.");
+  const [message, setMessage] = useState("No unsaved changes. Saving will not change the live website.");
   const [busy, setBusy] = useState(false);
   const [media, setMedia] = useState(initialMedia);
   const validation = useMemo(() => {
@@ -82,7 +75,7 @@ export function SectionEditor({
 
   function change(path: Path, value: unknown) {
     setDraft((current: unknown) => updateAtPath(current, path, value));
-    setMessage("Unsaved changes.");
+    setMessage("You have unsaved changes. Visitors cannot see them.");
   }
 
   async function refreshRevisions() {
@@ -96,7 +89,7 @@ export function SectionEditor({
 
   async function request(path: string, method: "PATCH" | "POST", body: unknown) {
     setBusy(true);
-    setMessage("Working…");
+    setMessage("Saving your website changes…");
     try {
       const response = await fetch(path, {
         method,
@@ -110,10 +103,10 @@ export function SectionEditor({
       await refreshRevisions();
       setMessage(
         path.endsWith("/publish")
-          ? "Published successfully."
+          ? "Published. Visitors can now see this version."
           : path.endsWith("/rollback")
-            ? "Previous version restored and published."
-            : "Draft saved."
+            ? "The selected version is restored and live on the website."
+            : "Saved privately. The live website has not changed."
       );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
@@ -124,7 +117,7 @@ export function SectionEditor({
 
   async function publishCurrentDraft() {
     setBusy(true);
-    setMessage("Saving and publishing…");
+    setMessage("Saving and publishing to the website…");
     try {
       const saveResponse = await fetch(`/api/admin/sections/${section.key}`, {
         method: "PATCH",
@@ -156,7 +149,7 @@ export function SectionEditor({
       setSection(publishResult.data);
       setDraft(publishResult.data.draftContent);
       await refreshRevisions();
-      setMessage("Published successfully. The public website now uses this content.");
+      setMessage("Published. The public website now shows these changes.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Request failed.");
     } finally {
@@ -171,11 +164,12 @@ export function SectionEditor({
       <section className="card admin-editor" aria-labelledby="content-fields-heading">
         <div className="admin-card-heading">
           <div>
-            <p className="eyebrow">FIXED SECTION · SCHEMA V{section.schemaVersion}</p>
-            <h2 id="content-fields-heading">Content fields</h2>
+            <p className="eyebrow">EDIT WEBSITE SECTION</p>
+            <h2 id="content-fields-heading">{sectionAdminCopy[section.key].title}</h2>
+            <p>{sectionAdminCopy[section.key].description}</p>
           </div>
           <span className={`status ${section.publishedAt ? "published" : "draft"}`}>
-            {section.publishedAt ? "Published" : "Draft only"}
+            {section.publishedAt ? "Live on website" : "Not published"}
           </span>
         </div>
 
@@ -186,7 +180,7 @@ export function SectionEditor({
           onChange={change}
           onRemove={(path) => {
             setDraft((current: unknown) => removeAtPath(current, path));
-            setMessage("Unsaved changes.");
+            setMessage("You have unsaved changes. Visitors cannot see them.");
           }}
           media={media}
         />
@@ -202,14 +196,14 @@ export function SectionEditor({
               expectedVersion: section.updatedAt
             })}
           >
-            Save draft
+            Save without publishing
           </button>
           <Link
             className="button secondary"
             href={`/admin/preview/${section.key}`}
             target="_blank"
           >
-            Preview saved draft
+            Preview on website
           </Link>
           <button
             className="button"
@@ -221,19 +215,19 @@ export function SectionEditor({
               }
             }}
           >
-            Publish
+            Publish to website
           </button>
         </div>
         <p className="admin-save-status" aria-live="polite">{message}</p>
       </section>
 
       <aside className="card revision-panel">
-        <h2>Version history</h2>
-        <p>Publishing and rollback create immutable versions.</p>
+        <h2>Previously published versions</h2>
+        <p>Every publish is kept here, so you can restore an earlier website version.</p>
         {revisions.length ? (
           <>
             <label className="field">
-              <span>Published version</span>
+              <span>Choose a previous version</span>
               <select value={selectedRevision} onChange={(event) => setSelectedRevision(event.target.value)}>
                 {revisions.map((revision) => (
                   <option value={revision.id} key={revision.id}>
@@ -255,7 +249,7 @@ export function SectionEditor({
                 }
               }}
             >
-              Restore this version
+              Restore and publish this version
             </button>
           </>
         ) : <p className="empty-copy">No published versions yet.</p>}
@@ -284,12 +278,12 @@ function FieldTree({
     const stringList = value.every((item) => typeof item === "string");
     return (
       <fieldset className="field-group">
-        <legend>{labelFor(name)}</legend>
+        <legend>{contentFieldLabel(name)}</legend>
         {value.map((item, index) => (
           stringList ? (
             <div className="repeatable-field" key={`${path.join(".")}-${index}`}>
               <label className="field">
-                <span>{labelFor(index)}</span>
+                <span>{contentFieldLabel(index)}</span>
                 <input
                   value={String(item)}
                   onChange={(event) => onChange([...path, index], event.target.value)}
@@ -327,7 +321,7 @@ function FieldTree({
   if (value && typeof value === "object") {
     return (
       <fieldset className={path.length ? "field-group nested" : "field-group root"}>
-        {path.length > 0 && <legend>{labelFor(name)}</legend>}
+        {path.length > 0 && <legend>{contentFieldLabel(name)}</legend>}
         <div className="field-grid">
           {Object.entries(value as JsonObject).map(([key, child]) => (
             <FieldTree
@@ -373,7 +367,7 @@ function FieldTree({
 
   return (
     <label className={`field ${multiline ? "field-wide" : ""}`}>
-      <span>{labelFor(name)}{readOnly && <small> Fixed identity</small>}</span>
+      <span>{contentFieldLabel(name)}{readOnly && <small> Cannot be changed</small>}</span>
       {multiline ? (
         <textarea
           rows={4}

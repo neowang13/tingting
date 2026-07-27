@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AutomationActor, AutomationScope } from "@/features/automation/contracts";
 import { ApiError } from "@/lib/api";
 
-const TOKEN_PATTERN = /^tta_([A-Za-z0-9_-]{8,20})_([A-Za-z0-9_-]{40,})$/;
+const TOKEN_PATTERN = /^tta_([A-Za-z0-9_-]{12})_([A-Za-z0-9_-]{40,})$/;
 
 export interface AutomationTokenLookup {
   id: string;
@@ -75,4 +75,3 @@ export function validateAutomationToken(
     scopes: lookup.serviceAccount.scopes
   };
 }
-

@@ -122,11 +122,11 @@ export function ResetPasswordForm() {
           disabled={!ready || busy}
         />
       </div>
-      <button className="button" disabled={!ready || busy} type="submit" style={{ marginTop: 16 }}>
+      <button className="button" disabled={!ready || busy} type="submit">
         {busy ? "Updating…" : "Update password"}
       </button>
       {!ready && !error && <p>Validating the recovery link…</p>}
-      {error && <p role="alert" aria-live="assertive">{error}</p>}
+      {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
     </form>
   );
 }

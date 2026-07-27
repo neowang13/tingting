@@ -6,6 +6,12 @@
 **Last updated:** 2026-07-24  
 **Product type:** Private admin web application supporting a public real-estate website  
 **Primary user:** Ting Ting / authorized staff  
+
+> **2026-07-27 reminder-policy amendment:** Tenant-specific reminder timing,
+> channel, template, and enable/disable controls are superseded by
+> [Reminder Global Scheduling Change Plan](./Reminder%20Global%20Scheduling%20Change%20Plan.md).
+> Each tenant retains only the payment due day; one global email policy derives
+> all schedules.
 **Scale assumption:** Low public traffic, approximately 100 tenants, one to a few admin users  
 **Audience location:** Greater Vancouver, British Columbia  
 **Production hosting:** Render paid Web Service + Supabase  
@@ -162,12 +168,13 @@ The initial fixed registry is expected to cover:
 - Handyman Services card and detail content
 - Property Maintenance card and detail content
 - Strata Services card and detail content
+- Rental Management card and detail content
 - Featured Rentals heading and listing collection
 - About section
 - Contact section
 - Footer and legal text
 
-The exact fixed registry is defined in Appendix A of the engineering spec and must be approved before content-management implementation begins. The four service details are fixed nested items inside the Property Services section, not independently addable sections.
+The exact fixed registry is defined in Appendix A of the engineering spec and must be approved before content-management implementation begins. The five service details are fixed nested items inside the Property Services section, not independently addable sections.
 
 ### 7.4 Rental listing management
 

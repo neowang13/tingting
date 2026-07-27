@@ -57,8 +57,12 @@ export function RentalSearch({ content }: Props) {
         <select id="property-type" name="propertyType" defaultValue="">
           <option value="">{content.anyPropertyTypeLabel}</option>
           <option value="apartment">Apartment</option>
+          <option value="condo">Condo</option>
           <option value="townhome">Townhome</option>
           <option value="house">House</option>
+          <option value="basement_suite">Basement suite</option>
+          <option value="room">Room</option>
+          <option value="other">Other</option>
         </select>
       </div>
       <div className="search-field">

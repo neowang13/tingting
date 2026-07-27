@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useState } from "react";
 import {
   automationScopes,
@@ -7,12 +8,12 @@ import {
   type AutomationServiceAccount
 } from "@/features/automation/contracts";
 
-const sensitiveScopeDescriptions: Partial<Record<AutomationScope, string>> = {
-  "rentals:publish": "Can make listings public, unpublish them, or archive them after confirmation.",
-  "tenants:import": "Can add or update tenant personal information after preview and confirmation.",
-  "permissions:grant": "Can grant future contact permission only with evidence and confirmation.",
-  "schedules:enable": "Can enable or disable recurring communication after confirmation."
-};
+const primaryAutomationScopes: AutomationScope[] = [
+  "tenants:import",
+  "rentals:publish",
+  "permissions:grant",
+  "schedules:enable"
+];
 
 export function ServiceAccountManager({
   initialAccounts,
@@ -152,12 +153,13 @@ export function ServiceAccountManager({
   }
 
   return (
-    <div className="admin-editor-stack">
+    <div className="prototype-page service-accounts-page">
+      <div className="prototype-breadcrumb">
+        <Link href="/admin/automation">Automation &amp; imports</Link> / Service accounts
+      </div>
       {token && (
-        <section className="card token-reveal" aria-labelledby="token-heading">
-          <p className="eyebrow">SHOW ONCE</p>
-          <h2 id="token-heading">Save this automation token now</h2>
-          <p>This value cannot be retrieved later. Store it only in OpenClaw secret configuration.</p>
+        <section className="prototype-token-reveal" aria-labelledby="token-heading">
+          <h2 id="token-heading">Save this token now — it won&apos;t be shown again</h2>
           <code className="token-value">{token}</code>
           <div className="admin-action-bar">
             <button className="button secondary" type="button" onClick={() => void navigator.clipboard.writeText(token)}>
@@ -184,41 +186,47 @@ export function ServiceAccountManager({
         </section>
       )}
 
-      <form className="card admin-form" onSubmit={createAccount}>
-        <div className="admin-card-heading">
-          <div><p className="eyebrow">NEW CREDENTIAL</p><h2>Create service account</h2></div>
-          <span className="status draft">Requires recent MFA</span>
-        </div>
+      <form className="prototype-form-card admin-form" onSubmit={createAccount}>
+        <h2>Create service account</h2>
         <div className="field-grid">
           <label className="field">
             <span>Account name</span>
-            <input name="name" minLength={3} maxLength={120} required placeholder="OpenClaw Operations" />
+            <input name="name" minLength={3} maxLength={120} required placeholder="OpenClaw import bot" />
           </label>
           <label className="field">
-            <span>Expires</span>
-            <input name="expiresAt" type="datetime-local" />
+            <span>Expires (optional)</span>
+            <input name="expiresAt" type="date" />
           </label>
-          <fieldset className="field-group field-wide automation-scope-grid">
+          <fieldset className="field-wide prototype-scope-grid">
             <legend>Scopes</legend>
-            {automationScopes.map((scope) => (
-              <label className="scope-choice" key={scope}>
-                <input name={`scope-${scope}`} type="checkbox" />
-                <span><strong>{scope}</strong>{sensitiveScopeDescriptions[scope] && <small>{sensitiveScopeDescriptions[scope]}</small>}</span>
+            {primaryAutomationScopes.map((scope) => (
+              <label className="check-field" key={scope}>
+                <input name={`scope-${scope}`} type="checkbox" defaultChecked={scope === "tenants:import"} />
+                <span>
+                  {scope}
+                  {scope === "rentals:publish" && " (affects the live website)"}
+                  {scope === "permissions:grant" && " (grants contact permission)"}
+                  {scope === "schedules:enable" && " (turns on automatic emails)"}
+                </span>
               </label>
             ))}
+            <details className="field-wide prototype-more-actions">
+              <summary>Advanced scopes</summary>
+              <div className="prototype-scope-grid">
+                {automationScopes.filter((scope) => !primaryAutomationScopes.includes(scope)).map((scope) => (
+                  <label className="check-field" key={scope}>
+                    <input name={`scope-${scope}`} type="checkbox" />
+                    <span>{scope}</span>
+                  </label>
+                ))}
+              </div>
+            </details>
           </fieldset>
         </div>
-        <button className="button" disabled={busy} type="submit">Create and show token</button>
+        <button className="button" disabled={busy} type="submit">Create service account</button>
       </form>
 
-      <section aria-labelledby="service-accounts-heading">
-        <div className="admin-list-toolbar">
-          <div>
-            <p className="eyebrow">ACCESS INVENTORY</p>
-            <h2 id="service-accounts-heading">Service accounts</h2>
-          </div>
-          <span>{accounts.length} total</span>
-        </div>
+      <section aria-label="Service accounts">
         {accounts.length === 0 ? (
           <div className="card empty-state">
             <h3>No service accounts</h3>
@@ -228,14 +236,13 @@ export function ServiceAccountManager({
           <div className="table-scroll" tabIndex={0} aria-label="Scrollable service account table">
             <table className="admin-table">
               <caption className="sr-only">Automation service accounts and token status</caption>
-              <thead><tr><th>Name</th><th>Status</th><th>Scopes</th><th>Token prefixes</th><th>Last used</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Name</th><th>Status</th><th>Token</th><th>Last used</th><th /></tr></thead>
               <tbody>{accounts.map((account) => (
                 <tr key={account.id}>
-                  <td><strong>{account.name}</strong><br /><small>Delegated by {account.delegatedAdminDisplayName}</small></td>
-                  <td><span className={`status ${account.isActive ? "active" : "archived"}`}>{account.isActive ? "Active" : "Inactive"}</span></td>
                   <td>
-                    <details>
-                      <summary>{account.scopes.length} scopes</summary>
+                    {account.name}
+                    <details className="prototype-more-actions scope-editor-details">
+                      <summary>Manage scopes</summary>
                       <form className="scope-editor" onSubmit={(event) => void updateScopes(account, event)}>
                         <fieldset>
                           <legend className="sr-only">Scopes for {account.name}</legend>
@@ -254,7 +261,8 @@ export function ServiceAccountManager({
                       </form>
                     </details>
                   </td>
-                  <td><small>{account.tokens.map((item) => item.prefix).join(", ") || "None"}</small></td>
+                  <td className={`prototype-status ${account.isActive ? "success" : "neutral"}`}>{account.isActive ? "Active" : "Inactive"}</td>
+                  <td><code>{account.tokens.map((item) => item.prefix).join(", ") || "None"}</code></td>
                   <td>{account.tokens.find((item) => item.lastUsedAt)?.lastUsedAt
                     ? new Date(account.tokens.find((item) => item.lastUsedAt)!.lastUsedAt!).toLocaleString()
                     : "Never"}</td>
@@ -270,7 +278,7 @@ export function ServiceAccountManager({
           </div>
         )}
       </section>
-      <p className="admin-save-status" aria-live="polite">{message}</p>
+      {message && <p className="admin-save-status" aria-live="polite">{message}</p>}
     </div>
   );
 }

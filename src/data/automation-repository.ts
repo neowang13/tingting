@@ -108,7 +108,9 @@ function dbError(error: { code?: string; message: string } | null): never {
   throw new ApiError(
     conflict ? 409 : 500,
     conflict ? "VERSION_CONFLICT" : "DATABASE_ERROR",
-    conflict ? "The resource changed or conflicts with an existing record." : "The database request failed."
+    conflict
+      ? "This record changed or conflicts with an existing record. Refresh before trying again."
+      : "We could not save this change because the database is unavailable. Nothing after the last confirmed save was applied. Try again."
   );
 }
 
@@ -859,6 +861,13 @@ export class AutomationRepository implements IdempotencyStore {
   }
 
   async executeConfirmation(intent: AutomationConfirmationIntent, idempotencyKey: string, actor: AutomationActor) {
+    if (intent.action === "schedule.enable" || intent.action === "schedule.disable") {
+      throw new ApiError(
+        409,
+        "GLOBAL_REMINDER_POLICY",
+        "Per-tenant reminder schedules are read-only under the global reminder policy."
+      );
+    }
     if (
       this.isDurable() &&
       (intent.action === "tenant_import.commit" || intent.action === "tenant.permission.grant")
@@ -877,11 +886,7 @@ export class AutomationRepository implements IdempotencyStore {
     }
     if (
       this.isDurable() &&
-      (
-        intent.action.startsWith("rental.") ||
-        intent.action === "schedule.enable" ||
-        intent.action === "schedule.disable"
-      )
+      intent.action.startsWith("rental.")
     ) {
       return getRepository().executeAutomationResourceConfirmation({
         confirmationId: intent.id,
@@ -892,8 +897,6 @@ export class AutomationRepository implements IdempotencyStore {
           | "rental.publish"
           | "rental.unpublish"
           | "rental.archive"
-          | "schedule.enable"
-          | "schedule.disable"
       });
     }
     let result: unknown;
@@ -904,20 +907,6 @@ export class AutomationRepository implements IdempotencyStore {
       result = await getRepository().setRentalStatus(
         intent.targetId,
         action,
-        intent.targetVersion,
-        actor.delegatedAdminUserId
-      );
-    } else if (intent.action === "schedule.enable" || intent.action === "schedule.disable") {
-      const current = await getRepository().getTenant(intent.targetId);
-      if (!current.schedule || current.schedule.updatedAt !== intent.targetVersion) {
-        throw new ApiError(409, "PREVIEW_STALE", "The schedule changed after preview.");
-      }
-      result = await getRepository().saveSchedule(
-        intent.targetId,
-        {
-          ...current.schedule,
-          isEnabled: intent.action === "schedule.enable"
-        },
         intent.targetVersion,
         actor.delegatedAdminUserId
       );

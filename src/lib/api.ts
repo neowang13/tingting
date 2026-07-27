@@ -33,7 +33,11 @@ export function handleApiError(error: unknown, requestId = crypto.randomUUID()) 
     return NextResponse.json<ApiFailure>(
       {
         success: false,
-        error: { code: "VALIDATION_ERROR", message: "The request is invalid.", details: error.issues },
+        error: {
+          code: "VALIDATION_ERROR",
+          message: "Some information is missing or invalid. Check the form and try again.",
+          details: error.issues
+        },
         requestId
       },
       { status: 400 }

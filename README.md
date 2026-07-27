@@ -88,6 +88,11 @@ tenant data, unpausing reminders, or deploying are explicit owner actions.
 See [Operations and Launch Runbook](./docs/OPERATIONS.md) and
 [PRD Completion Report](./docs/PRD-COMPLETION.md).
 
+The implemented global reminder scheduling policy is documented in
+[Reminder Global Scheduling Change Plan](./docs/Reminder%20Global%20Scheduling%20Change%20Plan.md).
+The matching verification matrix is in
+[Reminder Global Scheduling Test Plan](./docs/Reminder%20Global%20Scheduling%20Test%20Plan.md).
+
 ## OpenClaw operations integration
 
 The repository includes a private, versioned Automation API, scoped show-once

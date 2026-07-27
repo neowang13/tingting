@@ -6,12 +6,9 @@ import {
   BedDouble,
   Building2,
   CalendarDays,
-  Facebook,
   House,
-  Instagram,
-  Linkedin,
+  KeyRound,
   Mail,
-  MapPin,
   PaintRoller,
   PawPrint,
   Phone,
@@ -19,13 +16,13 @@ import {
   Wrench
 } from "lucide-react";
 import { ContactForm } from "@/components/public/contact-form";
-import { MobileNavigation } from "@/components/public/mobile-navigation";
 import { RentalSearch } from "@/components/public/rental-search";
 import { ServiceDetails } from "@/components/public/service-details";
+import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
 
-const serviceIcons = [PaintRoller, Wrench, House, Building2] as const;
+const serviceIcons = [PaintRoller, Wrench, House, Building2, KeyRound] as const;
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -45,31 +42,9 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
   const { featured_rentals: featured, about, contact, footer } = sections;
   const heroImage = mediaUrls[hero.background.mediaAssetId] ?? resolveSeededPublicMedia(hero.background.mediaAssetId);
   const portraitImage = mediaUrls[about.portrait.mediaAssetId] ?? resolveSeededPublicMedia(about.portrait.mediaAssetId);
-  const social = [
-    { key: "facebook", href: footer.socialLinks.facebook, label: "Facebook", Icon: Facebook },
-    { key: "instagram", href: footer.socialLinks.instagram, label: "Instagram", Icon: Instagram },
-    { key: "linkedin", href: footer.socialLinks.linkedin, label: "LinkedIn", Icon: Linkedin }
-  ].filter((item) => item.href);
-
   return (
     <>
-      <header className="site-header">
-        <div className="container header-inner">
-          <Link className="brand" href="/" aria-label={`${header.brandName} home`}>
-            <strong>{header.brandName}</strong>
-            <span>{header.brandSubtitle}</span>
-          </Link>
-          <nav className="desktop-nav" aria-label="Primary navigation">
-            {header.navigation.map((item) => (
-              <Link key={item.key} href={item.href}>{item.label}</Link>
-            ))}
-            <Link className="button header-cta" href={header.contactCta.href}>
-              {header.contactCta.label}
-            </Link>
-          </nav>
-          <MobileNavigation items={header.navigation} contactCta={header.contactCta} />
-        </div>
-      </header>
+      <SiteHeader header={header} />
 
       <main>
         <section className="hero" aria-labelledby="hero-heading">
@@ -262,33 +237,7 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
         </section>
       </main>
 
-      <footer className="site-footer">
-        <div className="container footer-grid">
-          <div>
-            <div className="footer-brand">{footer.brandName}<span>{footer.brandSubtitle}</span></div>
-            <p>{footer.summary}</p>
-            <div className="social-links">
-              {social.map(({ key, href, label, Icon }) => (
-                <a key={key} href={href} target="_blank" rel="noopener noreferrer" aria-label={label}>
-                  <Icon size={20} aria-hidden />
-                </a>
-              ))}
-            </div>
-          </div>
-          <div>
-            <strong>Contact</strong>
-            <a href={`tel:${footer.phone.replace(/[^\d+]/g, "")}`}><Phone size={16} aria-hidden />{footer.phone}</a>
-            <a href={`mailto:${footer.email}`}><Mail size={16} aria-hidden />{footer.email}</a>
-          </div>
-          <div>
-            <strong>Office</strong>
-            {footer.officeLines.map((line) => <span key={line}><MapPin size={16} aria-hidden />{line}</span>)}
-          </div>
-        </div>
-        <div className="container disclosures">
-          {footer.disclosureParagraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-        </div>
-      </footer>
+      <SiteFooter footer={footer} />
     </>
   );
 }

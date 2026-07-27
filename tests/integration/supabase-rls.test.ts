@@ -16,6 +16,12 @@ integration("Supabase anonymous RLS boundaries", () => {
     "site_sections",
     "site_section_revisions",
     "media_assets",
+    "rental_properties",
+    "rental_amenities",
+    "rental_listing_amenities",
+    "rental_utilities",
+    "rental_listing_utilities",
+    "rental_listing_fees",
     "tenants",
     "reminder_schedules",
     "notification_events",
@@ -38,7 +44,12 @@ integration("Supabase anonymous RLS boundaries", () => {
   it("allows the explicit published projections", async () => {
     const site = await client.from("public_site_sections").select("key,schema_version,published_content,published_at").limit(1);
     const rentals = await client.from("public_rental_listings").select("id,slug,title").limit(1);
+    const rentalsV2 = await client
+      .from("public_rental_listings_v2")
+      .select("id,slug,title,property,amenity_codes,included_utility_codes,fees")
+      .limit(1);
     expect(site.error).toBeNull();
     expect(rentals.error).toBeNull();
+    expect(rentalsV2.error).toBeNull();
   });
 });
