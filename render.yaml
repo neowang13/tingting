@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: free
     region: oregon
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start -- -H 0.0.0.0 -p $PORT
     healthCheckPath: /api/health
     autoDeployTrigger: commit
