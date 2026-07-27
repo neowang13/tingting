@@ -11,14 +11,15 @@ const loginMessages: Record<string, string> = {
 export default async function LoginPage({
   searchParams
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; reset?: string }>;
 }) {
-  const error = (await searchParams).error;
+  const { error, reset } = await searchParams;
   return (
     <main className="admin-body" style={{ display: "grid", placeItems: "center", padding: 20 }}>
       <section className="card" style={{ width: "min(440px, 100%)" }}>
         <div className="eyebrow">TING TING XU</div>
         <h1>Admin Sign In</h1>
+        {reset === "success" && <p role="status">Password updated. Sign in with the new password.</p>}
         {error && loginMessages[error] && <p role="alert">{loginMessages[error]}</p>}
         <LoginForm authMode={isDemoMode() ? "local" : "supabase"} />
       </section>
