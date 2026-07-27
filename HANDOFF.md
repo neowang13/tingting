@@ -248,7 +248,7 @@ REMINDERS_FORCE_PAUSED=true
 https://<public-host>/api/webhooks/twilio
 ```
 
-Render 蓝图包含：
+正式生产蓝图 `render.production.yaml` 包含：
 
 - Web Service；
 - `*/5 * * * *` Cron；
@@ -256,10 +256,14 @@ Render 蓝图包含：
 - Web 与 Cron 必须由 Owner 输入同一个 `REMINDER_CRON_SECRET`；
 - Cron 不打印 Secret 或完整响应正文。
 
+免费客户 Demo 使用根目录 `render.yaml`，只创建 Free Web Service，不包含
+Render Cron，也不得作为正式生产 Cron 证据。
+
 完整操作顺序见：
 
 - `docs/OPERATIONS.md`
 - `render.yaml`
+- `render.production.yaml`
 - `.env.example`
 
 ## 9. 最终验证结果
@@ -368,3 +372,4 @@ dry run、签名回调和 Owner 批准。
 - `playwright.supabase.config.ts`
 - `tests/e2e-supabase/production-writes.spec.ts`
 - `render.yaml`
+- `render.production.yaml`

@@ -21,7 +21,7 @@ retention period, templates, recipients, and provider dry-run results.
    names, and the Auth user UUID as `ADMIN_USER_ID`.
 5. Run `pnpm provision:supabase`. Confirm that templates and reminders remain
    disabled.
-6. Create both Render services from `render.yaml`. Enter the exact same
+6. Create both paid Render services from `render.production.yaml`. Enter the exact same
    owner-provisioned `REMINDER_CRON_SECRET` (minimum 24 characters) and public
    HTTPS `APP_BASE_URL` in the web and Cron services. The blueprint declares
    the Cron schedule as `*/5 * * * *` (Render evaluates schedules in UTC).
@@ -43,6 +43,19 @@ retention period, templates, recipients, and provider dry-run results.
    `checks.publicBaseUrl=https`. A missing Cron secret or database dependency
    intentionally returns `503`; the response names missing variable(s) but
    never their values.
+
+## Free demo provisioning
+
+The root `render.yaml` is a Web-only Free blueprint for customer demos. It
+preserves production authentication and Supabase persistence while keeping
+Email, SMS, reminders, and automation mutations disabled.
+
+Render does not provide a Free Cron service. The free demo therefore has no
+scheduled worker and must not be presented as production-ready or as evidence
+of two successful scheduled Cron cycles. A permitted administrator-only test
+event can be processed with a single authenticated manual invocation from a
+controlled workstation. Restore the paid `render.production.yaml` topology
+before production approval.
 
 ## Email-only provider rollout order
 

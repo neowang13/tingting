@@ -21,7 +21,9 @@
 - Demo Playwright: 2/2 journeys passed, including accessibility checks.
 - OpenClaw fake-server/policy suite: 7/7 passed.
 - `next build`: passed with all required routes.
-- `render.yaml`: parsed successfully and contains a `*/5 * * * *` Cron service.
+- `render.yaml`: parsed successfully as a Web-only Free demo blueprint.
+- `render.production.yaml`: parsed successfully and contains the paid
+  `*/5 * * * *` Cron service required for production.
 
 ## OpenClaw integration verification
 
