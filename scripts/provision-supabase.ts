@@ -135,4 +135,7 @@ async function provision() {
   console.log("Supabase provisioning complete. Reminders and templates remain disabled.");
 }
 
-await provision();
+void provision().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
