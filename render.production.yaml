@@ -7,7 +7,7 @@ services:
     runtime: node
     plan: starter
     region: oregon
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm build
     startCommand: pnpm start -- -H 0.0.0.0 -p $PORT
     healthCheckPath: /api/health
     autoDeployTrigger: commit
@@ -80,7 +80,7 @@ services:
     plan: starter
     region: oregon
     schedule: "*/5 * * * *"
-    buildCommand: pnpm install --frozen-lockfile
+    buildCommand: pnpm install --frozen-lockfile --prod=false
     startCommand: pnpm exec tsx scripts/invoke-reminder-cron.ts
     autoDeployTrigger: commit
     envVars:
