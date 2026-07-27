@@ -9,7 +9,12 @@ export function ResetPasswordForm() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = useMemo(
-    () => (url && anonKey ? createBrowserClient(url, anonKey) : null),
+    () =>
+      url && anonKey
+        ? createBrowserClient(url, anonKey, {
+            auth: { detectSessionInUrl: false }
+          })
+        : null,
     [anonKey, url]
   );
   const [ready, setReady] = useState(false);
@@ -22,26 +27,45 @@ export function ResetPasswordForm() {
     if (!supabase) return;
 
     let active = true;
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (active && event === "PASSWORD_RECOVERY" && session) {
+    void (async () => {
+      try {
+        const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const accessToken = fragment.get("access_token");
+        const refreshToken = fragment.get("refresh_token");
+        const isRecovery = fragment.get("type") === "recovery";
+        const hasRecoveryGrant = Boolean(isRecovery && accessToken && refreshToken);
+        const result =
+          hasRecoveryGrant && accessToken && refreshToken
+            ? await supabase.auth.setSession({
+                access_token: accessToken,
+                refresh_token: refreshToken
+              })
+            : await supabase.auth.getSession();
+
+        if (hasRecoveryGrant) {
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`
+          );
+        }
+
+        if (!active) return;
+        if (result.error || !result.data.session) {
+          setError("This password recovery link is invalid or expired.");
+          return;
+        }
         setReady(true);
         setError("");
+      } catch {
+        if (active) {
+          setError("This password recovery link is invalid or expired.");
+        }
       }
-    });
-
-    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
-      if (!active) return;
-      if (sessionError || !data.session) {
-        setError("This password recovery link is invalid or expired.");
-        return;
-      }
-      setReady(true);
-      setError("");
-    });
+    })();
 
     return () => {
       active = false;
-      listener.subscription.unsubscribe();
     };
   }, [supabase]);
 
