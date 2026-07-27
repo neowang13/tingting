@@ -1,0 +1,349 @@
+"use client";
+
+import Link from "next/link";
+import { useMemo, useState } from "react";
+import { validateSection } from "@/features/content/schemas";
+import type { MediaAsset, SectionRevision, SiteSection } from "@/lib/contracts";
+import { MediaLibrary } from "@/components/admin/media-library";
+
+type JsonObject = Record<string, unknown>;
+type Path = Array<string | number>;
+
+const multilineNames = new Set([
+  "body",
+  "summary",
+  "description",
+  "processBody",
+  "successMessage",
+  "errorMessage"
+]);
+
+function labelFor(key: string | number) {
+  if (typeof key === "number") return `Item ${key + 1}`;
+  return key
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replaceAll("_", " ")
+    .replace(/^./, (value) => value.toUpperCase());
+}
+
+function updateAtPath(value: unknown, path: Path, nextValue: unknown): unknown {
+  if (path.length === 0) return nextValue;
+  const [head, ...tail] = path;
+  if (Array.isArray(value)) {
+    const copy = [...value];
+    copy[Number(head)] = updateAtPath(copy[Number(head)], tail, nextValue);
+    return copy;
+  }
+  const object = { ...(value as JsonObject) };
+  object[String(head)] = updateAtPath(object[String(head)], tail, nextValue);
+  return object;
+}
+
+function removeAtPath(value: unknown, path: Path): unknown {
+  const parentPath = path.slice(0, -1);
+  const index = Number(path.at(-1));
+  const parent = getAtPath(value, parentPath);
+  if (!Array.isArray(parent)) return value;
+  return updateAtPath(value, parentPath, parent.filter((_, itemIndex) => itemIndex !== index));
+}
+
+function getAtPath(value: unknown, path: Path): unknown {
+  return path.reduce<unknown>((current, part) => {
+    if (Array.isArray(current)) return current[Number(part)];
+    if (current && typeof current === "object") return (current as JsonObject)[String(part)];
+    return undefined;
+  }, value);
+}
+
+export function SectionEditor({
+  initialSection,
+  initialRevisions,
+  initialMedia
+}: {
+  initialSection: SiteSection;
+  initialRevisions: SectionRevision[];
+  initialMedia: MediaAsset[];
+}) {
+  const [section, setSection] = useState(initialSection);
+  const [draft, setDraft] = useState<unknown>(initialSection.draftContent);
+  const [revisions, setRevisions] = useState(initialRevisions);
+  const [selectedRevision, setSelectedRevision] = useState(initialRevisions[0]?.id ?? "");
+  const [message, setMessage] = useState("No unsaved changes.");
+  const [busy, setBusy] = useState(false);
+  const [media, setMedia] = useState(initialMedia);
+  const validation = useMemo(() => {
+    try {
+      validateSection(section.key, draft);
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Review the highlighted content fields.";
+    }
+  }, [draft, section.key]);
+
+  function change(path: Path, value: unknown) {
+    setDraft((current: unknown) => updateAtPath(current, path, value));
+    setMessage("Unsaved changes.");
+  }
+
+  async function request(path: string, method: "PATCH" | "POST", body: unknown) {
+    setBusy(true);
+    setMessage("Working…");
+    try {
+      const response = await fetch(path, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Request failed.");
+      setSection(result.data);
+      setDraft(result.data.draftContent);
+      const revisionResponse = await fetch(`/api/admin/sections/${section.key}/revisions`);
+      const revisionResult = await revisionResponse.json();
+      if (revisionResult.success) {
+        setRevisions(revisionResult.data);
+        setSelectedRevision(revisionResult.data[0]?.id ?? "");
+      }
+      setMessage(
+        path.endsWith("/publish")
+          ? "Published successfully."
+          : path.endsWith("/rollback")
+            ? "Previous version restored and published."
+            : "Draft saved."
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Request failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <MediaLibrary assets={media} onAssetsChanged={setMedia} />
+      <div className="admin-editor-layout">
+      <section className="card admin-editor" aria-labelledby="content-fields-heading">
+        <div className="admin-card-heading">
+          <div>
+            <p className="eyebrow">FIXED SECTION · SCHEMA V{section.schemaVersion}</p>
+            <h2 id="content-fields-heading">Content fields</h2>
+          </div>
+          <span className={`status ${section.publishedAt ? "published" : "draft"}`}>
+            {section.publishedAt ? "Published" : "Draft only"}
+          </span>
+        </div>
+
+        <FieldTree
+          value={draft}
+          path={[]}
+          name={section.displayName}
+          onChange={change}
+          onRemove={(path) => {
+            setDraft((current: unknown) => removeAtPath(current, path));
+            setMessage("Unsaved changes.");
+          }}
+          media={media}
+        />
+
+        {validation && <p className="form-status error" role="alert">{validation}</p>}
+        <div className="admin-action-bar">
+          <button
+            className="button secondary"
+            disabled={busy || Boolean(validation)}
+            type="button"
+            onClick={() => void request(`/api/admin/sections/${section.key}`, "PATCH", {
+              content: draft,
+              expectedVersion: section.updatedAt
+            })}
+          >
+            Save draft
+          </button>
+          <Link
+            className="button secondary"
+            href={`/admin/preview/${section.key}`}
+            target="_blank"
+          >
+            Preview saved draft
+          </Link>
+          <button
+            className="button"
+            disabled={busy || Boolean(validation)}
+            type="button"
+            onClick={() => {
+              if (window.confirm("Publish this saved draft to the public website?")) {
+                void request(`/api/admin/sections/${section.key}/publish`, "POST", {
+                  expectedVersion: section.updatedAt
+                });
+              }
+            }}
+          >
+            Publish
+          </button>
+        </div>
+        <p className="admin-save-status" aria-live="polite">{message}</p>
+      </section>
+
+      <aside className="card revision-panel">
+        <h2>Version history</h2>
+        <p>Publishing and rollback create immutable versions.</p>
+        {revisions.length ? (
+          <>
+            <label className="field">
+              <span>Published version</span>
+              <select value={selectedRevision} onChange={(event) => setSelectedRevision(event.target.value)}>
+                {revisions.map((revision) => (
+                  <option value={revision.id} key={revision.id}>
+                    {new Date(revision.createdAt).toLocaleString()} · v{revision.schemaVersion}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="button danger-outline"
+              disabled={busy || !selectedRevision}
+              type="button"
+              onClick={() => {
+                if (window.confirm("Restore this version and publish it? The current content remains in history.")) {
+                  void request(`/api/admin/sections/${section.key}/rollback`, "POST", {
+                    revisionId: selectedRevision,
+                    expectedVersion: section.updatedAt
+                  });
+                }
+              }}
+            >
+              Restore this version
+            </button>
+          </>
+        ) : <p className="empty-copy">No published versions yet.</p>}
+      </aside>
+      </div>
+    </>
+  );
+}
+
+function FieldTree({
+  value,
+  path,
+  name,
+  onChange,
+  onRemove,
+  media
+}: {
+  value: unknown;
+  path: Path;
+  name: string | number;
+  onChange: (path: Path, value: unknown) => void;
+  onRemove: (path: Path) => void;
+  media: MediaAsset[];
+}) {
+  if (Array.isArray(value)) {
+    const stringList = value.every((item) => typeof item === "string");
+    return (
+      <fieldset className="field-group">
+        <legend>{labelFor(name)}</legend>
+        {value.map((item, index) => (
+          stringList ? (
+            <div className="repeatable-field" key={`${path.join(".")}-${index}`}>
+              <label className="field">
+                <span>{labelFor(index)}</span>
+                <input
+                  value={String(item)}
+                  onChange={(event) => onChange([...path, index], event.target.value)}
+                />
+              </label>
+              <button
+                className="icon-text-button"
+                type="button"
+                onClick={() => onRemove([...path, index])}
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <FieldTree
+              key={`${path.join(".")}-${index}`}
+              value={item}
+              path={[...path, index]}
+              name={typeof item === "object" && item && "key" in item ? String((item as JsonObject).key) : index}
+              onChange={onChange}
+              onRemove={onRemove}
+              media={media}
+            />
+          )
+        ))}
+        {stringList && (
+          <button className="icon-text-button" type="button" onClick={() => onChange(path, [...value, ""])}>
+            Add item
+          </button>
+        )}
+      </fieldset>
+    );
+  }
+
+  if (value && typeof value === "object") {
+    return (
+      <fieldset className={path.length ? "field-group nested" : "field-group root"}>
+        {path.length > 0 && <legend>{labelFor(name)}</legend>}
+        <div className="field-grid">
+          {Object.entries(value as JsonObject).map(([key, child]) => (
+            <FieldTree
+              key={`${path.join(".")}.${key}`}
+              value={child}
+              path={[...path, key]}
+              name={key}
+              onChange={onChange}
+              onRemove={onRemove}
+              media={media}
+            />
+          ))}
+        </div>
+      </fieldset>
+    );
+  }
+
+  const key = String(name);
+  const readOnly = key === "key";
+  const multiline =
+    multilineNames.has(key) ||
+    key.toLocaleLowerCase().includes("paragraph") ||
+    String(value ?? "").length > 120;
+
+  if (key === "mediaAssetId") {
+    return (
+      <label className="field">
+        <span>Media asset</span>
+        <select value={String(value ?? "")} onChange={(event) => onChange(path, event.target.value)}>
+          <option value="">Select an uploaded image</option>
+          {typeof value === "string" && value && !media.some((asset) => asset.id === value) && (
+            <option value={value}>Current seeded asset · {value}</option>
+          )}
+          {media.map((asset) => (
+            <option value={asset.id} key={asset.id}>
+              {asset.originalFilename} · {asset.state}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  }
+
+  return (
+    <label className={`field ${multiline ? "field-wide" : ""}`}>
+      <span>{labelFor(name)}{readOnly && <small> Fixed identity</small>}</span>
+      {multiline ? (
+        <textarea
+          rows={4}
+          value={String(value ?? "")}
+          readOnly={readOnly}
+          onChange={(event) => onChange(path, event.target.value)}
+        />
+      ) : (
+        <input
+          value={String(value ?? "")}
+          readOnly={readOnly}
+          onChange={(event) => onChange(path, event.target.value)}
+        />
+      )}
+    </label>
+  );
+}

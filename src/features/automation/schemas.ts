@@ -1,0 +1,129 @@
+import { z } from "zod";
+import { rentalInputSchema, scheduleInputSchema, tenantInputSchema } from "@/lib/schemas";
+import { automationScopes } from "@/features/automation/contracts";
+
+export const requestIdSchema = z.uuid();
+export const idempotencyKeySchema = z.uuid();
+export const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
+export const cursorSchema = z.string().max(500).optional();
+export const limitSchema = z.coerce.number().int().min(1).max(100).default(50);
+
+export const automationRentalInputSchema = z
+  .object({
+    slug: rentalInputSchema.shape.slug,
+    title: rentalInputSchema.shape.title,
+    addressLine: rentalInputSchema.shape.addressLine,
+    neighbourhood: rentalInputSchema.shape.neighbourhood,
+    city: rentalInputSchema.shape.city,
+    monthlyRentCents: rentalInputSchema.shape.monthlyRentCents,
+    bedrooms: rentalInputSchema.shape.bedrooms,
+    bathrooms: rentalInputSchema.shape.bathrooms,
+    squareFeet: rentalInputSchema.shape.squareFeet,
+    availableOn: rentalInputSchema.shape.availableOn,
+    petPolicy: rentalInputSchema.shape.petPolicy,
+    description: rentalInputSchema.shape.description,
+    sortOrder: rentalInputSchema.shape.sortOrder,
+    images: rentalInputSchema.shape.images,
+    sourceSystem: z.string().trim().min(1).max(60).default("openclaw"),
+    externalReference: z.string().trim().min(1).max(120).nullable().default(null)
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (new Set(value.images.map((image) => image.mediaAssetId)).size !== value.images.length) {
+      ctx.addIssue({ code: "custom", path: ["images"], message: "Each rental image may be selected once." });
+    }
+    if (value.images.filter((image) => image.isCover).length > 1) {
+      ctx.addIssue({ code: "custom", path: ["images"], message: "Choose only one cover image." });
+    }
+  });
+
+export const automationTenantInputSchema = z
+  .object({
+    ...tenantInputSchema.shape,
+    sourceSystem: z.string().trim().min(1).max(60).default("openclaw"),
+    externalReference: z.string().trim().min(1).max(120).nullable().default(null)
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.preferredChannels.includes("email") && !value.email) {
+      ctx.addIssue({ code: "custom", path: ["email"], message: "Email is required for the email channel." });
+    }
+    if (value.preferredChannels.includes("sms") && !value.phoneE164) {
+      ctx.addIssue({ code: "custom", path: ["phoneE164"], message: "Phone is required for the SMS channel." });
+    }
+  });
+
+export const disabledScheduleInputSchema = scheduleInputSchema.extend({
+  isEnabled: z.literal(false)
+}).strict();
+
+export const rentalUpdateSchema = z.object({
+  rental: automationRentalInputSchema,
+  expectedVersion: z.iso.datetime()
+}).strict();
+
+export const tenantUpdateSchema = z.object({
+  tenant: automationTenantInputSchema,
+  expectedVersion: z.iso.datetime()
+}).strict();
+
+export const scheduleSaveSchema = z.object({
+  schedule: disabledScheduleInputSchema,
+  expectedVersion: z.iso.datetime().nullable()
+}).strict();
+
+export const rentalStatusPreviewSchema = z.object({
+  action: z.enum(["publish", "unpublish", "archive"]),
+  expectedVersion: z.iso.datetime()
+}).strict();
+
+export const scheduleStatusPreviewSchema = z.object({
+  enabled: z.boolean(),
+  expectedVersion: z.iso.datetime()
+}).strict();
+
+export const confirmationExecutionSchema = z.object({
+  digest: digestSchema,
+  acknowledged: z.array(z.string().trim().min(1).max(120)).max(20)
+}).strict();
+
+export const permissionPreviewSchema = z.object({
+  channel: z.enum(["email", "sms"]),
+  status: z.literal("allowed"),
+  source: z.string().trim().min(1).max(120),
+  reason: z.string().trim().min(1).max(500),
+  evidenceReference: z.string().trim().min(1).max(300),
+  permissionRecordedAt: z.iso.datetime(),
+  expectedVersion: z.iso.datetime()
+}).strict();
+
+export const importModeSchema = z.enum(["create_only", "create_or_update"]);
+
+export const importCommitPreviewSchema = z.object({
+  expectedSourceDigest: digestSchema,
+  expectedPreviewVersion: z.iso.datetime()
+}).strict();
+
+export const serviceAccountCreateSchema = z.object({
+  name: z.string().trim().min(3).max(120),
+  delegatedAdminUserId: z.uuid(),
+  scopes: z.array(z.enum(automationScopes)).min(1).max(automationScopes.length),
+  expiresAt: z.iso.datetime().nullable().default(null)
+}).strict();
+
+export const serviceAccountUpdateSchema = z.object({
+  name: z.string().trim().min(3).max(120).optional(),
+  delegatedAdminUserId: z.uuid().optional(),
+  scopes: z.array(z.enum(automationScopes)).min(1).max(automationScopes.length).optional(),
+  isActive: z.boolean().optional(),
+  expiresAt: z.iso.datetime().nullable().optional()
+}).strict();
+
+export const tokenRotationSchema = z.object({
+  expiresAt: z.iso.datetime().nullable().default(null),
+  revokePreviousAfterHours: z.union([z.literal(0), z.literal(1), z.literal(24)]).default(0)
+}).strict();
+
+export const tokenRevokeSchema = z.object({
+  reason: z.string().trim().min(1).max(300).default("Administrative revocation")
+}).strict();

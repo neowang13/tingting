@@ -1,0 +1,892 @@
+openapi: 3.1.0
+info:
+  title: Ting Ting Automation API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: >
+    Private server-to-server API used by the Ting Ting OpenClaw operations
+    Skill. This file describes the implemented v1 surface; implementation remains
+    governed by the Markdown specifications in this directory.
+servers:
+  - url: https://{host}/api/automation/v1
+    variables:
+      host:
+        default: example.invalid
+security:
+  - bearerAuth: []
+tags:
+  - name: Rentals
+    description: Rental draft and publication operations
+  - name: Media
+    description: Private draft-media upload operations
+  - name: Tenants
+    description: Masked tenant record operations
+  - name: Imports
+    description: Tenant import preview and commit operations
+  - name: Schedules
+    description: Disabled-first reminder schedule operations
+  - name: Confirmations
+    description: Explicit preview confirmation execution
+  - name: Jobs
+    description: Health and asynchronous job status
+paths:
+  /health:
+    get:
+      summary: Get Automation API health
+      tags: [Jobs]
+      operationId: getAutomationHealth
+      responses:
+        "200":
+          description: Safe Automation API health and feature status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /rentals:
+    get:
+      summary: List rentals
+      tags: [Rentals]
+      operationId: listRentals
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/RentalStatus"
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 120
+      responses:
+        "200":
+          $ref: "#/components/responses/RentalCollection"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create a rental draft
+      tags: [Rentals]
+      operationId: createRentalDraft
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RentalInput"
+      responses:
+        "201":
+          description: Rental draft created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RentalResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /rentals/{rentalId}:
+    parameters:
+      - $ref: "#/components/parameters/RentalId"
+    get:
+      summary: Get a rental
+      tags: [Rentals]
+      operationId: getRental
+      responses:
+        "200":
+          description: Rental
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RentalResponse"
+        default:
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update a rental draft
+      tags: [Rentals]
+      operationId: updateRentalDraft
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rental, expectedVersion]
+              additionalProperties: false
+              properties:
+                rental:
+                  $ref: "#/components/schemas/RentalInput"
+                expectedVersion:
+                  $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Updated rental
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RentalResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /rentals/{rentalId}/status-previews:
+    post:
+      summary: Preview a rental status change
+      tags: [Rentals, Confirmations]
+      operationId: previewRentalStatus
+      parameters:
+        - $ref: "#/components/parameters/RentalId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action, expectedVersion]
+              additionalProperties: false
+              properties:
+                action:
+                  type: string
+                  enum: [publish, unpublish, archive]
+                expectedVersion:
+                  $ref: "#/components/schemas/Timestamp"
+      responses:
+        "201":
+          $ref: "#/components/responses/Confirmation"
+        default:
+          $ref: "#/components/responses/Error"
+  /media:
+    post:
+      summary: Upload a private draft media asset
+      tags: [Media]
+      operationId: uploadMedia
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, altText]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                altText:
+                  type: string
+                  minLength: 1
+                  maxLength: 160
+                sourceDigest:
+                  type: string
+                  pattern: "^sha256:[a-f0-9]{64}$"
+      responses:
+        "201":
+          description: Draft media asset
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenants:
+    get:
+      summary: List masked tenants
+      tags: [Tenants]
+      operationId: listTenants
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: q
+          in: query
+          schema:
+            type: string
+            maxLength: 120
+        - name: property
+          in: query
+          schema:
+            type: string
+            maxLength: 160
+      responses:
+        "200":
+          description: Masked tenant collection
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantCollectionResponse"
+        default:
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create a tenant
+      tags: [Tenants]
+      operationId: createTenant
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantInput"
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenants/{tenantId}:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      summary: Get a masked tenant
+      tags: [Tenants]
+      operationId: getTenant
+      responses:
+        "200":
+          description: Tenant and schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        default:
+          $ref: "#/components/responses/Error"
+    patch:
+      summary: Update a tenant
+      tags: [Tenants]
+      operationId: updateTenant
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, expectedVersion]
+              additionalProperties: false
+              properties:
+                tenant:
+                  $ref: "#/components/schemas/TenantInput"
+                expectedVersion:
+                  $ref: "#/components/schemas/Timestamp"
+      responses:
+        "200":
+          description: Tenant updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenants/{tenantId}/permission-previews:
+    post:
+      summary: Preview a contact permission grant
+      tags: [Tenants, Confirmations]
+      operationId: previewPermissionGrant
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PermissionGrantInput"
+      responses:
+        "201":
+          $ref: "#/components/responses/Confirmation"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenant-imports:
+    post:
+      summary: Create a tenant import preview
+      tags: [Imports]
+      operationId: createTenantImport
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, mode, sourceSystem]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                mode:
+                  type: string
+                  enum: [create_only, create_or_update]
+                sourceSystem:
+                  type: string
+                  minLength: 1
+                  maxLength: 60
+      responses:
+        "202":
+          description: Import accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenant-imports/{importId}:
+    get:
+      summary: Get a tenant import summary
+      tags: [Imports]
+      operationId: getTenantImport
+      parameters:
+        - $ref: "#/components/parameters/ImportId"
+      responses:
+        "200":
+          description: Import summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenant-imports/{importId}/rows:
+    get:
+      summary: List masked tenant import rows
+      tags: [Imports]
+      operationId: listTenantImportRows
+      parameters:
+        - $ref: "#/components/parameters/ImportId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+        - name: outcome
+          in: query
+          schema:
+            type: string
+            enum: [new, update, unchanged, duplicate, conflict, invalid]
+      responses:
+        "200":
+          description: Masked import row outcomes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenant-imports/{importId}/commit-previews:
+    post:
+      summary: Preview a tenant import commit
+      tags: [Imports, Confirmations]
+      operationId: previewTenantImportCommit
+      parameters:
+        - $ref: "#/components/parameters/ImportId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [expectedSourceDigest, expectedPreviewVersion]
+              additionalProperties: false
+              properties:
+                expectedSourceDigest:
+                  type: string
+                  pattern: "^sha256:[a-f0-9]{64}$"
+                expectedPreviewVersion:
+                  $ref: "#/components/schemas/Timestamp"
+      responses:
+        "201":
+          $ref: "#/components/responses/Confirmation"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenants/{tenantId}/schedule:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      summary: Get a tenant reminder schedule
+      tags: [Schedules]
+      operationId: getTenantSchedule
+      responses:
+        "200":
+          description: Schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+        default:
+          $ref: "#/components/responses/Error"
+    put:
+      summary: Save a disabled tenant reminder schedule
+      tags: [Schedules]
+      operationId: saveDisabledTenantSchedule
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [schedule, expectedVersion]
+              additionalProperties: false
+              properties:
+                schedule:
+                  $ref: "#/components/schemas/ScheduleInput"
+                expectedVersion:
+                  oneOf:
+                    - $ref: "#/components/schemas/Timestamp"
+                    - type: "null"
+      responses:
+        "200":
+          description: Disabled schedule saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /tenants/{tenantId}/schedule-status-previews:
+    post:
+      summary: Preview a schedule status change
+      tags: [Schedules, Confirmations]
+      operationId: previewScheduleStatus
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled, expectedVersion]
+              additionalProperties: false
+              properties:
+                enabled:
+                  type: boolean
+                expectedVersion:
+                  $ref: "#/components/schemas/Timestamp"
+      responses:
+        "201":
+          $ref: "#/components/responses/Confirmation"
+        default:
+          $ref: "#/components/responses/Error"
+  /confirmations/{confirmationId}/execute:
+    post:
+      summary: Execute a confirmed operation
+      tags: [Confirmations]
+      operationId: executeConfirmation
+      parameters:
+        - $ref: "#/components/parameters/ConfirmationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [digest, acknowledged]
+              additionalProperties: false
+              properties:
+                digest:
+                  type: string
+                  pattern: "^sha256:[a-f0-9]{64}$"
+                acknowledged:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Confirmation executed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+        default:
+          $ref: "#/components/responses/Error"
+  /jobs/{jobId}:
+    get:
+      summary: Get an automation job
+      tags: [Jobs]
+      operationId: getJob
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+        default:
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-service-token
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    RentalId:
+      name: rentalId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TenantId:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ImportId:
+      name: importId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConfirmationId:
+      name: confirmationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobId:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Timestamp:
+      type: string
+      format: date-time
+    RentalStatus:
+      type: string
+      enum: [draft, published, archived]
+    Channel:
+      type: string
+      enum: [email, sms]
+    ContactStatus:
+      type: string
+      enum:
+        - unconfirmed
+        - allowed
+        - opted_out
+        - invalid
+        - bounced
+        - complained
+        - suppressed
+    RentalImageInput:
+      type: object
+      additionalProperties: false
+      required: [mediaAssetId, sortOrder, isCover]
+      properties:
+        mediaAssetId:
+          type: string
+          format: uuid
+        sortOrder:
+          type: integer
+          minimum: 0
+        isCover:
+          type: boolean
+    RentalInput:
+      type: object
+      additionalProperties: false
+      required:
+        - slug
+        - title
+        - addressLine
+        - city
+        - monthlyRentCents
+        - bedrooms
+        - bathrooms
+        - description
+        - sortOrder
+        - images
+      properties:
+        sourceSystem:
+          type: string
+          maxLength: 60
+          default: openclaw
+        externalReference:
+          type: [string, "null"]
+          maxLength: 120
+        slug:
+          type: string
+          minLength: 2
+          maxLength: 100
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        addressLine:
+          type: string
+          minLength: 1
+          maxLength: 160
+        neighbourhood:
+          type: [string, "null"]
+          maxLength: 100
+        city:
+          type: string
+          minLength: 1
+          maxLength: 100
+        monthlyRentCents:
+          type: integer
+          minimum: 1
+        bedrooms:
+          type: number
+          minimum: 0
+          maximum: 20
+        bathrooms:
+          type: number
+          minimum: 0
+          maximum: 20
+        squareFeet:
+          type: [integer, "null"]
+          minimum: 1
+        availableOn:
+          type: [string, "null"]
+          format: date
+        petPolicy:
+          type: [string, "null"]
+          maxLength: 240
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        sortOrder:
+          type: integer
+          default: 0
+        images:
+          type: array
+          maxItems: 20
+          items:
+            $ref: "#/components/schemas/RentalImageInput"
+    TenantInput:
+      type: object
+      additionalProperties: false
+      required: [fullName, propertyLabel, preferredChannels, timezone, isActive]
+      properties:
+        sourceSystem:
+          type: string
+          maxLength: 60
+          default: openclaw
+        externalReference:
+          type: [string, "null"]
+          maxLength: 120
+        fullName:
+          type: string
+          minLength: 1
+          maxLength: 120
+        propertyLabel:
+          type: string
+          minLength: 1
+          maxLength: 160
+        unitLabel:
+          type: [string, "null"]
+          maxLength: 60
+        email:
+          type: [string, "null"]
+          format: email
+        phoneE164:
+          type: [string, "null"]
+          pattern: "^\\+[1-9]\\d{7,14}$"
+        preferredChannels:
+          type: array
+          uniqueItems: true
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/Channel"
+        emailContactStatus:
+          $ref: "#/components/schemas/ContactStatus"
+        smsContactStatus:
+          type: string
+          enum: [unconfirmed, allowed, opted_out, invalid, suppressed]
+        timezone:
+          type: string
+          default: America/Vancouver
+        internalNotes:
+          type: [string, "null"]
+          maxLength: 2000
+        isActive:
+          type: boolean
+          default: true
+    PermissionGrantInput:
+      type: object
+      additionalProperties: false
+      required:
+        - channel
+        - status
+        - source
+        - reason
+        - evidenceReference
+        - permissionRecordedAt
+        - expectedVersion
+      properties:
+        channel:
+          $ref: "#/components/schemas/Channel"
+        status:
+          type: string
+          const: allowed
+        source:
+          type: string
+          minLength: 1
+          maxLength: 120
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+        evidenceReference:
+          type: string
+          minLength: 1
+          maxLength: 300
+        permissionRecordedAt:
+          $ref: "#/components/schemas/Timestamp"
+        expectedVersion:
+          $ref: "#/components/schemas/Timestamp"
+    ScheduleInput:
+      type: object
+      additionalProperties: false
+      required:
+        - rentDueDay
+        - dayOfMonth
+        - localTime
+        - timezone
+        - channels
+        - isEnabled
+      properties:
+        rentDueDay:
+          type: integer
+          minimum: 1
+          maximum: 31
+        dayOfMonth:
+          type: integer
+          minimum: 1
+          maximum: 31
+        localTime:
+          type: string
+          pattern: "^\\d{2}:\\d{2}$"
+        timezone:
+          type: string
+          default: America/Vancouver
+        channels:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Channel"
+        emailTemplateId:
+          type: [string, "null"]
+          format: uuid
+        smsTemplateId:
+          type: [string, "null"]
+          format: uuid
+        isEnabled:
+          type: boolean
+          const: false
+    SuccessResponse:
+      type: object
+      required: [success, data, requestId]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data: {}
+        requestId:
+          type: string
+          format: uuid
+    RentalResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    MediaResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    TenantResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    ScheduleResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    JobResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    TenantCollectionResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessResponse"
+    ErrorResponse:
+      type: object
+      required: [success, error, requestId]
+      properties:
+        success:
+          type: boolean
+          const: false
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details: {}
+        requestId:
+          type: string
+          format: uuid
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    RentalCollection:
+      description: Rental collection
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SuccessResponse"
+    Confirmation:
+      description: Confirmation intent
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/SuccessResponse"

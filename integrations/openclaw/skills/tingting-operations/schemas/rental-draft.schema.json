@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["slug", "title", "addressLine", "city", "monthlyRentCents", "bedrooms", "bathrooms", "description", "sortOrder", "images"],
+  "properties": {
+    "sourceSystem": { "type": "string", "maxLength": 60, "default": "openclaw" },
+    "externalReference": { "type": ["string", "null"], "maxLength": 120 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "minLength": 2, "maxLength": 100 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "addressLine": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "city": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "monthlyRentCents": { "type": "integer", "minimum": 1 },
+    "bedrooms": { "type": "number", "minimum": 0, "maximum": 20 },
+    "bathrooms": { "type": "number", "minimum": 0, "maximum": 20 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 5000 },
+    "sortOrder": { "type": "integer" },
+    "images": { "type": "array", "maxItems": 20 }
+  }
+}
+

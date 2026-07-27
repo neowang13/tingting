@@ -1,0 +1,16 @@
+{
+  "name": "@tingting/openclaw-operations",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "tingtingctl": "./skills/tingting-operations/scripts/tingtingctl.mjs"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
+
