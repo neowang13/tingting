@@ -126,6 +126,10 @@ export interface Tenant extends Versioned {
   isActive: boolean;
   archivedAt: string | null;
   createdAt: string;
+  scheduleStatus?: "enabled" | "disabled" | "missing";
+  nextRunAt?: string | null;
+  lastDeliveryStatus?: NotificationStatus | null;
+  lastDeliveryAt?: string | null;
 }
 
 export interface NotificationTemplate extends Versioned {
@@ -203,6 +207,23 @@ export interface DashboardSummary {
   latestWorkerStatus: string | null;
   oldestEligibleEventAt: string | null;
   warnings: string[];
+}
+
+export interface TenantListFilters {
+  query?: string;
+  lifecycle?: "active" | "inactive" | "archived";
+  contact?: "email_allowed" | "email_blocked" | "sms_allowed" | "sms_blocked";
+  schedule?: "enabled" | "disabled" | "missing";
+  limit?: number;
+}
+
+export interface NotificationEventFilters {
+  tenantId?: string;
+  channel?: Channel;
+  status?: NotificationStatus;
+  scheduledFrom?: string;
+  scheduledTo?: string;
+  limit?: number;
 }
 
 export interface TestContacts {

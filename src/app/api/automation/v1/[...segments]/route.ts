@@ -514,7 +514,7 @@ export async function POST(request: Request, context: Context) {
           "selected_recipients_and_channels_reviewed"
         ];
         if (
-          health.providerMode === "live" &&
+          (health.emailProviderMode === "live" || health.smsProviderMode === "live") &&
           !health.remindersForcePaused &&
           !health.remindersGlobalPaused
         ) requiredAcknowledgements.push("real_delivery_warning");
@@ -532,7 +532,8 @@ export async function POST(request: Request, context: Context) {
                 ? `The existing reminder worker will evaluate this schedule. Next candidate: ${nextRunAt}.`
                 : "Future occurrences will no longer be materialized."
             ],
-            warnings: health.effectiveReminderPause || health.providerMode !== "live"
+            warnings: health.effectiveReminderPause ||
+              (health.emailProviderMode !== "live" && health.smsProviderMode !== "live")
               ? ["Real delivery remains blocked by the current pause/provider safety state."]
               : ["Real delivery is active after confirmation."]
           },

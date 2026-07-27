@@ -20,6 +20,14 @@ Third-party accounts are intentionally not provisioned. Local delivery is
 mocked; the production blueprint is disabled and force-paused. No deployment,
 real email, or real SMS was performed.
 
+The 2026-07-26 completion pass additionally closed the production Admin
+authentication gap, added a fail-closed Supabase Cookie/MFA E2E suite, completed
+tenant projections and filters, pre-save schedule calculation, UTC
+`scheduledFor` filtering, recent dashboard sends, signed three-step test-send
+confirmation, and authentication security audits. The Render blueprint now
+includes an authenticated five-minute Cron whose paused path can claim only
+administrator-destination test events.
+
 ## Architecture and safety boundaries
 
 - Next.js App Router serves public pages, Admin, and server-only API routes.
@@ -46,39 +54,39 @@ real email, or real SMS was performed.
   revision/rollback, media library, rental editor, tenant/contact permission
   editor, schedules, template revisions/previews, safe test destinations,
   manual batch preview and exact-count confirmation, delivery history, retry,
-  global pause, provider mode, and explicit logout.
+  global pause, per-channel provider modes, and explicit logout.
 - Authentication: owner-provisioned Supabase users, active profile check, TOTP
   enrollment/challenge, AAL2 enforcement, recent-auth checks for sensitive
   actions, 30-minute idle expiry, and 12-hour absolute expiry.
 
 ## Database evidence
 
-Migrations `202607240001` through `202607260013` apply cleanly to PostgreSQL 17.
+Migrations `202607240001` through `202607260017` apply cleanly to PostgreSQL 17.
 The behavioral SQL suite verifies content publishing/revisions/audit, immutable
 template creation, tenant audit writes, forced pause, schedule materialization,
 manual batch freezing/confirmation, outbox claim, retry and completion,
 90-day redaction, and once-daily maintenance idempotency.
 
-The latest local automated result is 63 unit/service tests passed. Sixteen
-live-Supabase RLS tests are included and skip when `TEST_SUPABASE_URL` and
-`TEST_SUPABASE_ANON_KEY` are unavailable. They must pass against the provisioned
-project before real tenant import. Two production-build Playwright journeys also
-pass in system Chrome, including axe WCAG 2.2 AA checks, responsive breakpoints,
-search/detail/form behavior, every required Admin module, the content editor,
-Automation service-account token flow, and logout. Seven OpenClaw fake-server
-and policy tests also pass.
+The latest local automated result is 93 unit/service tests passed. Sixteen
+Supabase RLS tests passed against a dedicated local project. Two demo-mode
+Playwright journeys and one independent production-mode Supabase journey pass
+in Chrome. The production journey uses a real SSR Cookie Session and TOTP AAL2,
+never a memory fallback or browser-managed Bearer token, and covers critical
+writes, frozen batches, auth audit evidence, paused mock test dispatch, and
+repeatable test data. Seven OpenClaw fake-server and policy tests also pass.
 
 ## External decisions and launch blockers
 
-- Supabase, Render, Resend, Twilio, sender domain, and production domain are not
-  yet created.
+- Production Supabase, Render, Resend, sender domain, and production domain are
+  not yet configured in this workspace. Twilio/SMS is Owner-deferred and is not
+  part of the Email-only launch scope.
 - OpenClaw has not been connected to a real account or production token.
 - The owner must approve final images, sender identity, templates, test
   contacts, tenant import, and the archived-tenant retention period.
-- RLS integration tests and live callback/dry-run checks require the external
-  credentials above.
-- Provider mode must remain `disabled` and reminders force-paused until those
-  checks pass.
+- Real callback/dry-run checks require the external credentials above; RLS and
+  production-auth flows have passed against dedicated local Supabase.
+- Email must remain `disabled` and reminders force-paused until the Email
+  checks pass. SMS must remain `disabled` throughout this launch.
 
 The implementation is code-complete, but it must not be described as live
 production-ready until the external provisioning and credential-dependent

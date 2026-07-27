@@ -32,8 +32,39 @@ export function TenantEditor({
   const [schedule, setSchedule] = useState(initial?.schedule ?? null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("No unsaved changes.");
+  const [nextRunPreview, setNextRunPreview] = useState<{
+    nextRunAt: string | null;
+    timezone: string;
+    error: string | null;
+  }>({
+    nextRunAt: schedule?.nextRunAt ?? null,
+    timezone: schedule?.timezone ?? initial?.tenant.timezone ?? "America/Vancouver",
+    error: null
+  });
   const emailTemplates = templates.filter((template) => template.channel === "email" && template.isActive);
   const smsTemplates = templates.filter((template) => template.channel === "sms" && template.isActive);
+
+  async function previewSchedule(form: HTMLFormElement) {
+    const data = new FormData(form);
+    const dayOfMonth = Number(data.get("dayOfMonth"));
+    const localTime = String(data.get("localTime"));
+    const timezone = String(data.get("timezone"));
+    if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31 || !localTime || !timezone) {
+      setNextRunPreview({ nextRunAt: null, timezone, error: "Enter a valid day, time, and timezone." });
+      return;
+    }
+    const response = await fetch("/api/admin/schedules/next-run", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ dayOfMonth, localTime, timezone })
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      setNextRunPreview({ nextRunAt: null, timezone, error: "Enter a valid IANA timezone." });
+      return;
+    }
+    setNextRunPreview({ ...result.data, error: null });
+  }
 
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -191,7 +222,11 @@ export function TenantEditor({
       </form>
 
       {tenant && (
-        <form className="card admin-form" onSubmit={saveSchedule}>
+        <form
+          className="card admin-form"
+          onSubmit={saveSchedule}
+          onInput={(event) => void previewSchedule(event.currentTarget)}
+        >
           <div className="admin-card-heading">
             <div><p className="eyebrow">MONTHLY REMINDER</p><h2>Schedule</h2></div>
             <span className={`status ${schedule?.isEnabled ? "published" : "draft"}`}>
@@ -222,9 +257,12 @@ export function TenantEditor({
             </label>
             <label className="check-field field-wide"><input name="isEnabled" type="checkbox" defaultChecked={schedule?.isEnabled} /> Enable automatic reminders</label>
           </div>
-          {schedule?.nextRunAt && (
-            <p className="next-run">Next reminder: {new Date(schedule.nextRunAt).toLocaleString("en-CA", { timeZone: schedule.timezone })} ({schedule.timezone})</p>
+          {nextRunPreview.nextRunAt && (
+            <p className="next-run">
+              Next reminder before save: {new Date(nextRunPreview.nextRunAt).toLocaleString("en-CA", { timeZone: nextRunPreview.timezone })} ({nextRunPreview.timezone})
+            </p>
           )}
+          {nextRunPreview.error && <p className="warning-callout">{nextRunPreview.error}</p>}
           <button className="button secondary" disabled={busy} type="submit">Save schedule</button>
         </form>
       )}

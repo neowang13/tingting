@@ -21,9 +21,11 @@ services:
         value: America/Vancouver
       - key: REMINDERS_FORCE_PAUSED
         value: "true"
-      # Keep all outbound delivery disabled until Resend and Twilio have been
+      # Keep each outbound channel disabled until its provider has been
       # provisioned and an authorized production dry run has passed.
-      - key: NOTIFICATION_PROVIDER_MODE
+      - key: EMAIL_PROVIDER_MODE
+        value: disabled
+      - key: SMS_PROVIDER_MODE
         value: disabled
       - key: AUTOMATION_API_ENABLED
         value: "false"
@@ -67,5 +69,23 @@ services:
         sync: false
       - key: TWILIO_MESSAGING_SERVICE_SID
         sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
       - key: TWILIO_STATUS_CALLBACK_URL
+        sync: false
+  - type: cron
+    name: tingting-reminder-cron
+    runtime: node
+    plan: starter
+    region: oregon
+    schedule: "*/5 * * * *"
+    buildCommand: corepack enable && pnpm install --frozen-lockfile
+    startCommand: pnpm exec tsx scripts/invoke-reminder-cron.ts
+    autoDeployTrigger: commit
+    envVars:
+      # Enter the exact same public HTTPS URL and Cron secret used by the web
+      # service. The command never prints the secret or response body.
+      - key: APP_BASE_URL
+        sync: false
+      - key: REMINDER_CRON_SECRET
         sync: false

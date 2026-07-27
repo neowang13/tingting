@@ -5,6 +5,8 @@ import {
   normalizePhoneE164
 } from "@/features/tenants/contact-utils";
 
+const isoTimestampSchema = z.iso.datetime({ offset: true });
+
 function isValidTimezone(value: string) {
   try {
     new Intl.DateTimeFormat("en-CA", { timeZone: value }).format();
@@ -15,7 +17,7 @@ function isValidTimezone(value: string) {
 }
 
 export const expectedVersionSchema = z.object({
-  expectedVersion: z.iso.datetime()
+  expectedVersion: isoTimestampSchema
 });
 
 export const rentalInputSchema = z
@@ -51,6 +53,44 @@ export const rentalInputSchema = z
   });
 
 const channelSchema = z.enum(["email", "sms"]);
+const notificationStatusSchema = z.enum([
+  "scheduled",
+  "processing",
+  "queued",
+  "sent",
+  "delivered",
+  "failed",
+  "undelivered",
+  "skipped",
+  "unknown",
+  "expired",
+  "cancelled"
+]);
+
+export const tenantListFilterSchema = z.object({
+  query: z.string().trim().max(120).optional(),
+  lifecycle: z.enum(["active", "inactive", "archived"]).optional(),
+  contact: z.enum(["email_allowed", "email_blocked", "sms_allowed", "sms_blocked"]).optional(),
+  schedule: z.enum(["enabled", "disabled", "missing"]).optional(),
+  limit: z.number().int().min(1).max(500).optional()
+}).strict();
+
+export const notificationEventFilterSchema = z.object({
+  tenantId: z.uuid().optional(),
+  channel: channelSchema.optional(),
+  status: notificationStatusSchema.optional(),
+  start: z.iso.date().optional(),
+  end: z.iso.date().optional(),
+  limit: z.number().int().min(1).max(500).optional()
+}).strict().superRefine((value, context) => {
+  if (value.start && value.end && value.start > value.end) {
+    context.addIssue({
+      code: "custom",
+      path: ["end"],
+      message: "The end date must be on or after the start date."
+    });
+  }
+});
 
 export const tenantInputSchema = z
   .object({
@@ -77,7 +117,7 @@ export const tenantInputSchema = z
     emailContactStatusSource: z.string().trim().max(120).nullable().default(null),
     smsContactStatusSource: z.string().trim().max(120).nullable().default(null),
     contactPermissionNote: z.string().trim().max(1000).nullable().default(null),
-    contactPermissionUpdatedAt: z.iso.datetime().nullable().default(null),
+    contactPermissionUpdatedAt: isoTimestampSchema.nullable().default(null),
     timezone: z.string().refine(isValidTimezone, "Enter a valid IANA timezone.").default("America/Vancouver"),
     internalNotes: z.string().max(2000).nullable().default(null),
     isActive: z.boolean().default(true)
@@ -104,6 +144,12 @@ export const scheduleInputSchema = z
     isEnabled: z.boolean().default(false)
   })
   .strict();
+
+export const schedulePreviewSchema = z.object({
+  dayOfMonth: z.number().int().min(1).max(31),
+  localTime: z.string().regex(/^\d{2}:\d{2}$/),
+  timezone: z.string().refine(isValidTimezone, "Enter a valid IANA timezone.")
+}).strict();
 
 export const templateInputSchema = z
   .object({
@@ -164,14 +210,14 @@ export const batchConfirmSchema = z
 export const pauseInputSchema = z
   .object({
     paused: z.boolean(),
-    expectedVersion: z.iso.datetime()
+    expectedVersion: isoTimestampSchema
   })
   .strict();
 
 export const testContactsInputSchema = z.object({
   email: z.email().nullable(),
   phoneE164: z.string().regex(/^\+[1-9]\d{7,14}$/).nullable(),
-  expectedVersion: z.iso.datetime()
+  expectedVersion: isoTimestampSchema
 }).strict();
 
 export const testNotificationSchema = z.object({
@@ -179,6 +225,10 @@ export const testNotificationSchema = z.object({
   channel: channelSchema,
   templateId: z.uuid(),
   requestId: z.uuid()
+}).strict();
+
+export const testNotificationConfirmationSchema = testNotificationSchema.extend({
+  previewToken: z.string().min(40).max(4096)
 }).strict();
 
 export const contactInputSchema = z

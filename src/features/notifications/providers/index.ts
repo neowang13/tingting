@@ -16,48 +16,76 @@ import type {
 
 export type NotificationProviderMode = "mock" | "disabled" | "live";
 
+export interface NotificationProviderModes {
+  email: NotificationProviderMode;
+  sms: NotificationProviderMode;
+}
+
 export interface NotificationProviders {
-  mode: NotificationProviderMode;
+  emailMode: NotificationProviderMode;
+  smsMode: NotificationProviderMode;
   email: EmailProvider;
   sms: SmsProvider;
 }
 
-export function resolveNotificationProviderMode(
-  configuredMode = process.env.NOTIFICATION_PROVIDER_MODE
+function resolveProviderMode(
+  channel: "EMAIL" | "SMS",
+  configuredMode: string | undefined,
+  fallback: NotificationProviderMode
 ): NotificationProviderMode {
-  const mode = configuredMode || (process.env.NODE_ENV === "production" ? "disabled" : "mock");
+  const mode = configuredMode || fallback;
   if (mode === "mock" || mode === "disabled" || mode === "live") return mode;
 
   throw new ApiError(
     500,
-    "INVALID_NOTIFICATION_PROVIDER_MODE",
-    "NOTIFICATION_PROVIDER_MODE must be mock, disabled, or live."
+    `INVALID_${channel}_PROVIDER_MODE`,
+    `${channel}_PROVIDER_MODE must be mock, disabled, or live.`
   );
 }
 
-export function createNotificationProviders(
-  mode = resolveNotificationProviderMode()
-): NotificationProviders {
-  if (mode === "live") {
-    return {
-      mode,
-      email: new ResendEmailProvider(),
-      sms: new TwilioSmsProvider()
-    };
-  }
+export function resolveEmailProviderMode(
+  configuredMode = process.env.EMAIL_PROVIDER_MODE
+): NotificationProviderMode {
+  return resolveProviderMode(
+    "EMAIL",
+    configuredMode,
+    process.env.NODE_ENV === "production" ? "disabled" : "mock"
+  );
+}
 
-  if (mode === "mock") {
-    return {
-      mode,
-      email: new MockEmailProvider(),
-      sms: new MockSmsProvider()
-    };
-  }
+export function resolveSmsProviderMode(
+  configuredMode = process.env.SMS_PROVIDER_MODE
+): NotificationProviderMode {
+  return resolveProviderMode("SMS", configuredMode, "disabled");
+}
 
+export function resolveNotificationProviderModes(): NotificationProviderModes {
   return {
-    mode,
-    email: new DisabledEmailProvider(),
-    sms: new DisabledSmsProvider()
+    email: resolveEmailProviderMode(),
+    sms: resolveSmsProviderMode()
+  };
+}
+
+function createEmailProvider(mode: NotificationProviderMode): EmailProvider {
+  if (mode === "live") return new ResendEmailProvider();
+  if (mode === "mock") return new MockEmailProvider();
+  return new DisabledEmailProvider();
+}
+
+function createSmsProvider(mode: NotificationProviderMode): SmsProvider {
+  if (mode === "live") return new TwilioSmsProvider();
+  if (mode === "mock") return new MockSmsProvider();
+  return new DisabledSmsProvider();
+}
+
+export function createNotificationProviders(
+  modes = resolveNotificationProviderModes()
+): NotificationProviders {
+  return {
+    emailMode: modes.email,
+    smsMode: modes.sms,
+    email: createEmailProvider(modes.email),
+    sms: createSmsProvider(modes.sms)
   };
 }
 

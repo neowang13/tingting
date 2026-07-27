@@ -5,7 +5,8 @@ describe("reminder worker capacity", () => {
   beforeEach(() => {
     store.reset();
     process.env.REMINDERS_FORCE_PAUSED = "false";
-    process.env.NOTIFICATION_PROVIDER_MODE = "mock";
+    process.env.EMAIL_PROVIDER_MODE = "mock";
+    process.env.SMS_PROVIDER_MODE = "mock";
     process.env.MOCK_PROVIDER_LATENCY_MS = "15";
   });
 

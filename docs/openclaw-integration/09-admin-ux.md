@@ -40,7 +40,7 @@ Display:
 - Active/expired confirmation-intent counts.
 - Imports awaiting resolution or confirmation.
 - Current data backend.
-- Current provider mode.
+- Current email and SMS provider modes.
 - Effective reminder force-pause/global-pause state.
 
 Warnings:
@@ -50,7 +50,7 @@ Production tenant import is unavailable while DATA_BACKEND=memory.
 Automation mutations are disabled.
 OpenClaw token expires in 7 days.
 One tenant import has unresolved conflicts.
-Provider mode is live while reminder force pause is off.
+At least one provider mode is live while reminder force pause is off.
 ```
 
 The page must never show raw tokens, full tenant contact data, imported rows, or

@@ -4,13 +4,14 @@ import { collectMediaAssetIds } from "@/features/content/media-service";
 import { nextOccurrence } from "@/features/reminders/scheduler";
 import {
   createNotificationProviders,
-  resolveNotificationProviderMode
+  resolveNotificationProviderModes
 } from "@/features/notifications/providers";
 import { ApiError } from "@/lib/api";
 import type {
   DashboardSummary,
   NotificationBatch,
   NotificationEvent,
+  NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
   RentalListing,
@@ -18,6 +19,7 @@ import type {
   SectionKey,
   SiteSection,
   Tenant,
+  TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
 import {
@@ -156,7 +158,7 @@ function mapRental(value: unknown): RentalListing {
 
 function mapTenant(value: unknown): Tenant {
   const row = asRow(value);
-  return {
+  const tenant: Tenant = {
     id: text(row, "id"),
     fullName: text(row, "full_name"),
     propertyLabel: text(row, "property_label"),
@@ -179,6 +181,13 @@ function mapTenant(value: unknown): Tenant {
     createdAt: text(row, "created_at"),
     updatedAt: text(row, "updated_at")
   };
+  if ("schedule_status" in row) {
+    tenant.scheduleStatus = text(row, "schedule_status") as Tenant["scheduleStatus"];
+    tenant.nextRunAt = nullableText(row, "next_run_at");
+    tenant.lastDeliveryStatus = nullableText(row, "last_delivery_status") as Tenant["lastDeliveryStatus"];
+    tenant.lastDeliveryAt = nullableText(row, "last_delivery_at");
+  }
+  return tenant;
 }
 
 function mapSchedule(value: unknown): ReminderSchedule {
@@ -453,8 +462,21 @@ export class SupabaseRepository implements DataRepository {
       : mapSchedule(result);
   }
 
-  async listTenants() {
-    const { data, error } = await this.client().from("tenants").select("*").order("full_name");
+  async listTenants(filters: TenantListFilters = {}) {
+    let query = this.client().from("admin_tenant_list").select("*").order("full_name");
+    const search = filters.query?.trim().replace(/[%_,().]/g, "");
+    if (search) {
+      query = query.or(`full_name.ilike.%${search}%,property_label.ilike.%${search}%,unit_label.ilike.%${search}%`);
+    }
+    if (filters.lifecycle === "active") query = query.eq("is_active", true).is("archived_at", null);
+    if (filters.lifecycle === "inactive") query = query.eq("is_active", false).is("archived_at", null);
+    if (filters.lifecycle === "archived") query = query.not("archived_at", "is", null);
+    if (filters.contact === "email_allowed") query = query.eq("email_contact_status", "allowed");
+    if (filters.contact === "email_blocked") query = query.neq("email_contact_status", "allowed");
+    if (filters.contact === "sms_allowed") query = query.eq("sms_contact_status", "allowed");
+    if (filters.contact === "sms_blocked") query = query.neq("sms_contact_status", "allowed");
+    if (filters.schedule) query = query.eq("schedule_status", filters.schedule);
+    const { data, error } = await query.limit(Math.min(Math.max(filters.limit ?? 500, 1), 500));
     if (error) databaseError(error);
     return asRows(data).map(mapTenant);
   }
@@ -543,12 +565,17 @@ export class SupabaseRepository implements DataRepository {
     }));
   }
 
-  async listEvents() {
-    const { data, error } = await this.client()
+  async listEvents(filters: NotificationEventFilters = {}) {
+    let query = this.client()
       .from("notification_events")
       .select("id,tenant_id,source,channel,occurrence_key,occurrence_local_date,scheduled_for,status,destination_masked,provider,provider_message_id,provider_status,attempt_count,last_error_code,created_at,updated_at")
-      .order("created_at", { ascending: false })
-      .limit(500);
+      .order("scheduled_for", { ascending: false });
+    if (filters.tenantId) query = query.eq("tenant_id", filters.tenantId);
+    if (filters.channel) query = query.eq("channel", filters.channel);
+    if (filters.status) query = query.eq("status", filters.status);
+    if (filters.scheduledFrom) query = query.gte("scheduled_for", filters.scheduledFrom);
+    if (filters.scheduledTo) query = query.lte("scheduled_for", filters.scheduledTo);
+    const { data, error } = await query.limit(Math.min(Math.max(filters.limit ?? 500, 1), 500));
     if (error) databaseError(error);
     return asRows(data).map(mapEvent);
   }
@@ -656,16 +683,17 @@ export class SupabaseRepository implements DataRepository {
       p_now: new Date(startedAt).toISOString(),
       p_force_paused: process.env.REMINDERS_FORCE_PAUSED !== "false"
     }));
-    if (materialized.status === "paused") return materialized;
-
-    const runId = text(materialized, "id");
     const claimToken = crypto.randomUUID();
-    const claimed = asRows(await this.rpc("claim_notification_events", {
+    const paused = materialized.status === "paused";
+    const claimed = asRows(await this.rpc(
+      paused ? "claim_test_notification_events" : "claim_notification_events",
+      {
       p_now: new Date().toISOString(),
-      p_limit: 200,
+      p_limit: paused ? 20 : 200,
       p_claim_token: claimToken
-    }));
-    const providerSet = createNotificationProviders(resolveNotificationProviderMode());
+      }
+    ));
+    const providerSet = createNotificationProviders(resolveNotificationProviderModes());
     let dispatched = 0;
     let failed = 0;
 
@@ -679,6 +707,14 @@ export class SupabaseRepository implements DataRepository {
       failed += outcomes.filter((outcome) => outcome === "failed").length;
     }
 
+    if (paused) {
+      return {
+        ...materialized,
+        test_events_dispatched: dispatched,
+        test_events_failed: failed
+      };
+    }
+    const runId = text(materialized, "id");
     return this.rpc("finish_reminder_worker_run", {
       p_run_id: runId,
       p_dispatched: dispatched,
@@ -730,10 +766,15 @@ export class SupabaseRepository implements DataRepository {
     providerSet: ReturnType<typeof createNotificationProviders>
   ): Promise<"dispatched" | "failed" | "skipped"> {
     const eventId = text(claimedEvent, "id");
-    const prepared = asRow(await this.rpc("begin_notification_attempt", {
+    const prepared = asRow(await this.rpc(
+      claimedEvent.source === "test"
+        ? "begin_test_notification_attempt"
+        : "begin_notification_attempt",
+      {
       p_event_id: eventId,
       p_claim_token: claimToken
-    }));
+      }
+    ));
     if (prepared.status !== "processing") return "skipped";
 
     const channel = text(prepared, "channel");

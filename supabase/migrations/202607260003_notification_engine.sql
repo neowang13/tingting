@@ -225,7 +225,10 @@ begin
   )
   select
     (select count(*) from selected),
-    encode(digest(coalesce(string_agg(id::text || ':' || channel, ',' order by id, channel), ''), 'sha256'), 'hex')
+    encode(extensions.digest(
+      coalesce(string_agg(id::text || ':' || channel, ',' order by id, channel), ''),
+      'sha256'
+    ), 'hex')
   into v_selected_count, v_digest
   from rows;
 

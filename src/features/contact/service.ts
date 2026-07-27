@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 import {
   createNotificationProviders,
-  resolveNotificationProviderMode
+  resolveEmailProviderMode
 } from "@/features/notifications/providers";
 import { ApiError } from "@/lib/api";
 import { contactInputSchema } from "@/lib/schemas";
@@ -76,9 +76,9 @@ export async function submitContactEnquiry(payload: unknown, request: Request) {
     }
 
     const recipient = process.env.CONTACT_TO_EMAIL;
-    const mode = resolveNotificationProviderMode();
+    const mode = resolveEmailProviderMode();
     if (recipient && mode !== "disabled") {
-      const provider = createNotificationProviders(mode).email;
+      const provider = createNotificationProviders({ email: mode, sms: "disabled" }).email;
       const text = [
         `Name: ${input.name}`,
         `Preferred contact: ${input.preferredContact}`,

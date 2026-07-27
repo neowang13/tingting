@@ -1,18 +1,34 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const IDLE_TIMEOUT_MS = 30 * 60_000;
+const ABSOLUTE_TIMEOUT_MS = 12 * 60 * 60_000;
+
+function readTrackingTime(value: string | undefined, fallback: number) {
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function sessionExpired(request: NextRequest, now: number) {
+  const lastActive = readTrackingTime(request.cookies.get("tt-last-active")?.value, now);
+  const sessionStarted = readTrackingTime(request.cookies.get("tt-session-started")?.value, now);
+  return (
+    now - lastActive > IDLE_TIMEOUT_MS ||
+    now - sessionStarted > ABSOLUTE_TIMEOUT_MS ||
+    lastActive > now + 60_000 ||
+    sessionStarted > now + 60_000
+  );
+}
+
 export async function proxy(request: NextRequest) {
   if (process.env.DATA_BACKEND !== "supabase") {
     if (request.nextUrl.pathname === "/admin/login") return NextResponse.next();
 
     const response = NextResponse.next({ request });
     const now = Date.now();
-    const lastActive = Number(request.cookies.get("tt-last-active")?.value ?? now);
-    const sessionStarted = Number(request.cookies.get("tt-session-started")?.value ?? now);
-    const idleExpired = now - lastActive > 30 * 60_000;
-    const absoluteExpired = now - sessionStarted > 12 * 60 * 60_000;
 
-    if (idleExpired || absoluteExpired) {
+    if (sessionExpired(request, now)) {
       const loginUrl = new URL("/admin/login?error=session_expired", request.url);
       const redirectResponse = NextResponse.redirect(loginUrl);
       redirectResponse.cookies.delete("tt-admin-session");
@@ -59,15 +75,15 @@ export async function proxy(request: NextRequest) {
   await supabase.auth.getUser();
 
   const now = Date.now();
-  const lastActive = Number(request.cookies.get("tt-last-active")?.value ?? now);
-  const sessionStarted = Number(request.cookies.get("tt-session-started")?.value ?? now);
-  const idleExpired = now - lastActive > 30 * 60_000;
-  const absoluteExpired = now - sessionStarted > 12 * 60 * 60_000;
-
-  if (idleExpired || absoluteExpired) {
+  if (sessionExpired(request, now)) {
     await supabase.auth.signOut();
-    const loginUrl = new URL("/admin/login?error=session_expired", request.url);
-    return NextResponse.redirect(loginUrl);
+    response.cookies.delete("tt-last-active");
+    response.cookies.delete("tt-session-started");
+    if (!request.nextUrl.pathname.startsWith("/api/admin/")) {
+      const loginUrl = new URL("/admin/login?error=session_expired", request.url);
+      return NextResponse.redirect(loginUrl);
+    }
+    return response;
   }
 
   const secure = request.nextUrl.protocol === "https:";

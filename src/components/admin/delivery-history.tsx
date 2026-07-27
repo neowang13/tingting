@@ -14,6 +14,8 @@ export function DeliveryHistory({
   const [status, setStatus] = useState("");
   const [channel, setChannel] = useState("");
   const [query, setQuery] = useState("");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
   const [message, setMessage] = useState("");
   const tenantNames = useMemo(
     () => new Map(tenants.map((tenant) => [tenant.id, tenant.fullName])),
@@ -26,6 +28,27 @@ export function DeliveryHistory({
     if (query && !tenantName.toLocaleLowerCase().includes(query.toLocaleLowerCase())) return false;
     return true;
   });
+
+  async function applyFilters() {
+    setMessage("Loading delivery history…");
+    const parameters = new URLSearchParams();
+    if (channel) parameters.set("channel", channel);
+    if (status) parameters.set("status", status);
+    if (start) parameters.set("start", start);
+    if (end) parameters.set("end", end);
+    const matchingTenant = tenants.find(
+      (tenant) => tenant.fullName.toLocaleLowerCase() === query.trim().toLocaleLowerCase()
+    );
+    if (matchingTenant) parameters.set("tenantId", matchingTenant.id);
+    const response = await fetch(`/api/admin/notifications/events?${parameters}`);
+    const result = await response.json();
+    if (!response.ok || !result.success) {
+      setMessage(result.error?.message ?? "Delivery history could not be loaded.");
+      return;
+    }
+    setEvents(result.data);
+    setMessage(`Loaded ${result.data.length} events. Dates filter scheduledFor in UTC.`);
+  }
 
   async function retry(event: NotificationEvent) {
     if (!window.confirm("Create a new retry event? The original history will remain unchanged.")) return;
@@ -60,6 +83,9 @@ export function DeliveryHistory({
             {["scheduled", "processing", "queued", "sent", "delivered", "failed", "undelivered", "skipped", "unknown", "expired", "cancelled"].map((item) => <option key={item}>{item}</option>)}
           </select>
         </label>
+        <label className="field"><span>Scheduled from (UTC)</span><input type="date" value={start} onChange={(event) => setStart(event.target.value)} /></label>
+        <label className="field"><span>Scheduled through (UTC)</span><input type="date" value={end} onChange={(event) => setEnd(event.target.value)} /></label>
+        <button className="button secondary" type="button" onClick={() => void applyFilters()}>Apply server filters</button>
       </div>
       <div className="table-scroll">
         <table className="admin-table">

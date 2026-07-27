@@ -6,6 +6,7 @@ import type {
   DashboardSummary,
   NotificationBatch,
   NotificationEvent,
+  NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
   RentalListing,
@@ -14,6 +15,7 @@ import type {
   PublicSiteSection,
   SiteSection,
   Tenant,
+  TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
 
@@ -49,7 +51,7 @@ export interface DataRepository {
     targetId: string;
     action: "rental.publish" | "rental.unpublish" | "rental.archive" | "schedule.enable" | "schedule.disable";
   }): Promise<unknown>;
-  listTenants(): Promise<Tenant[]>;
+  listTenants(filters?: TenantListFilters): Promise<Tenant[]>;
   getTenant(id: string): Promise<{ tenant: Tenant; schedule: ReminderSchedule | null }>;
   createTenant(payload: unknown, actorId: string): Promise<Tenant>;
   updateTenant(id: string, payload: unknown, expectedVersion: unknown, actorId: string): Promise<Tenant>;
@@ -68,7 +70,7 @@ export interface DataRepository {
     expectedVersion: unknown,
     actorId: string
   ): Promise<NotificationTemplate>;
-  listEvents(): Promise<NotificationEvent[]>;
+  listEvents(filters?: NotificationEventFilters): Promise<NotificationEvent[]>;
   previewNotification(payload: unknown): Promise<unknown>;
   createBatch(payload: unknown, actorId: string): Promise<NotificationBatch>;
   confirmBatch(id: string, payload: unknown, actorId: string): Promise<NotificationBatch>;
@@ -134,7 +136,7 @@ class MemoryRepository implements DataRepository {
   async executeAutomationResourceConfirmation() {
     throw new Error("Durable Automation confirmation execution is unavailable in memory mode.");
   }
-  async listTenants() { return store.listTenants(); }
+  async listTenants(filters?: TenantListFilters) { return store.listTenants(filters); }
   async getTenant(id: string) { return store.getTenant(id); }
   async createTenant(payload: unknown) { return store.createTenant(payload); }
   async updateTenant(id: string, payload: unknown, expectedVersion: unknown) {
@@ -149,7 +151,7 @@ class MemoryRepository implements DataRepository {
   async updateTemplate(id: string, payload: unknown, expectedVersion: unknown) {
     return store.updateTemplate(id, payload, expectedVersion);
   }
-  async listEvents() { return store.listEvents(); }
+  async listEvents(filters?: NotificationEventFilters) { return store.listEvents(filters); }
   async previewNotification(payload: unknown) { return store.previewNotification(payload); }
   async createBatch(payload: unknown) { return store.createBatch(payload); }
   async confirmBatch(id: string, payload: unknown) { return store.confirmBatch(id, payload); }

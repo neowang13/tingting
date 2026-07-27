@@ -190,8 +190,8 @@ GET /health
 Authentication: any active automation service token
 ```
 
-Returns Automation API feature flags, durable-backend readiness, provider mode,
-effective reminder pause, current API version, and server time. It never
+Returns Automation API feature flags, durable-backend readiness, separate email
+and SMS provider modes, effective reminder pause, current API version, and server time. It never
 returns secrets, database identifiers, tenant counts, or full configuration.
 
 ## 8. Rental endpoints
@@ -436,7 +436,7 @@ The preview returns:
 - selected channels and template names;
 - effective global/force pause;
 - per-channel eligibility;
-- warnings about provider mode.
+- warnings about the email and SMS provider modes.
 
 Execute through `/confirmations/{id}/execute`.
 

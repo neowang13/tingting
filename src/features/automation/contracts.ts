@@ -170,7 +170,8 @@ export interface AutomationHealth {
   serverTime: string;
   dataBackend: "memory" | "supabase";
   durableBackendReady: boolean;
-  providerMode: "mock" | "disabled" | "live";
+  emailProviderMode: "mock" | "disabled" | "live";
+  smsProviderMode: "mock" | "disabled" | "live";
   remindersForcePaused: boolean;
   remindersGlobalPaused: boolean;
   effectiveReminderPause: boolean;
@@ -181,4 +182,3 @@ export interface AutomationHealth {
     tenantImport: boolean;
   };
 }
-

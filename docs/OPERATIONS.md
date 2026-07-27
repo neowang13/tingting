@@ -3,9 +3,11 @@
 ## Current safe state
 
 The application is complete for local/demo use and is prepared for a durable
-Supabase deployment. No Supabase, Resend, Twilio, domain, or Render resource has
-been created by this repository. The Render blueprint keeps
-`NOTIFICATION_PROVIDER_MODE=disabled` and `REMINDERS_FORCE_PAUSED=true`.
+Supabase deployment. No Supabase, Resend, domain, or Render resource has been
+created by this repository. The Owner has selected an Email-only launch;
+Twilio/SMS is deferred because provisioning a sender incurs cost. The Render
+blueprint keeps `EMAIL_PROVIDER_MODE=disabled`, `SMS_PROVIDER_MODE=disabled`,
+and `REMINDERS_FORCE_PAUSED=true`.
 
 Do not import real tenants or unpause reminders until the owner has approved the
 retention period, templates, recipients, and provider dry-run results.
@@ -19,9 +21,11 @@ retention period, templates, recipients, and provider dry-run results.
    names, and the Auth user UUID as `ADMIN_USER_ID`.
 5. Run `pnpm provision:supabase`. Confirm that templates and reminders remain
    disabled.
-6. Create the Render web service from `render.yaml`, enter all `sync: false`
-   values, and verify `/api/health`.
-7. Configure an authenticated scheduled HTTP request every five minutes:
+6. Create both Render services from `render.yaml`. Enter the exact same
+   owner-provisioned `REMINDER_CRON_SECRET` (minimum 24 characters) and public
+   HTTPS `APP_BASE_URL` in the web and Cron services. The blueprint declares
+   the Cron schedule as `*/5 * * * *` (Render evaluates schedules in UTC).
+7. The Cron service invokes:
 
    ```text
    POST https://<production-host>/api/internal/reminders/run
@@ -30,10 +34,56 @@ retention period, templates, recipients, and provider dry-run results.
 
    Each invocation materializes due occurrences, drains at most 200 durable
    events with concurrency 10 and a 45-second work budget, performs once-daily
-   retention/reconciliation, and sends deduplicated operational alerts.
-8. Keep provider mode disabled until both provider accounts and callbacks are
-   configured. Then use saved administrator test contacts and `mock`, provider
-   test credentials, and finally `live` in that order.
+   retention/reconciliation, and sends deduplicated operational alerts. While
+   either pause is active, it cannot claim scheduled/manual work; it may claim
+   at most 20 `source=test` events created from the saved administrator-owned
+   test destination. This is the only outbound dry-run path before unpause.
+8. Verify `/api/health` returns `200`, `persistenceReady=true`,
+   `checks.database=ok`, `checks.cronAuthentication=configured`, and
+   `checks.publicBaseUrl=https`. A missing Cron secret or database dependency
+   intentionally returns `503`; the response names missing variable(s) but
+   never their values.
+
+## Email-only provider rollout order
+
+The order below is mandatory for the current launch:
+
+1. Set `REMINDERS_FORCE_PAUSED=true`.
+2. Confirm Settings → Reminders is globally paused.
+3. Set both `EMAIL_PROVIDER_MODE=disabled` and `SMS_PROVIDER_MODE=disabled`.
+4. In local Supabase or a dedicated test project, change only Email to `mock`;
+   run preview → confirm → queue, invoke Cron, and verify the synthetic test
+   event reaches provider `mock`.
+5. Save an administrator-owned and administrator-confirmed test email. Leave
+   the test phone empty. Never enter a tenant destination as a test contact.
+6. Configure Resend, then set only `EMAIL_PROVIDER_MODE=live`. Keep SMS
+   disabled. Send one previewed test event to the administrator email and
+   verify its signed callback at
+   `https://<public-host>/api/webhooks/resend`.
+7. Review delivery events, the Resend dashboard, callback receipts, and audit
+   records. Resolve every `unknown`, `failed`, or signature error.
+8. Obtain explicit Owner approval for the Email dry-run evidence and final
+   Email templates.
+9. Only after approval set `REMINDERS_FORCE_PAUSED=false`; then explicitly
+   unpause in Admin. Keep `SMS_PROVIDER_MODE=disabled`.
+
+Never unpause to perform a Provider dry run. The paused worker's restricted
+test-event claim path exists specifically to keep real tenants unreachable.
+
+Twilio/SMS is a post-launch project. Do not buy a sender, save a production
+test phone, or set `SMS_PROVIDER_MODE=live` during the Email-only launch. A
+future SMS rollout must repeat the independent mock, administrator-owned dry
+run, signed callback, evidence review, and Owner approval sequence.
+
+## Provider callback configuration
+
+- Resend webhook: `POST https://<public-host>/api/webhooks/resend`; subscribe to
+  delivery, bounce, complaint, and failure events, then save its signing secret
+  as server-only `RESEND_WEBHOOK_SECRET`.
+- Twilio status callback support remains implemented but is deferred. Leave all
+  Twilio variables unset and `SMS_PROVIDER_MODE=disabled`.
+- `APP_BASE_URL` is the public HTTPS origin only, with no credentials, query,
+  or fragment. Localhost is rejected in production mode.
 
 ## Third-party values still required
 
@@ -41,12 +91,10 @@ retention period, templates, recipients, and provider dry-run results.
 - Render production hostname and a random Cron secret of at least 24 characters.
 - Resend API key, verified `EMAIL_FROM`, contact/alert recipient addresses, and
   webhook signing secret.
-- Twilio Account SID, Auth Token, Messaging Service SID, and the exact public
-  status callback URL.
 - Approved production domain and final approved website images.
 
 Provider secrets are server-only. Never expose the service-role key, Resend key,
-Twilio token, full destinations, message bodies, or webhook payloads in logs.
+full destinations, message bodies, or webhook payloads in logs.
 
 ## OpenClaw operations integration
 
@@ -102,17 +150,20 @@ provider dry-run/callback approval and the existing unpause sequence.
 ## Launch gates
 
 - `/api/health` reports Supabase persistence ready.
+- Render shows successful five-minute Cron runs while both reminder pauses are
+  active.
 - Public pages show only published content and rentals.
 - Admin login, TOTP challenge, explicit logout, idle expiry, and absolute expiry
   are verified.
-- Test email and SMS go only to saved administrator test contacts.
-- Resend and Twilio callback signatures and status transitions are verified.
+- Test Email goes only to the saved administrator test address.
+- Resend callback signatures and status transitions are verified.
+- `SMS_PROVIDER_MODE=disabled` and all Twilio credentials remain unset.
 - Cron is observed while global pause remains active.
 - The first encrypted backup is downloaded and restored outside production.
 - Owner approves templates, tenant eligibility, retention, and the manual batch
   preview.
-- Only then set `REMINDERS_FORCE_PAUSED=false`, explicitly unpause in Admin, and
-  set provider mode to `live`.
+- Only then set `REMINDERS_FORCE_PAUSED=false`, explicitly unpause in Admin,
+  and leave only the approved channel in `live`.
 
 ## Backup and restore
 
@@ -141,7 +192,7 @@ pg_restore "$RESTORE_TEST_DATABASE_URL" --clean --if-exists \
 
 Validate table counts, public views, active admin profiles, required functions,
 and a paused mock worker run. During any restore, set
-`REMINDERS_FORCE_PAUSED=true` and provider mode to `disabled`. Rotate database
+`REMINDERS_FORCE_PAUSED=true` and both provider modes to `disabled`. Rotate database
 credentials if a decrypted export is exposed, and securely remove local
 decrypted copies after verification.
 

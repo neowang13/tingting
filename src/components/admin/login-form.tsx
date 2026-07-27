@@ -19,8 +19,35 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
   const [factorId, setFactorId] = useState("");
   const [qrCode, setQrCode] = useState("");
   const [totpSecret, setTotpSecret] = useState("");
+  const [accountEmail, setAccountEmail] = useState("");
 
-  function finishLogin() {
+  async function recordFailure(
+    event: "login_failed" | "mfa_challenge_failed",
+    reason: "invalid_credentials" | "invalid_or_expired_code" | "enrollment_failed" | "session_establishment_failed",
+    email?: string
+  ) {
+    await fetch("/api/auth/security-event", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event, reason, email })
+    }).catch(() => undefined);
+  }
+
+  async function finishLogin(mfaFlow?: "challenge" | "enrollment") {
+    if (authMode === "supabase") {
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfaFlow })
+      });
+      if (!response.ok) {
+        await recordFailure("mfa_challenge_failed", "session_establishment_failed", accountEmail);
+        await supabase?.auth.signOut();
+        setError("The administrator session could not be established.");
+        setBusy(false);
+        return;
+      }
+    }
     router.replace("/admin");
     router.refresh();
   }
@@ -50,7 +77,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
             setBusy(false);
             return;
           }
-          finishLogin();
+          await finishLogin();
           return;
         }
 
@@ -66,26 +93,30 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
             code: String(form.get("code")).trim()
           });
           if (verified.error) {
+            await recordFailure("mfa_challenge_failed", "invalid_or_expired_code", accountEmail);
             setError("That verification code is incorrect or expired.");
             setBusy(false);
             return;
           }
-          finishLogin();
+          await finishLogin(stage === "enroll" ? "enrollment" : "challenge");
           return;
         }
 
+        const email = String(form.get("email"));
+        setAccountEmail(email);
         const signedIn = await supabase.auth.signInWithPassword({
-          email: String(form.get("email")),
+          email,
           password: String(form.get("password"))
         });
         if (signedIn.error) {
+          await recordFailure("login_failed", "invalid_credentials", email);
           setError("Email or password is incorrect.");
           setBusy(false);
           return;
         }
 
         if (process.env.NEXT_PUBLIC_APP_MODE !== "production") {
-          finishLogin();
+          await finishLogin();
           return;
         }
 
@@ -103,6 +134,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
           friendlyName: "Ting Ting Admin"
         });
         if (enrollment.error || !enrollment.data.totp) {
+          await recordFailure("mfa_challenge_failed", "enrollment_failed", email);
           await supabase.auth.signOut();
           setError("Multi-factor authentication could not be started. Please contact the account owner.");
           setBusy(false);

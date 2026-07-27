@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
     "provision:supabase": "tsx --env-file-if-exists=.env.local scripts/provision-supabase.ts"
   },
   "dependencies": {

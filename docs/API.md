@@ -11,8 +11,16 @@ All responses use:
 ```
 
 Errors use `success: false` with `error.code`, `error.message`, and optional
-validation details. Admin endpoints require a Supabase bearer token in
-production. Local memory mode supplies a demo administrator.
+validation details. In production, `/api/admin/*` is an interactive,
+browser-only API authenticated from the HttpOnly Supabase SSR Cookie Session.
+Client JavaScript does not read, store, or attach an access token. These routes
+also verify the active administrator profile, AAL2, the 30-minute idle limit,
+the 12-hour absolute limit, and same-origin writes. Local memory mode supplies
+a signed demo administrator session.
+
+Bearer credentials are intentionally not accepted by `/api/admin/*`. Machine
+clients use the separately scoped `/api/automation/v1/*` service-account API;
+the reminder worker uses its own `REMINDER_CRON_SECRET` boundary.
 
 ## Public
 

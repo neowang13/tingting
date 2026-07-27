@@ -22,8 +22,9 @@ export function AutomationOverview({ summary }: { summary: Summary }) {
     summary.unresolvedImports > 0
       ? `${summary.unresolvedImports} tenant import${summary.unresolvedImports === 1 ? " has" : "s have"} unresolved rows.`
       : null,
-    summary.health.providerMode === "live" && !summary.health.effectiveReminderPause
-      ? "Provider mode is live and reminders are not paused."
+    (summary.health.emailProviderMode === "live" || summary.health.smsProviderMode === "live") &&
+      !summary.health.effectiveReminderPause
+      ? "At least one provider is live and reminders are not paused."
       : null
   ].filter((warning): warning is string => Boolean(warning));
 
@@ -74,7 +75,8 @@ export function AutomationOverview({ summary }: { summary: Summary }) {
           <h2>Delivery controls</h2>
           <dl className="status-list">
             <div><dt>Data backend</dt><dd>{summary.health.dataBackend}</dd></div>
-            <div><dt>Provider mode</dt><dd>{summary.health.providerMode}</dd></div>
+            <div><dt>Email provider</dt><dd>{summary.health.emailProviderMode}</dd></div>
+            <div><dt>SMS provider</dt><dd>{summary.health.smsProviderMode}</dd></div>
             <div><dt>Force pause</dt><dd>{summary.health.remindersForcePaused ? "Active" : "Off"}</dd></div>
             <div><dt>Global pause</dt><dd>{summary.health.remindersGlobalPaused ? "Paused" : "Active"}</dd></div>
           </dl>
@@ -87,4 +89,3 @@ export function AutomationOverview({ summary }: { summary: Summary }) {
 function Metric({ label, value }: { label: string; value: number }) {
   return <div className="metric"><span>{label}</span><strong>{value}</strong></div>;
 }
-

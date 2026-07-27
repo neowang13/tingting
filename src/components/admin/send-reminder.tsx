@@ -25,6 +25,19 @@ interface Preview {
   samples?: Array<{ channel: Channel; subject: string | null; body: string }>;
 }
 
+interface TestPreview {
+  requestId: string;
+  previewToken: string;
+  tenantId: string;
+  channel: Channel;
+  templateId: string;
+  subject: string | null;
+  body: string;
+  smsSegments: number;
+  destinationMasked: string;
+  providerMode: string;
+}
+
 export function SendReminder({
   tenants,
   templates
@@ -40,14 +53,15 @@ export function SendReminder({
   const [acknowledged, setAcknowledged] = useState("");
   const [message, setMessage] = useState("Choose recipients, channels, and templates.");
   const [busy, setBusy] = useState(false);
+  const [testPreview, setTestPreview] = useState<TestPreview | null>(null);
 
   async function sendTest(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setBusy(true);
-    setMessage("Queuing test event…");
+    setMessage("Rendering test preview…");
     try {
-      const response = await fetch("/api/admin/notifications/test", {
+      const response = await fetch("/api/admin/notifications/test-preview", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -58,8 +72,36 @@ export function SendReminder({
         })
       });
       const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Test preview could not be rendered.");
+      setTestPreview(result.data);
+      setMessage("Preview ready. Confirm the rendered content and administrator-owned destination.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Test preview could not be rendered.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmTest() {
+    if (!testPreview || busy) return;
+    setBusy(true);
+    setMessage("Queuing confirmed test event…");
+    try {
+      const response = await fetch("/api/admin/notifications/test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          tenantId: testPreview.tenantId,
+          channel: testPreview.channel,
+          templateId: testPreview.templateId,
+          requestId: testPreview.requestId,
+          previewToken: testPreview.previewToken
+        })
+      });
+      const result = await response.json();
       if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Test event could not be queued.");
-      setMessage(`Test ${result.data.channel} event queued for the administrator-owned destination.`);
+      setMessage(`Confirmed test ${result.data.channel} event queued once for the administrator-owned destination.`);
+      setTestPreview(null);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Test event could not be queued.");
     } finally {
@@ -161,8 +203,23 @@ export function SendReminder({
             </select>
           </label>
         </div>
-        <button className="button secondary" disabled={busy} type="submit">Queue safe test</button>
+        <button className="button secondary" disabled={busy} type="submit">1. Preview safe test</button>
       </form>
+      {testPreview && (
+        <section className="card admin-form" aria-labelledby="test-preview-heading">
+          <div className="admin-card-heading">
+            <div><p className="eyebrow">CONFIRM SAFE TEST</p><h2 id="test-preview-heading">2. Review and queue</h2></div>
+            <span className="status draft">{testPreview.providerMode} provider</span>
+          </div>
+          <p>Administrator-owned destination: <strong>{testPreview.destinationMasked}</strong>. Tenant contact details will not be used.</p>
+          {testPreview.subject && <><strong>Subject</strong><p>{testPreview.subject}</p></>}
+          <strong>Rendered body</strong><p className="message-sample">{testPreview.body}</p>
+          {testPreview.channel === "sms" && <p>Estimated SMS segments: <strong>{testPreview.smsSegments}</strong></p>}
+          <button className="button" disabled={busy} type="button" onClick={() => void confirmTest()}>
+            3. Confirm and queue once
+          </button>
+        </section>
+      )}
       <form className="card admin-form" onSubmit={createPreview}>
         <div className="admin-card-heading">
           <div><p className="eyebrow">SAFE SEND FLOW</p><h2>1. Select and preview</h2></div>

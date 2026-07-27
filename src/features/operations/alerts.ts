@@ -1,5 +1,5 @@
 import { getRepository } from "@/data/repository";
-import { createNotificationProviders, resolveNotificationProviderMode } from "@/features/notifications/providers";
+import { createNotificationProviders, resolveEmailProviderMode } from "@/features/notifications/providers";
 import { ApiError } from "@/lib/api";
 
 export interface OperationalAlertDeliverySummary {
@@ -41,14 +41,14 @@ export async function deliverOperationalAlerts(
   const uniqueWarnings = [...new Set(warnings)];
   const summary = { considered: uniqueWarnings.length, sent: 0, failed: 0, skipped: 0 };
   const recipient = process.env.ALERT_TO_EMAIL;
-  const mode = resolveNotificationProviderMode();
+  const mode = resolveEmailProviderMode();
   if (!recipient || mode === "disabled") {
     summary.skipped = uniqueWarnings.length;
     return summary;
   }
 
   const repository = getRepository();
-  const provider = createNotificationProviders(mode).email;
+  const provider = createNotificationProviders({ email: mode, sms: "disabled" }).email;
   for (const warning of uniqueWarnings) {
     const code = alertCode(warning);
     const bucket = bucketStart(code);

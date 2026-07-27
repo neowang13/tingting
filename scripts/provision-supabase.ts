@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { pathToFileURL } from "node:url";
 import { demoSections } from "../src/data/demo";
 import { validateSection } from "../src/features/content/schemas";
 
@@ -37,7 +38,7 @@ async function ensureBucket(id: string, isPublic: boolean) {
   fail(created.error, `Create bucket ${id}`);
 }
 
-async function provision() {
+export async function provisionSupabase() {
   const profile = await supabase.from("admin_profiles").upsert(
     { user_id: adminUserId, display_name: adminDisplayName, is_active: true },
     { onConflict: "user_id" }
@@ -135,7 +136,9 @@ async function provision() {
   console.log("Supabase provisioning complete. Reminders and templates remain disabled.");
 }
 
-void provision().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  void provisionSupabase().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

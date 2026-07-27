@@ -3,18 +3,18 @@ import { resetRepositoryForTests } from "../../src/data/repository";
 import { deliverOperationalAlerts } from "../../src/features/operations/alerts";
 
 describe("operational alert delivery", () => {
-  const originalMode = process.env.NOTIFICATION_PROVIDER_MODE;
+  const originalMode = process.env.EMAIL_PROVIDER_MODE;
   const originalRecipient = process.env.ALERT_TO_EMAIL;
 
   beforeEach(() => {
     resetRepositoryForTests();
     process.env.DATA_BACKEND = "memory";
-    process.env.NOTIFICATION_PROVIDER_MODE = "mock";
+    process.env.EMAIL_PROVIDER_MODE = "mock";
     process.env.ALERT_TO_EMAIL = "admin@example.com";
   });
 
   afterEach(() => {
-    process.env.NOTIFICATION_PROVIDER_MODE = originalMode;
+    process.env.EMAIL_PROVIDER_MODE = originalMode;
     process.env.ALERT_TO_EMAIL = originalRecipient;
     resetRepositoryForTests();
   });
@@ -36,7 +36,7 @@ describe("operational alert delivery", () => {
   });
 
   it("fails closed without contacting a disabled provider", async () => {
-    process.env.NOTIFICATION_PROVIDER_MODE = "disabled";
+    process.env.EMAIL_PROVIDER_MODE = "disabled";
     await expect(deliverOperationalAlerts(["Operational warning"], "job-3")).resolves.toEqual({
       considered: 1,
       sent: 0,

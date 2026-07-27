@@ -15,7 +15,7 @@ import {
 } from "@/features/notifications/template-renderer";
 import {
   createNotificationProviders,
-  resolveNotificationProviderMode
+  resolveNotificationProviderModes
 } from "@/features/notifications/providers";
 import {
   collectMediaAssetIds,
@@ -29,6 +29,7 @@ import type {
   DashboardSummary,
   NotificationBatch,
   NotificationEvent,
+  NotificationEventFilters,
   NotificationTemplate,
   ReminderSchedule,
   RentalListing,
@@ -36,6 +37,7 @@ import type {
   SectionKey,
   SiteSection,
   Tenant,
+  TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
 import {
@@ -292,8 +294,40 @@ export const store = {
     return clone(rental);
   },
 
-  listTenants() {
-    return clone(state().tenants);
+  listTenants(filters: TenantListFilters = {}) {
+    const query = filters.query?.trim().toLocaleLowerCase();
+    const projected = state().tenants.map((tenant) => {
+      const schedule = state().schedules.find((item) => item.tenantId === tenant.id);
+      const lastDelivery = state().events
+        .filter((event) => event.tenantId === tenant.id)
+        .sort((a, b) => b.scheduledFor.localeCompare(a.scheduledFor))[0];
+      return {
+        ...tenant,
+        scheduleStatus: schedule ? (schedule.isEnabled ? "enabled" as const : "disabled" as const) : "missing" as const,
+        nextRunAt: schedule?.nextRunAt ?? null,
+        lastDeliveryStatus: lastDelivery?.status ?? null,
+        lastDeliveryAt: lastDelivery?.scheduledFor ?? null
+      };
+    });
+    return clone(projected
+      .filter((tenant) => !query || [tenant.fullName, tenant.propertyLabel, tenant.unitLabel ?? ""]
+        .some((value) => value.toLocaleLowerCase().includes(query)))
+      .filter((tenant) => {
+        if (filters.lifecycle === "active") return tenant.isActive && !tenant.archivedAt;
+        if (filters.lifecycle === "inactive") return !tenant.isActive && !tenant.archivedAt;
+        if (filters.lifecycle === "archived") return Boolean(tenant.archivedAt);
+        return true;
+      })
+      .filter((tenant) => {
+        if (filters.contact === "email_allowed") return tenant.emailContactStatus === "allowed";
+        if (filters.contact === "email_blocked") return tenant.emailContactStatus !== "allowed";
+        if (filters.contact === "sms_allowed") return tenant.smsContactStatus === "allowed";
+        if (filters.contact === "sms_blocked") return tenant.smsContactStatus !== "allowed";
+        return true;
+      })
+      .filter((tenant) => !filters.schedule || tenant.scheduleStatus === filters.schedule)
+      .sort((a, b) => a.fullName.localeCompare(b.fullName))
+      .slice(0, filters.limit ?? 500));
   },
 
   getTenant(id: string) {
@@ -429,8 +463,15 @@ export const store = {
     return clone(template);
   },
 
-  listEvents() {
-    return clone(state().events);
+  listEvents(filters: NotificationEventFilters = {}) {
+    return clone(state().events
+      .filter((event) => !filters.tenantId || event.tenantId === filters.tenantId)
+      .filter((event) => !filters.channel || event.channel === filters.channel)
+      .filter((event) => !filters.status || event.status === filters.status)
+      .filter((event) => !filters.scheduledFrom || event.scheduledFor >= filters.scheduledFrom)
+      .filter((event) => !filters.scheduledTo || event.scheduledFor <= filters.scheduledTo)
+      .sort((a, b) => b.scheduledFor.localeCompare(a.scheduledFor))
+      .slice(0, filters.limit ?? 500));
   },
 
   applyProviderStatus(
@@ -857,7 +898,7 @@ export const store = {
       schedule.updatedAt = startedAt;
     }
 
-    const providerSet = createNotificationProviders(resolveNotificationProviderMode());
+    const providerSet = createNotificationProviders(resolveNotificationProviderModes());
     const queued = state().events.filter((event) => event.status === "scheduled").slice(0, 200);
     let eventsDispatched = 0;
     let eventsFailed = 0;
@@ -898,7 +939,14 @@ export const store = {
                 statusCallbackUrl: "https://example.test/api/webhooks/twilio"
               });
           event.status = result.status;
-          event.provider = providerSet.mode === "mock" ? "mock" : event.channel === "email" ? "resend" : "twilio";
+          const providerMode = event.channel === "email"
+            ? providerSet.emailMode
+            : providerSet.smsMode;
+          event.provider = providerMode === "mock"
+            ? "mock"
+            : event.channel === "email"
+              ? "resend"
+              : "twilio";
           event.providerMessageId = result.providerMessageId;
           event.providerStatus = result.providerStatus ?? result.status;
           event.updatedAt = new Date().toISOString();

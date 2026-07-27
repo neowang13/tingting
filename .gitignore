@@ -2,6 +2,7 @@ node_modules
 .next
 .next-e2e
 .next-e2e-debug
+.next-e2e-supabase
 out
 coverage
 test-results
@@ -11,3 +12,8 @@ playwright-report
 .env.local
 .DS_Store
 *.log
+*.swp
+*.swo
+supabase/.branches
+supabase/.temp
+.gstack/deploy-reports

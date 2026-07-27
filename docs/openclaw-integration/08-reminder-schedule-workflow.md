@@ -119,17 +119,18 @@ System:
   Schedule state after confirmation: enabled
   Global pause: paused
   Deployment force pause: active
-  Provider mode: mock
+  Email provider mode: mock
+  SMS provider mode: disabled
 Effect:
-  No real message can send while force pause or mock mode remains active.
+  No real message can send while force pause remains active.
 ```
 
 Required acknowledgements:
 
 - `schedule_configuration_reviewed`;
 - `selected_recipients_and_channels_reviewed`;
-- `real_delivery_warning` only when provider mode is `live` and force pause is
-  off.
+- `real_delivery_warning` when either provider mode is `live` and force pause
+  is off.
 
 ## 8. Enable flow
 
@@ -195,7 +196,8 @@ provider message.
 Current rollout:
 
 ```text
-NOTIFICATION_PROVIDER_MODE=mock or disabled
+EMAIL_PROVIDER_MODE=mock or disabled
+SMS_PROVIDER_MODE=mock or disabled
 REMINDERS_FORCE_PAUSED=true
 ```
 
@@ -203,7 +205,7 @@ OpenClaw may create and preview schedules. It must clearly state that real
 delivery is unavailable.
 
 Provider accounts and callbacks are external launch prerequisites. The Skill
-cannot change provider mode, force-pause environment variables, global pause,
+cannot change provider modes, force-pause environment variables, global pause,
 test contacts, or provider credentials.
 
 ## 12. Audit events
@@ -234,4 +236,3 @@ destinations and rendered message bodies.
 - Disable stops future materialization without deleting history.
 - Global and force pause remain authoritative.
 - OpenClaw never creates a per-tenant Cron task or sends through providers.
-

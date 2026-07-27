@@ -219,7 +219,7 @@ routes.
 ### Local
 
 - `DATA_BACKEND=memory`;
-- provider mode `mock`;
+- email provider mode `mock`, SMS provider mode `disabled` unless a test needs it;
 - force pause `true`;
 - synthetic tenants only;
 - Automation API may run with a development-only token;
@@ -230,7 +230,7 @@ routes.
 
 - dedicated Supabase project;
 - synthetic/anonymized data;
-- provider mode `mock` or provider test credentials;
+- per-channel provider mode `mock` or provider test credentials;
 - force pause `true`;
 - Automation API exposed only to the test OpenClaw agent.
 
@@ -238,7 +238,7 @@ routes.
 
 - production Supabase;
 - Render HTTPS;
-- provider mode initially `disabled`;
+- both provider modes initially `disabled`;
 - force pause `true`;
 - one dedicated service account;
 - smallest verified scope set;
@@ -377,4 +377,3 @@ OpenClaw with production-safe controls:
 3. save a disabled monthly schedule, review next occurrence and eligibility,
    confirm enable, and observe the existing worker handle it without duplicate
    delivery.
-

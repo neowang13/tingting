@@ -15,7 +15,8 @@ const baseEnvSchema = z.object({
   SUPABASE_STORAGE_PUBLIC_BUCKET: z.string().min(1).default("site-media"),
   SUPABASE_STORAGE_DRAFT_BUCKET: z.string().min(1).default("site-media-drafts"),
   REMINDER_CRON_SECRET: z.string().min(24).optional(),
-  NOTIFICATION_PROVIDER_MODE: z.enum(["mock", "disabled", "live"]).optional(),
+  EMAIL_PROVIDER_MODE: z.enum(["mock", "disabled", "live"]).optional(),
+  SMS_PROVIDER_MODE: z.enum(["mock", "disabled", "live"]).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(3).optional(),
   CONTACT_TO_EMAIL: z.string().email().optional(),
@@ -24,6 +25,7 @@ const baseEnvSchema = z.object({
   TWILIO_ACCOUNT_SID: z.string().min(1).optional(),
   TWILIO_AUTH_TOKEN: z.string().min(1).optional(),
   TWILIO_MESSAGING_SERVICE_SID: z.string().min(1).optional(),
+  TWILIO_FROM_NUMBER: z.string().regex(/^\+[1-9]\d{7,14}$/).optional(),
   TWILIO_STATUS_CALLBACK_URL: z.string().url().optional(),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   DEFAULT_TIMEZONE: z.string().min(1).default("America/Vancouver"),
@@ -37,7 +39,8 @@ const baseEnvSchema = z.object({
 });
 
 export type ServerEnvironment = z.infer<typeof baseEnvSchema> & {
-  notificationProviderMode: "mock" | "disabled" | "live";
+  emailProviderMode: "mock" | "disabled" | "live";
+  smsProviderMode: "mock" | "disabled" | "live";
   remindersForcePaused: boolean;
 };
 
@@ -61,8 +64,9 @@ export function readServerEnvironment(
   }
 
   const value = parsed.data;
-  const notificationProviderMode =
-    value.NOTIFICATION_PROVIDER_MODE ?? (value.NODE_ENV === "production" ? "disabled" : "mock");
+  const emailProviderMode =
+    value.EMAIL_PROVIDER_MODE ?? (value.NODE_ENV === "production" ? "disabled" : "mock");
+  const smsProviderMode = value.SMS_PROVIDER_MODE ?? "disabled";
 
   const missing: string[] = [];
   if (value.DATA_BACKEND === "supabase") {
@@ -74,15 +78,19 @@ export function readServerEnvironment(
       missing.push("AUTOMATION_TOKEN_PEPPER");
     }
   }
-  if (notificationProviderMode === "live") {
+  if (emailProviderMode === "live") {
     if (!value.RESEND_API_KEY) missing.push("RESEND_API_KEY");
     if (!value.EMAIL_FROM) missing.push("EMAIL_FROM");
     if (!value.RESEND_WEBHOOK_SECRET) missing.push("RESEND_WEBHOOK_SECRET");
     if (!value.CONTACT_TO_EMAIL) missing.push("CONTACT_TO_EMAIL");
     if (!value.ALERT_TO_EMAIL) missing.push("ALERT_TO_EMAIL");
+  }
+  if (smsProviderMode === "live") {
     if (!value.TWILIO_ACCOUNT_SID) missing.push("TWILIO_ACCOUNT_SID");
     if (!value.TWILIO_AUTH_TOKEN) missing.push("TWILIO_AUTH_TOKEN");
-    if (!value.TWILIO_MESSAGING_SERVICE_SID) missing.push("TWILIO_MESSAGING_SERVICE_SID");
+    if (!value.TWILIO_MESSAGING_SERVICE_SID && !value.TWILIO_FROM_NUMBER) {
+      missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_FROM_NUMBER");
+    }
     if (!value.TWILIO_STATUS_CALLBACK_URL) missing.push("TWILIO_STATUS_CALLBACK_URL");
   }
   if (
@@ -91,6 +99,29 @@ export function readServerEnvironment(
     value.DATA_BACKEND === "memory"
   ) {
     missing.push("DATA_BACKEND=supabase");
+  }
+  if (value.NODE_ENV === "production" && value.NEXT_PUBLIC_APP_MODE === "production") {
+    const baseUrl = new URL(value.APP_BASE_URL);
+    if (
+      baseUrl.protocol !== "https:" ||
+      ["localhost", "127.0.0.1"].includes(baseUrl.hostname) ||
+      baseUrl.username ||
+      baseUrl.password ||
+      baseUrl.search ||
+      baseUrl.hash
+    ) {
+      missing.push("APP_BASE_URL (public HTTPS URL)");
+    }
+    if (smsProviderMode === "live" && value.TWILIO_STATUS_CALLBACK_URL) {
+      const callback = new URL(value.TWILIO_STATUS_CALLBACK_URL);
+      const expectedCallback = new URL("/api/webhooks/twilio", baseUrl);
+      if (
+        callback.protocol !== "https:" ||
+        callback.href !== expectedCallback.href
+      ) {
+        missing.push(`TWILIO_STATUS_CALLBACK_URL=${expectedCallback.href}`);
+      }
+    }
   }
 
   if (missing.length > 0) {
@@ -104,7 +135,8 @@ export function readServerEnvironment(
 
   const environment: ServerEnvironment = {
     ...value,
-    notificationProviderMode,
+    emailProviderMode,
+    smsProviderMode,
     remindersForcePaused: value.REMINDERS_FORCE_PAUSED === "true"
   };
   if (source === process.env) cachedEnvironment = environment;

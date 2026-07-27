@@ -5,6 +5,27 @@ const scriptSource =
     ? "script-src 'self' 'unsafe-inline' 'unsafe-eval'"
     : "script-src 'self' 'unsafe-inline'";
 
+function localSupabaseSource() {
+  if (process.env.NODE_ENV !== "development" || !process.env.NEXT_PUBLIC_SUPABASE_URL) return null;
+  try {
+    const url = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);
+    return ["127.0.0.1", "localhost"].includes(url.hostname) ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+const localSupabase = localSupabaseSource();
+const imageSources = [
+  "'self'",
+  "data:",
+  "blob:",
+  "https://*.supabase.co",
+  "https://images.unsplash.com",
+  localSupabase
+].filter(Boolean).join(" ");
+const connectSources = ["'self'", "https://*.supabase.co", localSupabase].filter(Boolean).join(" ");
+
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   serverExternalPackages: ["read-excel-file", "unzipper"],
@@ -32,10 +53,10 @@ const nextConfig: NextConfig = {
               "frame-ancestors 'none'",
               "form-action 'self'",
               "object-src 'none'",
-              "img-src 'self' data: blob: https://*.supabase.co https://images.unsplash.com",
+              `img-src ${imageSources}`,
               "style-src 'self' 'unsafe-inline'",
               scriptSource,
-              "connect-src 'self' https://*.supabase.co"
+              `connect-src ${connectSources}`
             ].join("; ")
           }
         ]

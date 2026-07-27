@@ -40,8 +40,16 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: LOCAL_ADMIN_SESSION_SECONDS
     });
-    cookieStore.delete("tt-last-active");
-    cookieStore.delete("tt-session-started");
+    const now = Date.now();
+    const trackingOptions = {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: new URL(request.url).protocol === "https:",
+      path: "/",
+      maxAge: LOCAL_ADMIN_SESSION_SECONDS
+    };
+    cookieStore.set("tt-last-active", String(now), trackingOptions);
+    cookieStore.set("tt-session-started", String(now), trackingOptions);
     return ok({ signedIn: true }, requestId);
   } catch (error) {
     return handleApiError(error, requestId);

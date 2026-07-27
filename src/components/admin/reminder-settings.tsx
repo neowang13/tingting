@@ -6,12 +6,14 @@ import type { TestContacts } from "@/lib/contracts";
 export function ReminderSettings({
   initialPause,
   forcePaused,
-  providerMode,
+  emailProviderMode,
+  smsProviderMode,
   initialTestContacts
 }: {
   initialPause: { paused: boolean; updatedAt: string };
   forcePaused: boolean;
-  providerMode: string;
+  emailProviderMode: string;
+  smsProviderMode: string;
   initialTestContacts: TestContacts;
 }) {
   const [pause, setPause] = useState(initialPause);
@@ -81,8 +83,13 @@ export function ReminderSettings({
       <section className="card">
         <p className="eyebrow">DELIVERY PROVIDERS</p>
         <h2>Connection status</h2>
-        <p>Current mode: <strong>{providerMode}</strong></p>
-        <p>{providerMode === "live" ? "Live providers are enabled." : "No real email or SMS can be sent in this mode."}</p>
+        <p>Email: <strong>{emailProviderMode}</strong></p>
+        <p>SMS: <strong>{smsProviderMode}</strong></p>
+        <p>
+          {emailProviderMode === "live" || smsProviderMode === "live"
+            ? "At least one live delivery provider is enabled."
+            : "No real email or SMS can be sent in these modes."}
+        </p>
         <p>Credentials remain in managed environment settings and are never editable here.</p>
       </section>
       <section className="card">

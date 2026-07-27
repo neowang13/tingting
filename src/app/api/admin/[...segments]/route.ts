@@ -7,8 +7,26 @@ import {
   requireAdminRequest
 } from "@/lib/auth";
 import { getRepository } from "@/data/repository";
-import { pauseInputSchema } from "@/lib/schemas";
+import {
+  pauseInputSchema,
+  notificationEventFilterSchema,
+  schedulePreviewSchema,
+  tenantListFilterSchema,
+  testNotificationConfirmationSchema,
+  testNotificationSchema
+} from "@/lib/schemas";
+import { nextOccurrence } from "@/features/reminders/scheduler";
+import {
+  estimateSmsSegments,
+  renderTemplate,
+  type TemplateContext
+} from "@/features/notifications/template-renderer";
+import type { TenantListFilters } from "@/lib/contracts";
 import { assertActionRateLimit } from "@/lib/rate-limit";
+import {
+  createTestSendPreviewToken,
+  verifyTestSendPreviewToken
+} from "@/features/notifications/test-send-preview";
 import { getAutomationRepository } from "@/data/automation-repository";
 import {
   serviceAccountCreateSchema,
@@ -50,11 +68,37 @@ export async function GET(request: Request, context: Context) {
     }
     if (resource === "rentals" && !id) return ok(await repository.listRentals(), requestId);
     if (resource === "rentals" && id && !action) return ok(await repository.getRental(id), requestId);
-    if (resource === "tenants" && !id) return ok(await repository.listTenants(), requestId);
+    if (resource === "tenants" && !id) {
+      const url = new URL(request.url);
+      const filters: TenantListFilters = tenantListFilterSchema.parse({
+        query: url.searchParams.get("q") || undefined,
+        lifecycle: url.searchParams.get("lifecycle") || undefined,
+        contact: url.searchParams.get("contact") || undefined,
+        schedule: url.searchParams.get("schedule") || undefined,
+        limit: 500
+      });
+      return ok(await repository.listTenants(filters), requestId);
+    }
     if (resource === "tenants" && id && !action) return ok(await repository.getTenant(id), requestId);
     if (resource === "templates" && !id) return ok(await repository.listTemplates(), requestId);
     if (resource === "notifications" && id === "events" && !action) {
-      return ok(await repository.listEvents(), requestId);
+      const url = new URL(request.url);
+      const filters = notificationEventFilterSchema.parse({
+        tenantId: url.searchParams.get("tenantId") || undefined,
+        channel: url.searchParams.get("channel") || undefined,
+        status: url.searchParams.get("status") || undefined,
+        start: url.searchParams.get("start") || undefined,
+        end: url.searchParams.get("end") || undefined,
+        limit: 500
+      });
+      return ok(await repository.listEvents({
+        tenantId: filters.tenantId,
+        channel: filters.channel,
+        status: filters.status,
+        scheduledFrom: filters.start ? `${filters.start}T00:00:00.000Z` : undefined,
+        scheduledTo: filters.end ? `${filters.end}T23:59:59.999Z` : undefined,
+        limit: filters.limit
+      }), requestId);
     }
     if (resource === "settings" && id === "reminders" && !action) {
       return ok(await repository.getPause(), requestId);
@@ -122,7 +166,7 @@ export async function POST(request: Request, context: Context) {
       action &&
       nested === "cancel"
     ) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-import-cancel", 10, 60 * 60);
       return ok(
         await getAutomationRepository().cancelTenantImportForAdmin(action, actorId),
@@ -135,7 +179,7 @@ export async function POST(request: Request, context: Context) {
       action &&
       nested === "delete-source"
     ) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-import-source-delete", 10, 60 * 60);
       return ok(
         await getAutomationRepository().deleteTenantImportSourceForAdmin(action, actorId),
@@ -176,29 +220,96 @@ export async function POST(request: Request, context: Context) {
       const payload = body as { schedule?: unknown; expectedVersion?: unknown };
       return ok(await repository.saveSchedule(id, payload.schedule, payload.expectedVersion, actorId), requestId);
     }
+    if (resource === "schedules" && id === "next-run") {
+      const input = schedulePreviewSchema.parse(body);
+      return ok({
+        nextRunAt: nextOccurrence({ ...input, afterInstant: new Date().toISOString() }),
+        timezone: input.timezone
+      }, requestId);
+    }
     if (resource === "templates" && !id) return ok(await repository.createTemplate(body, actorId), requestId, 201);
     if (resource === "notifications" && id === "preview") {
       return ok(await repository.previewNotification(body), requestId);
     }
+    if (resource === "notifications" && id === "test-preview") {
+      const payload = testNotificationSchema.parse(body);
+      const [{ tenant }, templates, contacts] = await Promise.all([
+        repository.getTenant(payload.tenantId),
+        repository.listTemplates(),
+        repository.getTestContacts()
+      ]);
+      const channel = payload.channel;
+      const template = templates.find((item) => item.id === payload.templateId && item.channel === channel && item.isActive);
+      if (!template) throw new ApiError(400, "TEMPLATE_CHANNEL_MISMATCH", "Choose an active template for the selected channel.");
+      const destination = channel === "email" ? contacts.email : contacts.phoneE164;
+      if (!destination) throw new ApiError(409, "TEST_DESTINATION_MISSING", `Save an administrator-owned test ${channel} destination first.`);
+      const context: TemplateContext = {
+        tenant_name: tenant.fullName,
+        property: tenant.propertyLabel,
+        unit: tenant.unitLabel ?? "",
+        due_date: "the first of the month",
+        business_name: "Ting Ting Xu Real Estate",
+        business_phone: "604-872-6896",
+        business_email: "info@tingtingxu.ca"
+      };
+      const subject = template.subjectTemplate ? renderTemplate(template.subjectTemplate, context) : null;
+      const renderedBody = renderTemplate(template.bodyTemplate, context);
+      const destinationMasked = channel === "email"
+        ? `${destination.slice(0, 1)}***@${destination.split("@")[1]}`
+        : `${destination.slice(0, 3)}***${destination.slice(-2)}`;
+      return ok({
+        requestId: payload.requestId,
+        previewToken: createTestSendPreviewToken({
+          actorId,
+          tenantId: tenant.id,
+          channel,
+          templateId: template.id,
+          requestId: payload.requestId
+        }),
+        tenantId: tenant.id,
+        channel,
+        templateId: template.id,
+        subject,
+        body: renderedBody,
+        smsSegments: channel === "sms" ? estimateSmsSegments(renderedBody) : 0,
+        destinationMasked,
+        providerMode: channel === "email"
+          ? (process.env.EMAIL_PROVIDER_MODE ?? "disabled")
+          : (process.env.SMS_PROVIDER_MODE ?? "disabled")
+      }, requestId);
+    }
     if (resource === "notifications" && id === "test") {
-      assertRecentAuthentication(prepared.admin);
+      await assertRecentAuthentication(prepared.admin);
       await assertActionRateLimit(actorId, "notification-test", 5, 10 * 60);
-      return ok(await repository.createTestEvent(body, actorId), requestId, 201);
+      const input = testNotificationConfirmationSchema.parse(body);
+      verifyTestSendPreviewToken(input.previewToken, {
+        actorId,
+        tenantId: input.tenantId,
+        channel: input.channel,
+        templateId: input.templateId,
+        requestId: input.requestId
+      });
+      return ok(await repository.createTestEvent({
+        tenantId: input.tenantId,
+        channel: input.channel,
+        templateId: input.templateId,
+        requestId: input.requestId
+      }, actorId), requestId, 201);
     }
     if (resource === "notifications" && id === "batches" && !action) {
       return ok(await repository.createBatch(body, actorId), requestId, 201);
     }
     if (resource === "notifications" && id === "batches" && action && nested === "confirm") {
-      assertRecentAuthentication(prepared.admin);
+      await assertRecentAuthentication(prepared.admin);
       await assertActionRateLimit(actorId, "notification-batch-confirm", 3, 10 * 60);
       return ok(await repository.confirmBatch(action, body, actorId), requestId);
     }
     if (resource === "notifications" && id === "events" && action && nested === "retry") {
-      assertRecentAuthentication(prepared.admin);
+      await assertRecentAuthentication(prepared.admin);
       return ok(await repository.retryEvent(action, actorId), requestId, 201);
     }
     if (resource === "automation" && id === "service-accounts" && !action) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-service-account-create", 5, 60 * 60);
       const input = serviceAccountCreateSchema.parse(body);
       return ok(
@@ -215,7 +326,7 @@ export async function POST(request: Request, context: Context) {
       prepared.segments[4] &&
       prepared.segments[5] === "revoke"
     ) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-token-revoke", 10, 60 * 60);
       tokenRevokeSchema.parse(body);
       await getAutomationRepository().revokeToken(
@@ -231,7 +342,7 @@ export async function POST(request: Request, context: Context) {
       action &&
       nested === "tokens"
     ) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-token-rotate", 5, 60 * 60);
       const input = tokenRotationSchema.parse(body);
       return ok(
@@ -278,16 +389,16 @@ export async function PATCH(request: Request, context: Context) {
       return ok(await repository.updateTemplate(id, body.template, body.expectedVersion, actorId), requestId);
     }
     if (resource === "settings" && id === "reminders" && !action) {
-      assertRecentAuthentication(prepared.admin);
+      await assertRecentAuthentication(prepared.admin);
       const input = pauseInputSchema.parse(body);
       return ok(await repository.setPause(input.paused, input.expectedVersion, actorId), requestId);
     }
     if (resource === "settings" && id === "test-contacts" && !action) {
-      assertRecentAuthentication(prepared.admin);
+      await assertRecentAuthentication(prepared.admin);
       return ok(await repository.setTestContacts(body, actorId), requestId);
     }
     if (resource === "automation" && id === "service-accounts" && action) {
-      assertRecentAal2(prepared.admin);
+      await assertRecentAal2(prepared.admin);
       await assertActionRateLimit(actorId, "automation-service-account-update", 10, 60 * 60);
       const input = serviceAccountUpdateSchema.parse(body);
       return ok(

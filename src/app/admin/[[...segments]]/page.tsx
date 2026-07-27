@@ -21,18 +21,24 @@ import { AutomationAudit } from "@/components/admin/automation-audit";
 
 interface Props {
   params: Promise<{ segments?: string[] }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminPage({ params }: Props) {
+export default async function AdminPage({ params, searchParams }: Props) {
   const admin = await requireAdminPage();
   const { segments = [] } = await params;
   const [area, id] = segments;
   const repository = getRepository();
 
   if (!area) {
-    const summary = await repository.dashboard();
+    const [summary, recentEvents, dashboardTenants] = await Promise.all([
+      repository.dashboard(),
+      repository.listEvents({ limit: 5 }),
+      repository.listTenants({ limit: 500 })
+    ]);
+    const tenantNames = new Map(dashboardTenants.map((tenant) => [tenant.id, tenant.fullName]));
     const forcePaused = process.env.REMINDERS_FORCE_PAUSED !== "false";
     const effectivePaused = summary.remindersPaused || forcePaused;
     return (
@@ -67,6 +73,28 @@ export default async function AdminPage({ params }: Props) {
             <Link className="text-link" href="/admin/notifications/history">Review delivery history →</Link>
           </section>
         </div>
+        <section className="card">
+          <div className="admin-card-heading">
+            <div><p className="eyebrow">RECENT ACTIVITY</p><h2>Recent sends</h2></div>
+            <Link className="text-link" href="/admin/notifications/history">Full history →</Link>
+          </div>
+          <div className="table-scroll">
+            <table className="admin-table">
+              <thead><tr><th>Tenant</th><th>Channel</th><th>Source</th><th>Status</th><th>Destination</th><th>Scheduled</th></tr></thead>
+              <tbody>{recentEvents.map((event) => (
+                <tr key={event.id}>
+                  <td>{tenantNames.get(event.tenantId) ?? "Archived tenant"}</td>
+                  <td>{event.channel}</td>
+                  <td>{event.source}</td>
+                  <td><span className={`status ${event.status}`}>{event.status}</span></td>
+                  <td>{event.destinationMasked ?? "—"}</td>
+                  <td>{new Date(event.scheduledFor).toLocaleString()}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+          {recentEvents.length === 0 && <p>No delivery events recorded yet.</p>}
+        </section>
       </AdminShell>
     );
   }
@@ -153,7 +181,15 @@ export default async function AdminPage({ params }: Props) {
   }
 
   if (area === "tenants") {
-    const tenants = await repository.listTenants();
+    const query = await searchParams;
+    const value = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
+    const tenants = await repository.listTenants({
+      query: value("q") || undefined,
+      lifecycle: (value("lifecycle") || undefined) as "active" | "inactive" | "archived" | undefined,
+      contact: (value("contact") || undefined) as "email_allowed" | "email_blocked" | "sms_allowed" | "sms_blocked" | undefined,
+      schedule: (value("schedule") || undefined) as "enabled" | "disabled" | "missing" | undefined,
+      limit: 500
+    });
     return (
       <AdminShell admin={admin} title={id ? "Tenant Details" : "Tenants"}>
         {id ? (
@@ -170,15 +206,33 @@ export default async function AdminPage({ params }: Props) {
               <p>{tenants.length} tenant records · Contact details are masked in this list</p>
               <Link className="button" href="/admin/tenants/new">Add tenant</Link>
             </div>
+            <form className="history-filters card" method="get">
+              <label className="field"><span>Name, property, or unit</span><input name="q" type="search" defaultValue={value("q")} /></label>
+              <label className="field"><span>Lifecycle</span><select name="lifecycle" defaultValue={value("lifecycle")}>
+                <option value="">All records</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="archived">Archived</option>
+              </select></label>
+              <label className="field"><span>Contact permission</span><select name="contact" defaultValue={value("contact")}>
+                <option value="">All permissions</option><option value="email_allowed">Email allowed</option><option value="email_blocked">Email blocked</option><option value="sms_allowed">SMS allowed</option><option value="sms_blocked">SMS blocked</option>
+              </select></label>
+              <label className="field"><span>Reminder plan</span><select name="schedule" defaultValue={value("schedule")}>
+                <option value="">All plans</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="missing">Missing</option>
+              </select></label>
+              <button className="button secondary" type="submit">Apply filters</button>
+            </form>
             <table className="admin-table">
-              <thead><tr><th>Tenant</th><th>Property</th><th>Contact</th><th>Channels</th><th>Status</th><th /></tr></thead>
+              <thead><tr><th>Tenant</th><th>Property</th><th>Contact</th><th>Lifecycle</th><th>Plan / next reminder</th><th>Last delivery</th><th /></tr></thead>
               <tbody>{tenants.map((tenant) => (
                 <tr key={tenant.id}>
                   <td><strong>{tenant.fullName}</strong></td>
                   <td>{tenant.propertyLabel} {tenant.unitLabel}</td>
                   <td><small>{maskEmail(tenant.email)}<br />{maskPhone(tenant.phoneE164)}</small></td>
-                  <td>{tenant.preferredChannels.join(", ") || "None"}</td>
-                  <td><span className={`status ${tenant.isActive ? "published" : "archived"}`}>{tenant.isActive ? "Active" : "Inactive"}</span></td>
+                  <td><span className={`status ${tenant.isActive && !tenant.archivedAt ? "published" : "archived"}`}>
+                    {tenant.archivedAt ? "Archived" : tenant.isActive ? "Active" : "Inactive"}
+                  </span></td>
+                  <td><strong>{tenant.scheduleStatus ?? "missing"}</strong><br /><small>
+                    {tenant.nextRunAt ? `${new Date(tenant.nextRunAt).toLocaleString()} (${tenant.timezone})` : "No next reminder"}
+                  </small></td>
+                  <td>{tenant.lastDeliveryStatus ?? "None"}<br /><small>{tenant.lastDeliveryAt ? new Date(tenant.lastDeliveryAt).toLocaleString() : "—"}</small></td>
                   <td><Link className="text-link" href={`/admin/tenants/${tenant.id}`}>Open →</Link></td>
                 </tr>
               ))}</tbody>
@@ -220,7 +274,11 @@ export default async function AdminPage({ params }: Props) {
         <ReminderSettings
           initialPause={pause}
           forcePaused={process.env.REMINDERS_FORCE_PAUSED !== "false"}
-          providerMode={process.env.NOTIFICATION_PROVIDER_MODE ?? "mock"}
+          emailProviderMode={
+            process.env.EMAIL_PROVIDER_MODE ??
+            (process.env.NODE_ENV === "production" ? "disabled" : "mock")
+          }
+          smsProviderMode={process.env.SMS_PROVIDER_MODE ?? "disabled"}
           initialTestContacts={await repository.getTestContacts()}
         />
       </AdminShell>

@@ -18,16 +18,23 @@ credentials are configured server-side with `LOCAL_ADMIN_EMAIL`, a scrypt
 
 No third-party account is required for local development. Supabase is replaced
 by the seeded memory adapter and notification delivery defaults to
-`NOTIFICATION_PROVIDER_MODE=mock`, which returns fake provider message IDs
-without making network requests. The contact form is persisted locally and its
+`EMAIL_PROVIDER_MODE=mock` and `SMS_PROVIDER_MODE=disabled`, which keep
+outbound delivery network-free. The contact form is persisted locally and its
 delivery adapter remains mocked.
 
 Notification provider modes:
 
-- `mock`: safe development/test responses; no email or SMS is sent.
+- `mock`: safe development/test responses; that channel sends nothing.
 - `disabled`: every delivery attempt fails closed with a configuration error.
-- `live`: uses Resend and Twilio and therefore requires their server-side
-  credentials.
+- `live`: uses Resend for email or Twilio for SMS and requires only that
+  channel's server-side credentials.
+
+Twilio SMS accepts `TWILIO_MESSAGING_SERVICE_SID` for production delivery or
+`TWILIO_FROM_NUMBER` for a restricted trial dry run. Keep `SMS_PROVIDER_MODE`
+disabled until the sender is approved and a callback-tested dry run succeeds.
+The current Owner decision is an Email-only launch: Twilio/SMS is deferred, all
+Twilio variables stay unset, and `SMS_PROVIDER_MODE=disabled` remains in
+production.
 
 ## Verify
 
@@ -37,7 +44,13 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm test:e2e
+pnpm --dir integrations/openclaw test
 ```
+
+The production-authentication suite is intentionally separate and fail-closed:
+`pnpm test:e2e:supabase` requires a dedicated test project or local Supabase,
+an explicit confirmation marker, and test-only administrator/MFA credentials.
+It refuses to run against the declared production project.
 
 Database migrations can additionally be syntax- and behavior-tested against
 PostgreSQL 17 using [tests/sql/migration-behavior.sql](./tests/sql/migration-behavior.sql).

@@ -194,10 +194,10 @@ declare
   v_contacts_deleted integer;
 begin
   update public.notification_events event
-  set destination_hash = coalesce(event.destination_hash, encode(digest(coalesce(event.destination, ''), 'sha256'), 'hex')),
+  set destination_hash = coalesce(event.destination_hash, encode(extensions.digest(coalesce(event.destination, ''), 'sha256'), 'hex')),
       rendered_content_hash = coalesce(
         event.rendered_content_hash,
-        encode(digest(coalesce(event.rendered_subject, '') || E'\n' || coalesce(event.rendered_body, ''), 'sha256'), 'hex')
+        encode(extensions.digest(coalesce(event.rendered_subject, '') || E'\n' || coalesce(event.rendered_body, ''), 'sha256'), 'hex')
       ),
       destination = null,
       rendered_subject = null,

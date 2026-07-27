@@ -18,7 +18,8 @@ describe("manual notification flow", () => {
   beforeEach(() => {
     store.reset();
     process.env.REMINDERS_FORCE_PAUSED = "false";
-    process.env.NOTIFICATION_PROVIDER_MODE = "mock";
+    process.env.EMAIL_PROVIDER_MODE = "mock";
+    process.env.SMS_PROVIDER_MODE = "mock";
   });
 
   it("freezes, confirms idempotently, and creates one event per eligible channel", () => {
