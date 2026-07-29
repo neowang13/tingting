@@ -354,6 +354,17 @@ test("production Cookie authentication covers critical Supabase writes", async (
     })
   ]);
 
+  const currentSettings = expectSuccess<{ businessName: string; updatedAt: string }>(
+    await adminApi(page, "/api/admin/settings/reminders")
+  );
+  const updatedSettings = expectSuccess<{ businessName: string; updatedAt: string }>(
+    await adminApi(page, "/api/admin/settings/reminders", "PATCH", {
+      businessName: `Ting Ting Property Group ${runId}`,
+      expectedVersion: currentSettings.updatedAt
+    })
+  );
+  expect(updatedSettings.businessName).toBe(`Ting Ting Property Group ${runId}`);
+
   const currentTestContacts = expectSuccess<{ updatedAt: string }>(
     await adminApi(page, "/api/admin/settings/test-contacts")
   );

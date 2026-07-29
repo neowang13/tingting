@@ -794,6 +794,9 @@ export class SupabaseRepository implements DataRepository {
     const row = asRow(data);
     const value = asRow(row.value);
     return {
+      businessName: typeof value.businessName === "string"
+        ? value.businessName
+        : "Ting Ting Xu Real Estate",
       paused: Boolean(value.paused),
       leadDays: Number.isInteger(Number(value.leadDays)) ? Number(value.leadDays) : 3,
       localTime: typeof value.localTime === "string" ? value.localTime.slice(0, 5) : "09:00",
@@ -817,10 +820,26 @@ export class SupabaseRepository implements DataRepository {
     };
   }
 
+  async saveBusinessName(businessName: string, expectedVersion: unknown, actorId: string) {
+    const current = await this.getPause();
+    const data = asRow(await this.rpc("set_business_name", {
+      p_business_name: businessName,
+      p_expected_updated_at: expectedVersion,
+      p_actor_id: actorId
+    }));
+    return {
+      ...current,
+      businessName: text(data, "businessName"),
+      updatedAt: text(data, "updatedAt")
+    };
+  }
+
   async saveReminderSettings(payload: unknown, actorId: string) {
     const input = reminderSettingsInputSchema.parse(payload);
+    const current = await this.getPause();
     const data = asRow(await this.rpc("save_global_reminder_settings", {
       p_payload: {
+        businessName: current.businessName,
         paused: input.paused,
         leadDays: input.leadDays,
         localTime: input.localTime,
@@ -831,6 +850,9 @@ export class SupabaseRepository implements DataRepository {
       p_actor_id: actorId
     }));
     return {
+      businessName: typeof data.businessName === "string"
+        ? data.businessName
+        : current.businessName,
       paused: Boolean(data.paused),
       leadDays: Number(data.leadDays),
       localTime: String(data.localTime).slice(0, 5),

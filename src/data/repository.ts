@@ -80,6 +80,7 @@ export interface DataRepository {
   retryEvent(id: string, actorId: string): Promise<NotificationEvent>;
   getPause(): Promise<ReminderSettings>;
   setPause(paused: boolean, expectedVersion: unknown, actorId: string): Promise<ReminderSettings>;
+  saveBusinessName(businessName: string, expectedVersion: unknown, actorId: string): Promise<ReminderSettings>;
   saveReminderSettings(payload: unknown, actorId: string): Promise<ReminderSettings>;
   getTestContacts(): Promise<TestContacts>;
   setTestContacts(payload: unknown, actorId: string): Promise<TestContacts>;
@@ -172,6 +173,9 @@ class MemoryRepository implements DataRepository {
   async retryEvent(id: string) { return store.retryEvent(id); }
   async getPause() { return store.getPause(); }
   async setPause(paused: boolean, expectedVersion: unknown) { return store.setPause(paused, expectedVersion); }
+  async saveBusinessName(businessName: string, expectedVersion: unknown) {
+    return store.saveBusinessName(businessName, expectedVersion);
+  }
   async saveReminderSettings(payload: unknown) { return store.saveReminderSettings(payload); }
   async getTestContacts() { return store.getTestContacts(); }
   async setTestContacts(payload: unknown) { return store.setTestContacts(payload); }

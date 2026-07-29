@@ -48,6 +48,18 @@ describe("memory global reminder policy", () => {
     });
   });
 
+  it("saves the business name with optimistic concurrency", () => {
+    const settings = store.getPause();
+    vi.advanceTimersByTime(1);
+    const saved = store.saveBusinessName("Ting Ting Property Group", settings.updatedAt);
+
+    expect(saved.businessName).toBe("Ting Ting Property Group");
+    expect(saved.updatedAt).not.toBe(settings.updatedAt);
+    expect(() => store.saveBusinessName("Stale update", settings.updatedAt)).toThrowError(
+      expect.objectContaining({ code: "VERSION_CONFLICT", status: 409 })
+    );
+  });
+
   it("preserves nextRunAt for ordinary tenant edits and template-only changes", () => {
     const tenant = store.createTenant(tenantPayload);
     const original = store.getTenant(tenant.id).schedule!;

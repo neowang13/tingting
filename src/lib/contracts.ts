@@ -277,6 +277,7 @@ export interface ReminderSchedule extends Versioned {
 }
 
 export interface ReminderSettings {
+  businessName: string;
   paused: boolean;
   leadDays: number;
   localTime: string;

@@ -224,12 +224,24 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await expect(page.getByText("Tenant saved. The next email was recalculated, but automatic sending remains paused.")).toBeVisible();
 
   await page.goto("/admin/settings");
+  await expect(page.getByLabel("Business name")).toHaveValue("Ting Ting Xu Real Estate");
+  await page.getByLabel("Business name").fill("Ting Ting Property Group");
+  await page.getByRole("button", { name: "Save business name" }).click();
+  await expect(page.getByText("Business name saved. New email previews and reminders will use it.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel("Business name")).toHaveValue("Ting Ting Property Group");
   await expect(page.getByRole("heading", { name: "Send a test email" })).toBeVisible();
   await page.getByLabel("Admin test email").fill("admin-test@example.com");
   await page.getByRole("button", { name: "Save test email" }).click();
   await expect(page.getByText("Test email destination saved.")).toBeVisible();
   await page.getByLabel("Email template").selectOption({ label: "Monthly rent reminder" });
   await page.getByLabel("Use sample details from").selectOption({ label: "E2E Reminder Tenant" });
+  await page.evaluate(() => {
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      configurable: true,
+      value: undefined
+    });
+  });
   await page.getByRole("button", { name: "Preview test email" }).click();
   await expect(page.getByRole("heading", { name: "Test email preview" })).toBeVisible();
   await page.getByRole("button", { name: /Send test email to/ }).click();

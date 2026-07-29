@@ -56,6 +56,7 @@ import type {
 } from "@/lib/contracts";
 import {
   batchConfirmSchema,
+  businessNameSettingsInputSchema,
   notificationPreviewSchema,
   reminderSettingsInputSchema,
   publishRequirementPaths,
@@ -84,6 +85,7 @@ interface MemoryState {
   reminderLocalTime: string;
   reminderTimezone: string;
   reminderEmailTemplateId: string | null;
+  businessName: string;
   settingsUpdatedAt: string;
   lastWorkerRunAt: string | null;
   lastWorkerStatus: string | null;
@@ -134,6 +136,7 @@ function initialState(): MemoryState {
     reminderLocalTime: "09:00",
     reminderTimezone: "America/Vancouver",
     reminderEmailTemplateId: demoTemplates.find((template) => template.channel === "email")?.id ?? null,
+    businessName: "Ting Ting Xu Real Estate",
     settingsUpdatedAt: new Date().toISOString(),
     lastWorkerRunAt: null,
     lastWorkerStatus: null,
@@ -849,6 +852,7 @@ export const store = {
 
   getPause() {
     return {
+      businessName: state().businessName,
       paused: state().remindersPaused,
       leadDays: state().reminderLeadDays,
       localTime: state().reminderLocalTime,
@@ -861,6 +865,14 @@ export const store = {
   setPause(paused: boolean, expectedVersion: unknown) {
     assertVersion(state().settingsUpdatedAt, expectedVersion);
     state().remindersPaused = paused;
+    state().settingsUpdatedAt = new Date().toISOString();
+    return this.getPause();
+  },
+
+  saveBusinessName(businessName: string, expectedVersion: unknown) {
+    const input = businessNameSettingsInputSchema.parse({ businessName, expectedVersion });
+    assertVersion(state().settingsUpdatedAt, input.expectedVersion);
+    state().businessName = input.businessName;
     state().settingsUpdatedAt = new Date().toISOString();
     return this.getPause();
   },
@@ -1209,7 +1221,7 @@ function templateContext(tenant: Tenant, dueDate: string): TemplateContext {
     property: tenant.propertyLabel,
     unit: tenant.unitLabel ?? "",
     due_date: dueDate,
-    business_name: "Ting Ting Xu Real Estate",
+    business_name: state().businessName,
     business_phone: "604-872-6896",
     business_email: "info@tingtingxu.ca"
   };

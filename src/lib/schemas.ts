@@ -394,6 +394,13 @@ export const pauseInputSchema = z
   })
   .strict();
 
+export const businessNameSettingsInputSchema = z
+  .object({
+    businessName: z.string().trim().min(1, "Enter a business name.").max(100),
+    expectedVersion: isoTimestampSchema
+  })
+  .strict();
+
 export const reminderSettingsInputSchema = z
   .object({
     paused: z.boolean(),

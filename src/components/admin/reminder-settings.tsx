@@ -9,6 +9,7 @@ import type {
 } from "@/lib/contracts";
 import { formatRentDueDate } from "@/features/reminders/due-date";
 import { deliveryModeCopy } from "@/lib/notification-copy";
+import { createRequestId } from "@/lib/request-id";
 
 interface TestPreview {
   requestId: string;
@@ -37,6 +38,7 @@ export function ReminderSettings({
   templates: NotificationTemplate[];
 }) {
   const [settings, setSettings] = useState(initialSettings);
+  const [businessName, setBusinessName] = useState(initialSettings.businessName);
   const [leadDays, setLeadDays] = useState(initialSettings.leadDays);
   const [localTime, setLocalTime] = useState(initialSettings.localTime);
   const [emailTemplateId, setEmailTemplateId] = useState(initialSettings.emailTemplateId ?? "");
@@ -72,6 +74,44 @@ export function ReminderSettings({
     setSettings(result.data);
     setTestPreview(null);
     return result.data as ReminderSettingsContract;
+  }
+
+  async function saveBusinessName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const trimmedBusinessName = businessName.trim();
+    if (!trimmedBusinessName) {
+      setMessageTone("error");
+      setMessage("Enter a business name.");
+      return;
+    }
+
+    setBusy(true);
+    setMessageTone("neutral");
+    setMessage("Saving the business name…");
+    try {
+      const response = await fetch("/api/admin/settings/reminders", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          businessName: trimmedBusinessName,
+          expectedVersion: settings.updatedAt
+        })
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error?.message ?? "The business name could not be saved.");
+      }
+      setSettings(result.data);
+      setBusinessName(result.data.businessName);
+      setTestPreview(null);
+      setMessageTone("success");
+      setMessage("Business name saved. New email previews and reminders will use it.");
+    } catch (error) {
+      setMessageTone("error");
+      setMessage(error instanceof Error ? error.message : "The business name could not be saved.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -178,7 +218,7 @@ export function ReminderSettings({
           leadDays,
           localTime,
           timezone: "America/Vancouver",
-          requestId: crypto.randomUUID()
+          requestId: createRequestId()
         })
       });
       const result = await response.json();
@@ -230,6 +270,36 @@ export function ReminderSettings({
 
   return (
     <div className="prototype-page reminder-settings-page">
+      <section className="prototype-form-card admin-form" aria-labelledby="business-details-heading">
+        <h2 id="business-details-heading">Business details</h2>
+        <p>
+          This name is used anywhere an email template includes the <code>{"{{business_name}}"}</code> variable.
+        </p>
+        <form className="prototype-form-stack" onSubmit={saveBusinessName}>
+          <label className="field">
+            <span>Business name</span>
+            <input
+              name="businessName"
+              type="text"
+              required
+              maxLength={100}
+              autoComplete="organization"
+              value={businessName}
+              onChange={(event) => setBusinessName(event.target.value)}
+            />
+          </label>
+          <div>
+            <button
+              className="button"
+              disabled={busy || businessName.trim() === settings.businessName}
+              type="submit"
+            >
+              Save business name
+            </button>
+          </div>
+        </form>
+      </section>
+
       <section className="prototype-form-card admin-form" aria-labelledby="automatic-email-heading">
         <h2 id="automatic-email-heading">Automatic monthly emails</h2>
         <strong className={`prototype-status ${effectivePaused ? "waiting" : "success"}`}>

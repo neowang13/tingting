@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth";
 import { getRepository } from "@/data/repository";
 import {
+  businessNameSettingsInputSchema,
   pauseInputSchema,
   reminderSettingsInputSchema,
   notificationEventFilterSchema,
@@ -278,7 +279,7 @@ export async function POST(request: Request, context: Context) {
         property: tenant.propertyLabel,
         unit: tenant.unitLabel ?? "",
         due_date: formatRentDueDate(occurrence.dueDate),
-        business_name: "Ting Ting Xu Real Estate",
+        business_name: settings.businessName,
         business_phone: "604-872-6896",
         business_email: "info@tingtingxu.ca"
       };
@@ -436,6 +437,13 @@ export async function PATCH(request: Request, context: Context) {
     }
     if (resource === "settings" && id === "reminders" && !action) {
       await assertRecentAuthentication(prepared.admin);
+      if ("businessName" in body) {
+        const input = businessNameSettingsInputSchema.parse(body);
+        return ok(
+          await repository.saveBusinessName(input.businessName, input.expectedVersion, actorId),
+          requestId
+        );
+      }
       if ("leadDays" in body || "localTime" in body || "emailTemplateId" in body) {
         const input = reminderSettingsInputSchema.parse(body);
         return ok(await repository.saveReminderSettings(input, actorId), requestId);
