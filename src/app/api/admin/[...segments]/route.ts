@@ -234,7 +234,8 @@ export async function POST(request: Request, context: Context) {
         leadDays: settings.leadDays,
         localTime: settings.localTime,
         timezone: settings.timezone,
-        afterInstant: new Date().toISOString()
+        afterInstant: new Date().toISOString(),
+        catchUpBeforeDueDate: true
       });
       return ok({
         ...occurrence,
@@ -269,7 +270,8 @@ export async function POST(request: Request, context: Context) {
         leadDays,
         localTime,
         timezone,
-        afterInstant: new Date().toISOString()
+        afterInstant: new Date().toISOString(),
+        catchUpBeforeDueDate: true
       });
       const context: TemplateContext = {
         tenant_name: tenant.fullName,

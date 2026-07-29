@@ -32,6 +32,21 @@ describe("nextReminderOccurrence", () => {
     });
   });
 
+  it("keeps the current payment cycle when the configured minute has just passed", () => {
+    expect(nextReminderOccurrence({
+      rentDueDay: 1,
+      leadDays: 3,
+      localTime: "04:53",
+      timezone: "America/Vancouver",
+      afterInstant: "2026-07-29T11:53:33Z",
+      catchUpBeforeDueDate: true
+    })).toEqual({
+      nextRunAt: "2026-07-29T11:53:33Z",
+      sendLocalDate: "2026-07-29",
+      dueDate: "2026-08-01"
+    });
+  });
+
   it.each([
     { rentDueDay: 0, leadDays: 3, localTime: "09:00" },
     { rentDueDay: 32, leadDays: 3, localTime: "09:00" },
