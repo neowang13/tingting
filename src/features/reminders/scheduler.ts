@@ -31,6 +31,11 @@ export function nextOccurrence(input: NextOccurrenceInput): string {
 
 export interface NextReminderOccurrenceInput {
   rentDueDay: number;
+  /**
+   * The first rent payment is treated as part of move-in. Recurring reminders
+   * therefore start with the first payment date strictly after this date.
+   */
+  moveInDate?: string | null;
   leadDays: number;
   localTime: string;
   timezone: string;
@@ -50,6 +55,34 @@ export interface ReminderOccurrence {
 }
 
 /**
+ * Returns the payment cycle that an administrator should see in a preview,
+ * while preserving the configured wall-clock send time. A catch-up occurrence
+ * may be due immediately, but displaying the refresh instant as the scheduled
+ * time would make the preview drift every time the page reloads.
+ */
+export function previewReminderOccurrence(
+  input: Omit<NextReminderOccurrenceInput, "catchUpBeforeDueDate">
+): ReminderOccurrence {
+  const occurrence = nextReminderOccurrence({
+    ...input,
+    catchUpBeforeDueDate: true
+  });
+  const dueDate = Temporal.PlainDate.from(occurrence.dueDate);
+  const sendLocalDate = dueDate.subtract({ days: input.leadDays });
+  const [hour, minute] = input.localTime.split(":").map(Number);
+  const planned = sendLocalDate
+    .toPlainDateTime({ hour, minute })
+    .toZonedDateTime(input.timezone, { disambiguation: "compatible" })
+    .toInstant();
+
+  return {
+    nextRunAt: planned.toString(),
+    sendLocalDate: sendLocalDate.toString(),
+    dueDate: dueDate.toString()
+  };
+}
+
+/**
  * Calculates the send instant and the rent due date as one indivisible
  * occurrence. Keeping both values together prevents a cross-month reminder
  * from rendering the wrong month's due date.
@@ -59,6 +92,15 @@ export function nextReminderOccurrence(
 ): ReminderOccurrence {
   const after = Temporal.Instant.from(input.afterInstant);
   const localAfter = after.toZonedDateTimeISO(input.timezone);
+  const moveInDate = input.moveInDate
+    ? Temporal.PlainDate.from(input.moveInDate)
+    : null;
+  const afterMonth = localAfter.toPlainDate().with({ day: 1 });
+  const moveInMonth = moveInDate?.with({ day: 1 }) ?? null;
+  const firstMonth =
+    moveInMonth && Temporal.PlainDate.compare(moveInMonth, afterMonth) > 0
+      ? moveInMonth
+      : afterMonth;
   const [hour, minute] = input.localTime.split(":").map(Number);
 
   if (!Number.isInteger(input.rentDueDay) || input.rentDueDay < 1 || input.rentDueDay > 31) {
@@ -79,10 +121,16 @@ export function nextReminderOccurrence(
   }
 
   for (let offset = 0; offset < 36; offset += 1) {
-    const month = localAfter.toPlainDate().with({ day: 1 }).add({ months: offset });
+    const month = firstMonth.add({ months: offset });
     const dueDate = month.with({
       day: Math.min(input.rentDueDay, month.daysInMonth)
     });
+    if (
+      moveInDate &&
+      Temporal.PlainDate.compare(dueDate, moveInDate) <= 0
+    ) {
+      continue;
+    }
     const sendDate = dueDate.subtract({ days: input.leadDays });
     const sendDateTime = sendDate.toPlainDateTime({ hour, minute });
     const planned = sendDateTime
@@ -102,8 +150,8 @@ export function nextReminderOccurrence(
       Temporal.PlainDate.compare(localAfter.toPlainDate(), dueDate) <= 0
     ) {
       return {
-        nextRunAt: after.toString(),
-        sendLocalDate: localAfter.toPlainDate().toString(),
+        nextRunAt: planned.toString(),
+        sendLocalDate: sendDate.toString(),
         dueDate: dueDate.toString()
       };
     }

@@ -43,6 +43,7 @@ export function TenantEditor({
     initialNotice?.tone ?? "neutral"
   );
   const [email, setEmail] = useState(initial?.tenant.email ?? "");
+  const [moveInDate, setMoveInDate] = useState(initial?.tenant.moveInDate ?? "");
   const [rentDueDay, setRentDueDay] = useState(
     initial?.tenant.rentDueDay ?? initial?.schedule?.rentDueDay ?? 1
   );
@@ -65,7 +66,10 @@ export function TenantEditor({
     void fetch("/api/admin/schedules/next-run", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rentDueDay }),
+      body: JSON.stringify({
+        rentDueDay,
+        moveInDate: moveInDate || null
+      }),
       signal: controller.signal
     })
       .then(async (response) => {
@@ -88,7 +92,7 @@ export function TenantEditor({
         }));
       });
     return () => controller.abort();
-  }, [rentDueDay]);
+  }, [moveInDate, rentDueDay]);
 
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -228,7 +232,13 @@ export function TenantEditor({
             </label>
             <label className="field">
               <span>Move-in date</span>
-              <input name="moveInDate" type="date" required defaultValue={tenant?.moveInDate ?? ""} />
+              <input
+                name="moveInDate"
+                type="date"
+                required
+                value={moveInDate}
+                onChange={(event) => setMoveInDate(event.target.value)}
+              />
             </label>
             <label className="field">
               <span>Payment due date</span>

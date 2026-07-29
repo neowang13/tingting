@@ -17,7 +17,7 @@ import {
   testNotificationSchema
 } from "@/lib/schemas";
 import {
-  nextReminderOccurrence
+  previewReminderOccurrence
 } from "@/features/reminders/scheduler";
 import {
   estimateSmsSegments,
@@ -229,13 +229,13 @@ export async function POST(request: Request, context: Context) {
     if (resource === "schedules" && id === "next-run") {
       const input = schedulePreviewSchema.parse(body);
       const settings = await repository.getPause();
-      const occurrence = nextReminderOccurrence({
+      const occurrence = previewReminderOccurrence({
         rentDueDay: input.rentDueDay,
+        moveInDate: input.moveInDate,
         leadDays: settings.leadDays,
         localTime: settings.localTime,
         timezone: settings.timezone,
-        afterInstant: new Date().toISOString(),
-        catchUpBeforeDueDate: true
+        afterInstant: new Date().toISOString()
       });
       return ok({
         ...occurrence,
@@ -265,13 +265,13 @@ export async function POST(request: Request, context: Context) {
       const leadDays = payload.leadDays ?? settings.leadDays;
       const localTime = payload.localTime ?? settings.localTime;
       const timezone = payload.timezone ?? settings.timezone;
-      const occurrence = nextReminderOccurrence({
+      const occurrence = previewReminderOccurrence({
         rentDueDay: tenant.rentDueDay,
+        moveInDate: tenant.moveInDate,
         leadDays,
         localTime,
         timezone,
-        afterInstant: new Date().toISOString(),
-        catchUpBeforeDueDate: true
+        afterInstant: new Date().toISOString()
       });
       const context: TemplateContext = {
         tenant_name: tenant.fullName,

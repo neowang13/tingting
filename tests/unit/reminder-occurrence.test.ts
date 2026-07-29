@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import vectors from "../fixtures/reminder-occurrences.json";
-import { nextReminderOccurrence } from "@/features/reminders/scheduler";
+import {
+  nextReminderOccurrence,
+  previewReminderOccurrence
+} from "@/features/reminders/scheduler";
 
 describe("nextReminderOccurrence", () => {
   it.each(vectors)("$id keeps the send date and due date paired", (vector) => {
@@ -17,7 +20,7 @@ describe("nextReminderOccurrence", () => {
     });
   });
 
-  it("makes a missed occurrence immediately eligible while its due date remains current", () => {
+  it("keeps a missed occurrence eligible at its planned time while its due date remains current", () => {
     expect(nextReminderOccurrence({
       rentDueDay: 1,
       leadDays: 3,
@@ -26,24 +29,39 @@ describe("nextReminderOccurrence", () => {
       afterInstant: "2026-07-30T17:00:00Z",
       catchUpBeforeDueDate: true
     })).toEqual({
-      nextRunAt: "2026-07-30T17:00:00Z",
-      sendLocalDate: "2026-07-30",
+      nextRunAt: "2026-07-29T16:00:00Z",
+      sendLocalDate: "2026-07-29",
       dueDate: "2026-08-01"
     });
   });
 
   it("keeps the current payment cycle when the configured minute has just passed", () => {
-    expect(nextReminderOccurrence({
+    expect(previewReminderOccurrence({
       rentDueDay: 1,
+      moveInDate: "2026-07-01",
       leadDays: 3,
       localTime: "04:53",
       timezone: "America/Vancouver",
-      afterInstant: "2026-07-29T11:53:33Z",
-      catchUpBeforeDueDate: true
+      afterInstant: "2026-07-29T11:53:33Z"
     })).toEqual({
-      nextRunAt: "2026-07-29T11:53:33Z",
+      nextRunAt: "2026-07-29T11:53:00Z",
       sendLocalDate: "2026-07-29",
       dueDate: "2026-08-01"
+    });
+  });
+
+  it("starts recurring rent with the first due date strictly after move-in", () => {
+    expect(previewReminderOccurrence({
+      rentDueDay: 1,
+      moveInDate: "2031-08-01",
+      leadDays: 3,
+      localTime: "09:00",
+      timezone: "America/Vancouver",
+      afterInstant: "2026-07-29T15:00:00Z"
+    })).toEqual({
+      nextRunAt: "2031-08-29T16:00:00Z",
+      sendLocalDate: "2031-08-29",
+      dueDate: "2031-09-01"
     });
   });
 

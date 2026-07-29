@@ -222,6 +222,51 @@ $$;
 
 do $$
 declare
+  v_tenant_id uuid;
+  v_move_in_date date :=
+    date_trunc('month', (now() at time zone 'America/Vancouver') + interval '5 years')::date;
+  v_schedule public.reminder_schedules;
+  v_expected record;
+begin
+  select id into v_tenant_id
+  from public.tenants
+  where email = 'behavior@example.com';
+
+  update public.tenants
+  set move_in_date = v_move_in_date,
+      rent_due_day = 1,
+      updated_at = now()
+  where id = v_tenant_id;
+
+  select * into v_schedule
+  from public.reminder_schedules
+  where tenant_id = v_tenant_id;
+
+  select * into v_expected
+  from public.next_move_in_aware_reminder_occurrence(
+    1::smallint,
+    v_move_in_date,
+    3::smallint,
+    '09:00'::time,
+    'America/Vancouver',
+    now(),
+    true
+  );
+
+  if v_expected.due_date <> (v_move_in_date + interval '1 month')::date then
+    raise exception 'move-in payment was treated as recurring rent: %', v_expected;
+  end if;
+  if v_schedule.next_run_at is distinct from v_expected.next_run_at then
+    raise exception 'tenant trigger ignored move-in boundary: schedule %, expected %',
+      v_schedule.next_run_at, v_expected.next_run_at;
+  end if;
+
+  raise notice 'move-in-aware reminder behavior suite passed';
+end
+$$;
+
+do $$
+declare
   v_admin uuid := '00000000-0000-4000-8000-000000000001';
   v_media uuid := gen_random_uuid();
   v_payload jsonb;

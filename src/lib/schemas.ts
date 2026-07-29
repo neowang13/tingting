@@ -327,7 +327,8 @@ export const scheduleInputSchema = z
   .strict();
 
 export const schedulePreviewSchema = z.object({
-  rentDueDay: z.number().int().min(1).max(31)
+  rentDueDay: z.number().int().min(1).max(31),
+  moveInDate: z.iso.date().nullable().optional()
 }).strict();
 
 export const templateInputSchema = z

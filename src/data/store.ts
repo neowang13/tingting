@@ -190,6 +190,7 @@ function calculateDerivedOccurrence(
 ) {
   return nextReminderOccurrence({
     rentDueDay: tenant.rentDueDay,
+    moveInDate: tenant.moveInDate,
     leadDays: state().reminderLeadDays,
     localTime: state().reminderLocalTime,
     timezone: state().reminderTimezone,
@@ -1045,6 +1046,7 @@ export const store = {
       const plannedFor = schedule.nextRunAt ?? startedAt;
       const occurrence = nextReminderOccurrence({
         rentDueDay: tenant.rentDueDay,
+        moveInDate: tenant.moveInDate,
         leadDays: state().reminderLeadDays,
         localTime: state().reminderLocalTime,
         timezone: state().reminderTimezone,
@@ -1102,6 +1104,7 @@ export const store = {
       schedule.lastProcessedAt = startedAt;
       const next = nextReminderOccurrence({
         rentDueDay: tenant.rentDueDay,
+        moveInDate: tenant.moveInDate,
         leadDays: state().reminderLeadDays,
         localTime: state().reminderLocalTime,
         timezone: state().reminderTimezone,
