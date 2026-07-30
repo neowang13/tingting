@@ -20,6 +20,7 @@ describe("reminder worker capacity", () => {
         fullName: `Capacity Tenant ${index}`,
         propertyLabel: `Capacity Property ${index}`,
         unitLabel: String(index),
+        moveInDate: "2099-01-01",
         email: `capacity-${index}@example.com`,
         phoneE164: `+1604555${String(index).padStart(4, "0")}`,
         preferredChannels: ["email", "sms"],
