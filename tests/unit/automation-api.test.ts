@@ -5,8 +5,10 @@ import {
 } from "@/data/automation-repository";
 import {
   GET,
+  PATCH,
   POST
 } from "@/app/api/automation/v1/[...segments]/route";
+import { store } from "@/data/store";
 import { resetEnvironmentCache } from "@/lib/env";
 
 const context = (segments: string[]) => ({
@@ -24,6 +26,7 @@ describe("Automation API route", () => {
     vi.stubEnv("AUTOMATION_TOKEN_PEPPER", "route-test-pepper-value-that-is-longer-than-32-characters");
     resetEnvironmentCache();
     resetAutomationRepositoryForTests();
+    store.reset();
   });
 
   afterEach(() => {
@@ -79,5 +82,107 @@ describe("Automation API route", () => {
     ), context(["rentals"]));
     expect(forbidden.status).toBe(403);
     expect((await forbidden.json()).error.code).toBe("AUTOMATION_SCOPE_REQUIRED");
+  });
+
+  it("updates existing tenant contacts through a field-level patch", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Tenant field editor",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const existing = store.listTenants()[0];
+    const response = await PATCH(new Request(
+      `http://localhost/api/automation/v1/tenants/${existing.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          changes: {
+            email: "xiaochen@example.com",
+            phoneE164: "+17783856771"
+          },
+          expectedVersion: existing.updatedAt
+        })
+      }
+    ), context(["tenants", existing.id]));
+    const payload = await response.json();
+    const saved = store.getTenant(existing.id).tenant;
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.data).toMatchObject({
+      emailMasked: "x***@example.com",
+      phoneMasked: "+17***71",
+      preferredChannels: expect.arrayContaining(["email", "sms"]),
+      emailContactStatus: "unconfirmed",
+      smsContactStatus: "unconfirmed"
+    });
+    expect(saved.email).toBe("xiaochen@example.com");
+    expect(saved.phoneE164).toBe("+17783856771");
+  });
+
+  it("accepts Supabase offset timestamps as tenant resource versions", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Supabase timestamp editor",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const existing = store.listTenants()[0];
+    const response = await PATCH(new Request(
+      `http://localhost/api/automation/v1/tenants/${existing.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          changes: { email: "xiaochen@example.com" },
+          expectedVersion: "2026-07-30T05:18:03.400566+00:00"
+        })
+      }
+    ), context(["tenants", existing.id]));
+    const payload = await response.json();
+
+    expect(response.status, JSON.stringify(payload)).toBe(409);
+    expect(payload.error.code).toBe("VERSION_CONFLICT");
+  });
+
+  it("rejects permission changes through the tenant patch route", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Tenant field editor",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const existing = store.listTenants()[0];
+    const response = await PATCH(new Request(
+      `http://localhost/api/automation/v1/tenants/${existing.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          changes: { emailContactStatus: "allowed" },
+          expectedVersion: existing.updatedAt
+        })
+      }
+    ), context(["tenants", existing.id]));
+    const payload = await response.json();
+
+    expect(response.status, JSON.stringify(payload)).toBe(400);
+    expect(payload.error.code).toBe("VALIDATION_ERROR");
   });
 });

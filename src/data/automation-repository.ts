@@ -721,8 +721,16 @@ export class AutomationRepository implements IdempotencyStore {
     }
     const safeInput = {
       ...input,
-      emailContactStatus: current?.emailContactStatus === "allowed" ? "allowed" : input.emailContactStatus,
-      smsContactStatus: current?.smsContactStatus === "allowed" ? "allowed" : input.smsContactStatus
+      emailContactStatus:
+        current?.emailContactStatus === "allowed" &&
+        current.email === input.email
+          ? "allowed"
+          : input.emailContactStatus,
+      smsContactStatus:
+        current?.smsContactStatus === "allowed" &&
+        current.phoneE164 === input.phoneE164
+          ? "allowed"
+          : input.smsContactStatus
     };
     const repositoryInput = { ...safeInput };
     delete (repositoryInput as Partial<typeof repositoryInput>).sourceSystem;
@@ -746,6 +754,85 @@ export class AutomationRepository implements IdempotencyStore {
       changedFields: Object.keys(input).filter((key) => !["email", "phoneE164", "internalNotes"].includes(key))
     });
     return (await this.allAutomationTenants()).find((tenant) => tenant.id === saved.id)!;
+  }
+
+  async patchTenant(
+    id: string,
+    changes: Record<string, unknown>,
+    expectedVersion: string,
+    actor: AutomationActor
+  ) {
+    const current = (await this.allAutomationTenants()).find(
+      (tenant) => tenant.id === id
+    );
+    if (!current) throw new ApiError(404, "NOT_FOUND", "Tenant was not found.");
+    if (current.updatedAt !== expectedVersion) {
+      throw new ApiError(
+        409,
+        "VERSION_CONFLICT",
+        "The tenant changed after it was loaded."
+      );
+    }
+
+    const hasEmailChange = Object.hasOwn(changes, "email");
+    const hasPhoneChange = Object.hasOwn(changes, "phoneE164");
+    const nextEmail = hasEmailChange
+      ? (changes.email as string | null)
+      : current.email;
+    const nextPhone = hasPhoneChange
+      ? (changes.phoneE164 as string | null)
+      : current.phoneE164;
+    const emailChanged = hasEmailChange && nextEmail !== current.email;
+    const phoneChanged = hasPhoneChange && nextPhone !== current.phoneE164;
+
+    let preferredChannels = Object.hasOwn(changes, "preferredChannels")
+      ? [...(changes.preferredChannels as Tenant["preferredChannels"])]
+      : [...current.preferredChannels];
+    if (!Object.hasOwn(changes, "preferredChannels")) {
+      const channels = new Set(preferredChannels);
+      if (hasEmailChange) {
+        if (nextEmail) channels.add("email");
+        else channels.delete("email");
+      }
+      if (hasPhoneChange) {
+        if (nextPhone) channels.add("sms");
+        else channels.delete("sms");
+      }
+      preferredChannels = [...channels];
+    }
+
+    const payload: Record<string, unknown> = {
+      ...current,
+      ...changes,
+      preferredChannels,
+      sourceSystem: current.sourceSystem,
+      externalReference: current.externalReference
+    };
+    delete payload.id;
+    delete payload.createdAt;
+    delete payload.updatedAt;
+    delete payload.archivedAt;
+    delete payload.scheduleStatus;
+    delete payload.nextRunAt;
+    delete payload.lastDeliveryStatus;
+    delete payload.lastDeliveryAt;
+
+    if (emailChanged) {
+      payload.emailContactStatus = "unconfirmed";
+      payload.emailContactStatusReason = null;
+      payload.emailContactStatusSource = null;
+    }
+    if (phoneChanged) {
+      payload.smsContactStatus = "unconfirmed";
+      payload.smsContactStatusReason = null;
+      payload.smsContactStatusSource = null;
+    }
+    if (emailChanged || phoneChanged) {
+      payload.contactPermissionNote = null;
+      payload.contactPermissionUpdatedAt = new Date().toISOString();
+    }
+
+    return this.saveTenant(id, payload, expectedVersion, actor);
   }
 
   async saveDisabledSchedule(

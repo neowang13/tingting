@@ -7,6 +7,7 @@ export const idempotencyKeySchema = z.uuid();
 export const digestSchema = z.string().regex(/^sha256:[a-f0-9]{64}$/);
 export const cursorSchema = z.string().max(500).optional();
 export const limitSchema = z.coerce.number().int().min(1).max(100).default(50);
+const resourceVersionSchema = z.iso.datetime({ offset: true });
 
 export const automationRentalInputSchema = z
   .object({
@@ -40,7 +41,7 @@ export const automationRentalInputSchema = z
 export const automationTenantInputSchema = z
   .object({
     ...tenantInputSchema.shape,
-    sourceSystem: z.string().trim().min(1).max(60).default("openclaw"),
+    sourceSystem: z.string().trim().min(1).max(60).nullable().default("openclaw"),
     externalReference: z.string().trim().min(1).max(120).nullable().default(null)
   })
   .strict()
@@ -59,27 +60,46 @@ export const disabledScheduleInputSchema = scheduleInputSchema.extend({
 
 export const rentalUpdateSchema = z.object({
   rental: automationRentalInputSchema,
-  expectedVersion: z.iso.datetime()
+  expectedVersion: resourceVersionSchema
 }).strict();
 
-export const tenantUpdateSchema = z.object({
-  tenant: automationTenantInputSchema,
-  expectedVersion: z.iso.datetime()
+export const automationTenantPatchSchema = z
+  .object({
+    fullName: tenantInputSchema.shape.fullName.optional(),
+    propertyLabel: tenantInputSchema.shape.propertyLabel.optional(),
+    unitLabel: tenantInputSchema.shape.unitLabel.optional(),
+    moveInDate: tenantInputSchema.shape.moveInDate.optional(),
+    rentDueDay: tenantInputSchema.shape.rentDueDay.optional(),
+    email: tenantInputSchema.shape.email.optional(),
+    phoneE164: tenantInputSchema.shape.phoneE164.optional(),
+    preferredChannels: tenantInputSchema.shape.preferredChannels.optional(),
+    timezone: tenantInputSchema.shape.timezone.optional(),
+    internalNotes: tenantInputSchema.shape.internalNotes.optional(),
+    isActive: tenantInputSchema.shape.isActive.optional()
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one tenant field must be supplied."
+  });
+
+export const tenantPatchSchema = z.object({
+  changes: automationTenantPatchSchema,
+  expectedVersion: resourceVersionSchema
 }).strict();
 
 export const scheduleSaveSchema = z.object({
   schedule: disabledScheduleInputSchema,
-  expectedVersion: z.iso.datetime().nullable()
+  expectedVersion: resourceVersionSchema.nullable()
 }).strict();
 
 export const rentalStatusPreviewSchema = z.object({
   action: z.enum(["publish", "unpublish", "archive"]),
-  expectedVersion: z.iso.datetime()
+  expectedVersion: resourceVersionSchema
 }).strict();
 
 export const scheduleStatusPreviewSchema = z.object({
   enabled: z.boolean(),
-  expectedVersion: z.iso.datetime()
+  expectedVersion: resourceVersionSchema
 }).strict();
 
 export const confirmationExecutionSchema = z.object({
@@ -94,14 +114,14 @@ export const permissionPreviewSchema = z.object({
   reason: z.string().trim().min(1).max(500),
   evidenceReference: z.string().trim().min(1).max(300),
   permissionRecordedAt: z.iso.datetime(),
-  expectedVersion: z.iso.datetime()
+  expectedVersion: resourceVersionSchema
 }).strict();
 
 export const importModeSchema = z.enum(["create_only", "create_or_update"]);
 
 export const importCommitPreviewSchema = z.object({
   expectedSourceDigest: digestSchema,
-  expectedPreviewVersion: z.iso.datetime()
+  expectedPreviewVersion: resourceVersionSchema
 }).strict();
 
 export const serviceAccountCreateSchema = z.object({
