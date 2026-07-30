@@ -17,6 +17,11 @@ describe("seeded public media", () => {
       .toMatch(/^https:\/\//);
   });
 
+  it("resolves the approved Ting Ting portrait", () => {
+    expect(resolveSeededPublicMedia("10000000-0000-4000-8000-000000000002"))
+      .toBe("/images/ting-ting-xu-portrait.jpg");
+  });
+
   it("resolves seeded service-page media", () => {
     expect(resolveSeededPublicMedia("11000000-0000-4000-8000-000000000010"))
       .toMatch(/^https:\/\//);

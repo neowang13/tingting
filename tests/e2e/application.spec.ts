@@ -36,6 +36,10 @@ test("public search, rental detail, validation, responsive layout, and accessibi
   await expect(page.getByRole("heading", { level: 1, name: "Find Your Perfect Rental" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
   await expect(page.locator(".service-card").first()).toContainText("Rental Management");
+  const tingTingPortrait = page.getByAltText("Real estate professional Ting Ting Xu");
+  await tingTingPortrait.scrollIntoViewIfNeeded();
+  await expect(tingTingPortrait).toBeVisible();
+  await expect(tingTingPortrait).toHaveAttribute("src", /ting-ting-xu-portrait\.jpg/);
   await expectNoSeriousAccessibilityViolations(page);
 
   for (const viewport of [
