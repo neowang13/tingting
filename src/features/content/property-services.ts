@@ -6,7 +6,13 @@ export const rentalManagementService = {
 } as const;
 
 const legacyServiceKeys = ["renovation", "handyman", "maintenance", "strata"];
-const currentServiceKeys = [...legacyServiceKeys, "rental_management"];
+export const propertyServiceKeys = [
+  "rental_management",
+  "renovation",
+  "handyman",
+  "maintenance",
+  "strata"
+] as const;
 
 /**
  * Schema v1 contained four fixed services and schema v2 added rental
@@ -20,34 +26,35 @@ export function upgradePropertyServicesContent(value: unknown): unknown {
   const content = value as Record<string, unknown>;
   if (!Array.isArray(content.services)) return value;
 
-  let services = content.services;
-  let keys = services.map((service) =>
+  const services = content.services;
+  const keys = services.map((service) =>
     service && typeof service === "object" && !Array.isArray(service)
       ? (service as Record<string, unknown>).key
       : undefined
   );
 
-  if (
-    keys.length !== legacyServiceKeys.length ||
-    !keys.every((key, index) => key === legacyServiceKeys[index])
-  ) {
-    if (
-      keys.length !== currentServiceKeys.length ||
-      !keys.every((key, index) => key === currentServiceKeys[index])
-    ) {
-      return value;
-    }
-  } else {
-    services = [...services, structuredClone(rentalManagementService)];
-    keys = currentServiceKeys;
+  const validLegacy = keys.length === legacyServiceKeys.length &&
+    keys.every((key, index) => key === legacyServiceKeys[index]);
+  const validCurrent = keys.length === propertyServiceKeys.length &&
+    propertyServiceKeys.every((key) => keys.includes(key));
+  if (!validLegacy && !validCurrent) return value;
+
+  const servicesByKey = new Map(
+    services.map((service) => {
+      const card = service as Record<string, unknown>;
+      return [String(card.key), card] as const;
+    })
+  );
+  if (validLegacy) {
+    servicesByKey.set("rental_management", structuredClone(rentalManagementService));
   }
 
   return {
     ...content,
-    services: services.map((service, index) => {
-      const card = service as Record<string, unknown>;
+    services: propertyServiceKeys.map((key) => {
+      const card = servicesByKey.get(key)!;
       return {
-        key: keys[index],
+        key,
         title: card.title,
         summary: card.summary,
         ctaLabel: card.ctaLabel

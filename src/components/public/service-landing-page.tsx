@@ -111,7 +111,11 @@ function ServiceGrid({
           <div className="eyebrow">{page.servicesEyebrow}</div>
           <h2 id="service-list-heading">{page.servicesTitle}</h2>
         </div>
-        <div className={hasImages ? "service-offering-grid image-grid" : "service-offering-grid"}>
+        <div className={[
+          "service-offering-grid",
+          hasImages ? "image-grid" : "",
+          `service-count-${page.services.length}`
+        ].filter(Boolean).join(" ")}>
           {page.services.map((service) => (
             <article className={service.image ? "service-offering image-card" : "service-offering"} key={service.title}>
               {service.image && resolveImage(service.image, mediaUrls) ? (

@@ -57,7 +57,7 @@ export interface ServicePageContent {
   heroPosition: string;
   servicesEyebrow: string;
   servicesTitle: string;
-  services: [ServicePageCard, ServicePageCard, ServicePageCard, ServicePageCard];
+  services: ServicePageCard[];
   highlightTitle: string;
   highlightBody: string;
   storyEyebrow: string;
@@ -77,6 +77,31 @@ export interface ServicePageDefinition {
   slug: string;
   displayName: string;
   content: ServicePageContent;
+}
+
+export const minorPlumbingRepairService: ServicePageCard = {
+  title: "Minor Plumbing Repairs",
+  body: "Help with faucets, drains, fixtures, caulking, and minor leaks. Specialized plumbing work is handled by qualified trades.",
+  icon: "droplets"
+};
+
+export function upgradeHandymanServiceContent(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const content = value as Record<string, unknown>;
+  if (!Array.isArray(content.services)) return value;
+
+  const alreadyIncluded = content.services.some((service) =>
+    service &&
+    typeof service === "object" &&
+    !Array.isArray(service) &&
+    (service as Record<string, unknown>).title === minorPlumbingRepairService.title
+  );
+  if (alreadyIncluded || content.services.length !== 4) return value;
+
+  return {
+    ...content,
+    services: [...content.services, structuredClone(minorPlumbingRepairService)]
+  };
 }
 
 const mediaIds = {
@@ -196,7 +221,8 @@ export const servicePageDefinitions: readonly ServicePageDefinition[] = [
         { title: "Mounting & Shelving", body: "Secure installation for TVs, artwork, mirrors, shelving, and storage.", icon: "panel" },
         { title: "Drywall & Paint Repairs", body: "Patching holes, repairing wall damage, and completing clean paint touch-ups.", icon: "paint" },
         { title: "Furniture Assembly", body: "Beds, tables, cabinets, shelves, and other furniture assembled carefully.", icon: "armchair" },
-        { title: "Fixtures, Doors & Hardware", body: "Install or adjust lights, faucets, handles, locks, hinges, and cabinet hardware.", icon: "wrench" }
+        { title: "Fixtures, Doors & Hardware", body: "Install or adjust lights, faucets, handles, locks, hinges, and cabinet hardware.", icon: "wrench" },
+        structuredClone(minorPlumbingRepairService)
       ],
       highlightTitle: "Simple, convenient service.",
       highlightBody: "Share what needs attention, add a few photos if possible, and we’ll provide a clear next step.",

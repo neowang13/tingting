@@ -54,6 +54,7 @@ const content: Record<SiteSection["key"], unknown> = {
     heading: "Practical care for every part of your property.",
     body: "Reliable support for everyday repairs, planned improvements, and ongoing property care—all coordinated through one convenient point of contact.",
     services: [
+      structuredClone(rentalManagementService),
       {
         key: "renovation",
         title: "Renovation",
@@ -121,8 +122,7 @@ const content: Record<SiteSection["key"], unknown> = {
           primaryCtaLabel: "Request Strata Support",
           secondaryCtaLabel: "Ask a Question"
         }
-      },
-      structuredClone(rentalManagementService)
+      }
     ],
     primaryCta: { label: "Request a Service", href: "/#contact" }
   },

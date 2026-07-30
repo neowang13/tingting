@@ -35,9 +35,9 @@ describe("public service page boundary", () => {
     "property-maintenance",
     "strata-service",
     "rental-management"
-  ])("loads the published %s page with exactly four core services", async (slug) => {
+  ])("loads the published %s page with its fixed core services", async (slug) => {
     const result = await loadPublicServicePageData(slug);
-    expect(result?.page.services).toHaveLength(4);
+    expect(result?.page.services).toHaveLength(slug === "handyman-service" ? 5 : 4);
     expect(result?.page.benefits).toHaveLength(4);
   });
 });

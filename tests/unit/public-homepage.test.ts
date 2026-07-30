@@ -20,7 +20,7 @@ describe("public homepage boundary", () => {
 
   it("preserves the fixed service identity and order", async () => {
     expect((await loadPublicHomepageData()).sections.property_services.services.map((service) => service.key))
-      .toEqual(["renovation", "handyman", "maintenance", "strata", "rental_management"]);
+      .toEqual(["rental_management", "renovation", "handyman", "maintenance", "strata"]);
   });
 
   it("returns only published rentals and caps the homepage at three", async () => {

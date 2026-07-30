@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { sectionKeys, type SectionKey } from "@/lib/contracts";
-import { upgradePropertyServicesContent } from "@/features/content/property-services";
-import { serviceIconKeys } from "@/features/content/service-pages";
+import {
+  propertyServiceKeys,
+  upgradePropertyServicesContent
+} from "@/features/content/property-services";
+import {
+  serviceIconKeys,
+  upgradeHandymanServiceContent
+} from "@/features/content/service-pages";
 
 const shortText = z.string().trim().min(1).max(40);
 const headingText = z.string().trim().min(1).max(120);
@@ -80,11 +86,11 @@ const propertyServicesSchema = z.preprocess(
     heading: headingText,
     body: bodyText,
     services: z.tuple([
+      serviceCardSchema.extend({ key: z.literal(propertyServiceKeys[0]) }),
       serviceCardSchema.extend({ key: z.literal("renovation") }),
       serviceCardSchema.extend({ key: z.literal("handyman") }),
       serviceCardSchema.extend({ key: z.literal("maintenance") }),
-      serviceCardSchema.extend({ key: z.literal("strata") }),
-      serviceCardSchema.extend({ key: z.literal("rental_management") })
+      serviceCardSchema.extend({ key: z.literal("strata") })
     ]),
     primaryCta: z.object({ label: shortText, href: z.literal("/#contact") }).strict()
   })
@@ -233,6 +239,26 @@ const standardServicePageSchema = z
   })
   .strict();
 
+const handymanServicePageSchema = z.preprocess(
+  upgradeHandymanServiceContent,
+  z.object({
+    ...servicePageShape,
+    services: z.tuple([
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema
+    ]),
+    gallery: z.tuple([
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema
+    ])
+  }).strict()
+);
+
 export const sectionSchemas = {
   header: headerSchema,
   hero: heroSchema,
@@ -243,7 +269,7 @@ export const sectionSchemas = {
   contact: contactSchema,
   footer: footerSchema,
   service_renovation: renovationServicePageSchema,
-  service_handyman: standardServicePageSchema,
+  service_handyman: handymanServicePageSchema,
   service_maintenance: standardServicePageSchema,
   service_strata: standardServicePageSchema,
   service_rental_management: standardServicePageSchema

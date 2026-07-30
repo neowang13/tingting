@@ -152,62 +152,63 @@ export default async function AdminPage({ params, searchParams }: Props) {
         title="Website content"
         description="Edit the words and images visitors see. Saving keeps changes private; publishing makes them live."
       >
-        <div className="content-summary">
-          <span>13 content areas</span>
-          <span>{unpublishedDrafts} unpublished {unpublishedDrafts === 1 ? "draft" : "drafts"}</span>
-          <span>Last website publish {latestPublish ? new Date(latestPublish).toLocaleString() : "Never"}</span>
-          <Link className="text-link" href="/" target="_blank">View live website ↗</Link>
-        </div>
-        <div className="content-workflow-note">
-          <strong>Edit → Save draft → Preview → Publish</strong>
-          <span>Saved drafts are private. Visitors only see a change after you publish it.</span>
-        </div>
-        <div className="content-groups">
-          {contentGroups.map((group) => (
-            <section className="content-group" key={group.title}>
-              <div className="content-group-heading">
-                <h2>{group.title}</h2>
-                <p>{group.description}</p>
-              </div>
-              <div className="table-scroll">
-                <table className="admin-table content-section-table">
-                  <thead><tr><th>Content area</th><th>Appears on</th><th>Draft</th><th>Live status</th><th>Last published</th><th /></tr></thead>
-                  <tbody>
-                    {group.keys.map((key) => {
-                      const section = sectionMap.get(key);
-                      if (!section) return null;
-                      const hasDraft = hasUnpublishedChanges(section);
-                      return (
-                        <tr key={section.key}>
-                          <td data-label="Content area">
-                            <strong>{sectionAdminCopy[section.key].title}</strong>
-                            <small>{sectionAdminCopy[section.key].description}</small>
-                          </td>
-                          <td data-label="Appears on">{sectionAdminCopy[section.key].publicLocation}</td>
-                          <td data-label="Draft">
-                            <span className={`human-status ${hasDraft ? "waiting" : "neutral"}`}>
-                              {hasDraft ? "Unpublished draft" : "No unpublished changes"}
-                            </span>
-                          </td>
-                          <td data-label="Live status">
-                            <span className={`human-status ${section.publishedAt ? "success" : "neutral"}`}>
-                              {section.publishedAt ? "Live on website" : "Not published"}
-                            </span>
-                          </td>
-                          <td data-label="Last published">{section.publishedAt ? new Date(section.publishedAt).toLocaleString() : "Never"}</td>
-                          <td data-label="Action">
-                            <Link className="row-action" href={`/admin/content/${section.key}`}>
-                              {group.action} →
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ))}
+        <div className="content-page">
+          <div className="content-summary">
+            <span>
+              {sections.length} content areas · {unpublishedDrafts} unpublished{" "}
+              {unpublishedDrafts === 1 ? "draft" : "drafts"} · Last website publish{" "}
+              {latestPublish ? new Date(latestPublish).toLocaleString() : "Never"}
+            </span>
+            <Link className="text-link" href="/" target="_blank">View live website ↗</Link>
+          </div>
+          <div className="content-workflow-note">
+            <strong>Edit → Save draft → Preview → Publish.</strong>{" "}
+            <span>Saved drafts are private. Visitors only see a change after you publish it.</span>
+          </div>
+          <div className="content-groups">
+            {contentGroups.map((group) => (
+              <section className="content-group" key={group.title}>
+                <div className="content-group-heading">
+                  <h2>{group.title}</h2>
+                  <p>{group.description}</p>
+                </div>
+                <div className="content-section-list">
+                  {group.keys.map((key) => {
+                    const section = sectionMap.get(key);
+                    if (!section) return null;
+                    const hasDraft = hasUnpublishedChanges(section);
+                    const isServicePage = key.startsWith("service_");
+                    return (
+                      <div className="content-section-row" key={section.key}>
+                        <div className="content-section-name">
+                          <strong>{sectionAdminCopy[section.key].title}</strong>
+                          {isServicePage && <small>{sectionAdminCopy[section.key].publicLocation}</small>}
+                        </div>
+                        <span className={hasDraft ? "content-state waiting" : "content-state"}>
+                          {hasDraft ? "Unpublished draft" : "No unpublished changes"}
+                        </span>
+                        <span className={section.publishedAt ? "content-state live" : "content-state"}>
+                          {section.publishedAt ? "Live on website" : "Not published"}
+                        </span>
+                        <span className="content-published-date">
+                          {section.publishedAt
+                            ? new Date(section.publishedAt).toLocaleDateString("en-CA", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric"
+                              })
+                            : "Never"}
+                        </span>
+                        <Link className="row-action" href={`/admin/content/${section.key}`}>
+                          {group.action}
+                        </Link>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ))}
+          </div>
         </div>
       </AdminShell>
     );
@@ -599,26 +600,26 @@ const contentGroups: Array<{
 }> = [
   {
     title: "Shared across the website",
-    description: "Affects the header, footer, and shared contact experience on multiple pages.",
+    description: "Affects the header, footer and contact popup on every page.",
     action: "Edit shared content",
     keys: ["header", "contact", "footer"]
   },
   {
     title: "Homepage",
-    description: "Content that appears only on the public homepage.",
-    action: "Edit section",
+    description: "Five sections shown to visitors on tingtingproperties.example.",
+    action: "Edit page",
     keys: ["hero", "rental_search", "property_services", "featured_rentals", "about"]
   },
   {
     title: "Service pages",
-    description: "Each service page is saved, previewed, published, and restored as one complete page.",
+    description: "Each page publishes and rolls back as one complete unit.",
     action: "Edit page",
     keys: [
+      "service_rental_management",
       "service_renovation",
       "service_handyman",
       "service_maintenance",
-      "service_strata",
-      "service_rental_management"
+      "service_strata"
     ]
   }
 ];

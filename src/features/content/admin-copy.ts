@@ -52,7 +52,7 @@ export const sectionAdminCopy: Record<SectionKey, {
   },
   service_handyman: {
     title: "Handyman service",
-    description: "Hero, four core services, benefits, gallery, and final call to action.",
+    description: "Hero, five core services, benefits, gallery, and final call to action.",
     publicLocation: "/services/handyman-service"
   },
   service_maintenance: {

@@ -5,7 +5,9 @@ import { useMemo, useState } from "react";
 import { validateSection } from "@/features/content/schemas";
 import type { MediaAsset, SectionRevision, SiteSection } from "@/lib/contracts";
 import { MediaLibrary } from "@/components/admin/media-library";
+import { ServicePageEditor } from "@/components/admin/service-page-editor";
 import { contentFieldLabel, sectionAdminCopy } from "@/features/content/admin-copy";
+import { isServicePageSectionKey } from "@/lib/contracts";
 
 type JsonObject = Record<string, unknown>;
 type Path = Array<string | number>;
@@ -49,6 +51,33 @@ function getAtPath(value: unknown, path: Path): unknown {
 }
 
 export function SectionEditor({
+  initialSection,
+  initialRevisions,
+  initialMedia
+}: {
+  initialSection: SiteSection;
+  initialRevisions: SectionRevision[];
+  initialMedia: MediaAsset[];
+}) {
+  if (isServicePageSectionKey(initialSection.key)) {
+    return (
+      <ServicePageEditor
+        initialSection={{ ...initialSection, key: initialSection.key }}
+        initialRevisions={initialRevisions}
+        initialMedia={initialMedia}
+      />
+    );
+  }
+  return (
+    <GenericSectionEditor
+      initialSection={initialSection}
+      initialRevisions={initialRevisions}
+      initialMedia={initialMedia}
+    />
+  );
+}
+
+function GenericSectionEditor({
   initialSection,
   initialRevisions,
   initialMedia

@@ -41,22 +41,49 @@ describe("fixed section registry", () => {
     const legacyContent = structuredClone(propertyServices?.publishedContent) as {
       services: Array<{ key: string }>;
     };
-    legacyContent.services.pop();
+    legacyContent.services = legacyContent.services.filter(
+      (service) => service.key !== "rental_management"
+    );
 
     expect(sectionSchemas.property_services.parse(legacyContent).services.map((service) => service.key))
-      .toEqual(["renovation", "handyman", "maintenance", "strata", "rental_management"]);
+      .toEqual(["rental_management", "renovation", "handyman", "maintenance", "strata"]);
+  });
+
+  it("moves rental management to the front of historical five-service content", () => {
+    const propertyServices = demoSections.find((section) => section.key === "property_services");
+    const historical = structuredClone(propertyServices?.publishedContent) as {
+      services: Array<{ key: string }>;
+    };
+    historical.services.push(historical.services.shift()!);
+
+    expect(sectionSchemas.property_services.parse(historical).services.map((service) => service.key))
+      .toEqual(["rental_management", "renovation", "handyman", "maintenance", "strata"]);
   });
 
   it.each(getAllServicePages().map((page) => [page.sectionKey, page.content] as const))(
-    "keeps %s to four core services and excludes FAQ/process content",
+    "keeps %s to its fixed core services and excludes FAQ/process content",
     (key, content) => {
       const parsed = sectionSchemas[key].parse(content) as Record<string, unknown>;
-      expect(parsed.services).toHaveLength(4);
+      expect(parsed.services).toHaveLength(key === "service_handyman" ? 5 : 4);
       expect(parsed.benefits).toHaveLength(4);
       expect(parsed).not.toHaveProperty("process");
       expect(parsed).not.toHaveProperty("faq");
     }
   );
+
+  it("upgrades historical handyman content with minor plumbing repairs", () => {
+    const handyman = structuredClone(
+      getAllServicePages().find((page) => page.sectionKey === "service_handyman")?.content
+    ) as { services: Array<{ title: string; body: string }> };
+    handyman.services.pop();
+
+    const parsed = sectionSchemas.service_handyman.parse(handyman);
+    expect(parsed.services).toHaveLength(5);
+    expect(parsed.services.at(-1)).toMatchObject({
+      title: "Minor Plumbing Repairs",
+      body: "Help with faucets, drains, fixtures, caulking, and minor leaks. Specialized plumbing work is handled by qualified trades."
+    });
+  });
 
   it("requires three renovation gallery cards and four on the other service pages", () => {
     for (const page of getAllServicePages()) {

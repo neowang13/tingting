@@ -35,6 +35,7 @@ test("public search, rental detail, validation, responsive layout, and accessibi
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Find Your Perfect Rental" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
+  await expect(page.locator(".service-card").first()).toContainText("Rental Management");
   await expectNoSeriousAccessibilityViolations(page);
 
   for (const viewport of [
@@ -58,12 +59,19 @@ test("public search, rental detail, validation, responsive layout, and accessibi
   for (const [path, heading] of servicePages) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
-    await expect(page.locator(".service-offering")).toHaveCount(4);
+    await expect(page.locator(".service-offering")).toHaveCount(
+      path === "/services/handyman-service" ? 5 : 4
+    );
     await expect(page.getByText("OUR PROCESS", { exact: true })).toHaveCount(0);
     await expect(page.getByText("FREQUENTLY ASKED QUESTIONS", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Call 604-872-6896" }).first())
       .toHaveAttribute("href", "tel:+16048726896");
   }
+  await page.goto("/services/handyman-service");
+  await expect(page.getByRole("heading", { level: 3, name: "Minor Plumbing Repairs" })).toBeVisible();
+  await expect(page.getByText(
+    "Help with faucets, drains, fixtures, caulking, and minor leaks. Specialized plumbing work is handled by qualified trades."
+  )).toBeVisible();
 
   await page.getByRole("button", { name: "Contact us", exact: true }).first().click();
   const dialog = page.getByRole("dialog");
@@ -136,9 +144,10 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   }
 
   await page.goto("/admin/content");
-  await expect(page.getByRole("columnheader", { name: "Appears on" })).toHaveCount(3);
   await expect(page.getByText("Edit → Save draft → Preview → Publish")).toBeVisible();
   await expect(page.getByText("rental_search", { exact: true })).toHaveCount(0);
+  await expect(page.locator(".content-group").last().locator(".content-section-row").first())
+    .toContainText("Rental management");
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
@@ -207,6 +216,12 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await page.goto("/admin/content/property_services");
   await expect(page.getByRole("group", { name: "Rental management" })).toBeVisible();
   await expect(page.locator('input[value="Rental Management"]')).toBeVisible();
+
+  await page.goto("/admin/content/service_handyman");
+  await page.getByRole("button", { name: "Core services" }).click();
+  await expect(
+    page.getByRole("group", { name: "Core service 5 of 5" }).getByLabel("Title")
+  ).toHaveValue("Minor Plumbing Repairs");
 
   await page.goto("/admin/tenants/new");
   await page.getByLabel("Name", { exact: true }).fill("E2E Reminder Tenant");

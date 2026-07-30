@@ -22,7 +22,13 @@ import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
 
-const serviceIcons = [PaintRoller, Wrench, House, Building2, KeyRound] as const;
+const serviceIcons = {
+  rental_management: KeyRound,
+  renovation: PaintRoller,
+  handyman: Wrench,
+  maintenance: House,
+  strata: Building2
+} as const;
 
 function formatNumber(value: number) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -86,8 +92,8 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
               <p>{services.body}</p>
             </div>
             <div className="service-grid">
-              {services.services.map((service, index) => {
-                const Icon = serviceIcons[index];
+              {services.services.map((service) => {
+                const Icon = serviceIcons[service.key];
                 return (
                   <article className="service-card" key={service.key}>
                     <div className="icon-badge"><Icon size={28} strokeWidth={1.8} aria-hidden /></div>
