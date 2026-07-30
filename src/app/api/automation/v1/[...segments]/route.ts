@@ -29,7 +29,7 @@ import {
   rentalUpdateSchema,
   requestIdSchema,
   scheduleSaveSchema,
-  tenantUpdateSchema
+  tenantPatchSchema
 } from "@/features/automation/schemas";
 import { nextOccurrence } from "@/features/reminders/scheduler";
 import { ApiError, handleApiError, readJson } from "@/lib/api";
@@ -554,9 +554,14 @@ export async function PATCH(request: Request, context: Context) {
     }
     if (resource === "tenants") {
       authorize(actor, "tenants.update");
-      const input = tenantUpdateSchema.parse(rawBody);
+      const input = tenantPatchSchema.parse(rawBody);
       const result = await idempotent(request, actor, bodyDigest, async () => {
-        const tenant = await repository.saveTenant(id, input.tenant, input.expectedVersion, actor);
+        const tenant = await repository.patchTenant(
+          id,
+          input.changes,
+          input.expectedVersion,
+          actor
+        );
         return {
           status: 200,
           data: publicTenantResult(tenant),
