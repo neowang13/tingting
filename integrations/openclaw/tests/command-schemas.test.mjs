@@ -239,6 +239,73 @@ test("validated mutation forwards the caller-stable operation id", async () => {
   });
 });
 
+test("payment commands use managed receipts and the fixed payment API paths", async () => {
+  await withDocumentDirectories(async ({ inputDirectory, mediaDirectory }) => {
+    await writeFile(join(mediaDirectory, "rent.pdf"), "%PDF-1.7 managed receipt");
+    await writeFile(join(inputDirectory, "match.json"), JSON.stringify({
+      fullName: "Demo Tenant",
+      email: "tenant@example.com",
+      period: "2026-07"
+    }));
+    await writeFile(join(inputDirectory, "receipt.json"), JSON.stringify({
+      tenantId: resourceId,
+      period: "2026-07",
+      mediaRef: "media://inbound/rent.pdf"
+    }));
+    await writeFile(join(inputDirectory, "period.json"), JSON.stringify({
+      period: "2026-07"
+    }));
+    await writeFile(join(inputDirectory, "collected.json"), JSON.stringify({
+      period: "2026-07",
+      receiptId: resourceId
+    }));
+    const requests = [];
+    const client = {
+      async request(input) {
+        requests.push(input);
+        return { success: true, data: {}, requestId: resourceId };
+      }
+    };
+    const environment = {
+      TINGTING_INPUT_DIRECTORY: inputDirectory,
+      TINGTING_MEDIA_DIRECTORY: mediaDirectory
+    };
+
+    await run(["payments", "match-tenant", "--input", "match.json"], environment, { client });
+    await run([
+      "payments", "upload-receipt",
+      "--operation-id", operationId,
+      "--input", "receipt.json"
+    ], environment, { client });
+    await run([
+      "payments", "get",
+      "--tenant-id", resourceId,
+      "--input", "period.json"
+    ], environment, { client });
+    await run([
+      "payments", "mark-collected",
+      "--tenant-id", resourceId,
+      "--operation-id", operationId,
+      "--input", "collected.json"
+    ], environment, { client });
+
+    assert.equal(requests[0].path, "/tenants/payment-match");
+    assert.equal(requests[1].path, "/payment-receipts");
+    assert.equal(requests[1].form.get("tenantId"), resourceId);
+    assert.equal(requests[1].form.get("file").name, "rent.pdf");
+    assert.equal(
+      requests[2].path,
+      `/tenants/${resourceId}/rent-payments?period=2026-07`
+    );
+    assert.equal(
+      requests[3].path,
+      `/tenants/${resourceId}/rent-payments/2026-07/collected`
+    );
+    assert.equal(requests[3].body.receiptId, resourceId);
+    assert.equal(requests[3].idempotencyKey, operationId);
+  });
+});
+
 test("tenant update validates a field-level patch and forwards it", async () => {
   await withInputDirectory(async (directory) => {
     const input = {

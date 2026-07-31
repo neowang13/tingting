@@ -41,6 +41,7 @@ export const automationRentalInputSchema = z
 export const automationTenantInputSchema = z
   .object({
     ...tenantInputSchema.shape,
+    leaseStartDate: z.iso.date().nullable().optional(),
     sourceSystem: z.string().trim().min(1).max(60).nullable().default("openclaw"),
     externalReference: z.string().trim().min(1).max(120).nullable().default(null)
   })
@@ -52,7 +53,22 @@ export const automationTenantInputSchema = z
     if (value.preferredChannels.includes("sms") && !value.phoneE164) {
       ctx.addIssue({ code: "custom", path: ["phoneE164"], message: "Phone is required for the SMS channel." });
     }
-  });
+    if (
+      value.leaseStartDate
+      && value.moveInDate
+      && value.leaseStartDate !== value.moveInDate
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["leaseStartDate"],
+        message: "leaseStartDate and legacy moveInDate must match when both are supplied."
+      });
+    }
+  })
+  .transform(({ leaseStartDate, ...value }) => ({
+    ...value,
+    moveInDate: leaseStartDate ?? value.moveInDate
+  }));
 
 export const tenantPdfOnboardingSchema = z
   .object({
@@ -88,6 +104,9 @@ export const automationTenantPatchSchema = z
     propertyLabel: tenantInputSchema.shape.propertyLabel.optional(),
     unitLabel: tenantInputSchema.shape.unitLabel.removeDefault().optional(),
     moveInDate: tenantInputSchema.shape.moveInDate.optional(),
+    leaseStartDate: z.iso.date().nullable().optional(),
+    leaseType: tenantInputSchema.shape.leaseType.removeDefault().optional(),
+    leaseEndDate: tenantInputSchema.shape.leaseEndDate.removeDefault().optional(),
     rentDueDay: tenantInputSchema.shape.rentDueDay.removeDefault().optional(),
     email: tenantInputSchema.shape.email.removeDefault().optional(),
     phoneE164: tenantInputSchema.shape.phoneE164.removeDefault().optional(),
@@ -99,7 +118,11 @@ export const automationTenantPatchSchema = z
   .strict()
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one tenant field must be supplied."
-  });
+  })
+  .transform(({ leaseStartDate, ...value }) => ({
+    ...value,
+    ...(leaseStartDate !== undefined ? { moveInDate: leaseStartDate } : {})
+  }));
 
 export const tenantPatchSchema = z.object({
   changes: automationTenantPatchSchema,
@@ -165,4 +188,16 @@ export const tokenRotationSchema = z.object({
 
 export const tokenRevokeSchema = z.object({
   reason: z.string().trim().min(1).max(300).default("Administrative revocation")
+}).strict();
+
+export const paymentMatchSchema = z.object({
+  fullName: z.string().trim().min(1).max(120),
+  email: z.email().transform((value) => value.trim().toLocaleLowerCase()),
+  period: z.string().regex(/^\d{4}-\d{2}$/)
+}).strict();
+
+export const markRentCollectedSchema = z.object({
+  receiptId: z.uuid(),
+  collectedAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  note: z.string().trim().max(500).nullable().optional()
 }).strict();

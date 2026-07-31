@@ -4,6 +4,7 @@ import { getRepository } from "@/data/repository";
 import { deliverOperationalAlerts } from "@/features/operations/alerts";
 import {
   deliverOwnerNotifications,
+  enqueueDailyOverdueRentSummary,
   enqueueWeeklyTenantSummary
 } from "@/features/notifications/owner-notifications";
 
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
     const maintenance = await repository.runDailyMaintenance();
     const weeklyTenantSummary = await enqueueWeeklyTenantSummary()
       .catch(() => ({ queued: false, reason: "queue_error" as const }));
+    const dailyOverdueRentSummary = await enqueueDailyOverdueRentSummary()
+      .catch(() => ({ queued: false, reason: "queue_error" as const }));
     const ownerNotifications = await deliverOwnerNotifications()
       .catch(() => ({ claimed: 0, sent: 0, failed: 1, skipped: 0 }));
     const after = await repository.dashboard();
@@ -41,6 +44,7 @@ export async function POST(request: Request) {
       worker,
       maintenance,
       weeklyTenantSummary,
+      dailyOverdueRentSummary,
       ownerNotifications,
       alertsBeforeRun,
       alertsAfterRun

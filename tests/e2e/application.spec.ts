@@ -234,7 +234,8 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await page.getByLabel("Name", { exact: true }).fill("E2E Reminder Tenant");
   await page.getByLabel("Property").fill("500 Test Avenue");
   await page.getByLabel("Unit").fill("12");
-  await page.getByLabel("Move-in date").fill("2026-07-01");
+  await page.getByLabel("Lease start date").fill("2026-07-01");
+  await page.getByLabel("Lease type").selectOption("month_to_month");
   await page.locator('input[name="email"]').fill("e2e-tenant@example.com");
   await page.locator('input[name="rentDueDay"]').fill("15");
   const tenantSave = page.waitForResponse(

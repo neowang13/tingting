@@ -31,6 +31,12 @@ const commands = new Map([
   ["tenants onboard", { method: "POST", path: () => "/tenant-onboardings", input: true, mutation: true }],
   ["tenants update", { method: "PATCH", path: ({ id }) => `/tenants/${id}`, id: true, input: true, mutation: true }],
   ["tenants preview-permission", { method: "POST", path: ({ id }) => `/tenants/${id}/permission-previews`, id: true, input: true, mutation: true }],
+  ["payments match-tenant", { method: "POST", path: () => "/tenants/payment-match", input: true }],
+  ["payments upload-receipt", { input: true, mutation: true, receiptMutation: true }],
+  ["payments get", { tenantId: true, input: true }],
+  ["payments mark-collected", { tenantId: true, input: true, mutation: true }],
+  ["agent-notifications claim", { method: "POST", path: () => "/agent-notifications/claim" }],
+  ["agent-notifications ack", { method: "POST", path: ({ id }) => `/agent-notifications/${id}/ack`, id: true, mutation: true }],
   ["imports get", { method: "GET", path: ({ id }) => `/tenant-imports/${id}`, id: true }],
   ["imports rows", { method: "GET", path: ({ id }) => `/tenant-imports/${id}/rows`, id: true, query: true }],
   ["imports preview-commit", { method: "POST", path: ({ id }) => `/tenant-imports/${id}/commit-previews`, id: true, input: true, mutation: true }],
@@ -50,6 +56,10 @@ const schemaUrls = {
   "tenants onboard": new URL("../schemas/tenant-onboarding.schema.json", import.meta.url),
   "tenants update": new URL("../schemas/tenant-update.schema.json", import.meta.url),
   "tenants preview-permission": new URL("../schemas/permission-preview.schema.json", import.meta.url),
+  "payments match-tenant": new URL("../schemas/payment-match.schema.json", import.meta.url),
+  "payments upload-receipt": new URL("../schemas/payment-receipt.schema.json", import.meta.url),
+  "payments get": new URL("../schemas/payment-get.schema.json", import.meta.url),
+  "payments mark-collected": new URL("../schemas/payment-collected.schema.json", import.meta.url),
   "imports create": new URL("../schemas/tenant-import-request.schema.json", import.meta.url),
   "imports rows": new URL("../schemas/import-row-query.schema.json", import.meta.url),
   "imports preview-commit": new URL("../schemas/import-commit-preview.schema.json", import.meta.url),
@@ -356,6 +366,72 @@ async function readInboundPdf(fileName, environment, nowMs) {
     );
   } finally {
     await handle.close().catch(() => {});
+  }
+}
+
+function paymentMediaBasename(mediaRef) {
+  if (typeof mediaRef !== "string" || mediaRef.includes("%") || mediaRef.includes("\0")) {
+    throw documentError("RECEIPT_MEDIA_REF_INVALID", "A managed receipt attachment is required.");
+  }
+  const match = /^media:\/\/inbound\/([^/\\]+)$/u.exec(mediaRef);
+  const fileName = match?.[1];
+  const extension = fileName ? extname(fileName).toLocaleLowerCase("en-CA") : "";
+  if (
+    !fileName
+    || fileName.includes("..")
+    || basename(fileName) !== fileName
+    || ![".pdf", ".jpg", ".jpeg", ".png", ".webp"].includes(extension)
+  ) {
+    throw documentError(
+      "RECEIPT_MEDIA_REF_INVALID",
+      "The receipt must be a managed inbound PDF, JPG, PNG, or WEBP attachment."
+    );
+  }
+  return fileName;
+}
+
+async function readInboundReceipt(mediaRef, environment, nowMs = Date.now()) {
+  const fileName = paymentMediaBasename(mediaRef);
+  const root = await realpath(mediaRoot(environment));
+  const candidate = resolve(root, fileName);
+  const fromRoot = relative(root, candidate);
+  if (fromRoot.startsWith("..") || isAbsolute(fromRoot)) {
+    throw documentError("RECEIPT_MEDIA_REF_INVALID", "The receipt is outside the managed attachment directory.");
+  }
+  const handle = await open(
+    candidate,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+  );
+  try {
+    const before = await handle.stat();
+    if (!before.isFile() || before.size < 1 || before.size > maximumPdfBytes) {
+      throw documentError("RECEIPT_SIZE_INVALID", "The receipt must be a regular file no larger than 10 MB.");
+    }
+    if (
+      nowMs - before.mtimeMs > maximumPdfAgeMs
+      || before.mtimeMs - nowMs > maximumPdfFutureSkewMs
+    ) {
+      throw documentError("RECEIPT_NOT_FRESH", "The receipt is not from the current managed message.");
+    }
+    const bytes = await readBoundedHandle(handle, maximumPdfBytes);
+    const after = await handle.stat();
+    if (
+      before.size !== after.size
+      || before.mtimeMs !== after.mtimeMs
+      || bytes.length !== before.size
+    ) {
+      throw documentError("RECEIPT_SOURCE_CHANGED", "The receipt changed while it was being read.");
+    }
+    const mimeType = {
+      ".pdf": "application/pdf",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".webp": "image/webp"
+    }[extname(fileName).toLocaleLowerCase("en-CA")];
+    return { fileName, bytes, mimeType };
+  } finally {
+    await handle.close();
   }
 }
 
@@ -2210,6 +2286,26 @@ export async function run(argv, environment = process.env, dependencies = {}) {
   if (["rentals upload-media", "imports create"].includes(commandKey)) {
     return multipartCommand(client, commandKey, options, environment);
   }
+  if (commandKey === "payments upload-receipt") {
+    const input = await readJsonInput(options.input, environment);
+    await validateWithSchema(schemaUrls[commandKey], input);
+    const receipt = await readInboundReceipt(input.mediaRef, environment);
+    const form = new FormData();
+    form.set("tenantId", input.tenantId);
+    form.set("period", input.period);
+    form.set(
+      "file",
+      new Blob([receipt.bytes], { type: receipt.mimeType }),
+      receipt.fileName
+    );
+    return client.request({
+      method: "POST",
+      path: "/payment-receipts",
+      form,
+      mutation: true,
+      idempotencyKey: options.operationId
+    });
+  }
   if (command.id) assertUuid(options.id, "--id");
   if (command.tenantId) assertUuid(options.tenantId, "--tenant-id");
   const input = command.input || command.query
@@ -2218,12 +2314,32 @@ export async function run(argv, environment = process.env, dependencies = {}) {
   if (schemaUrls[commandKey]) await validateWithSchema(schemaUrls[commandKey], input);
   if (commandKey === "tenants upload") return uploadTenant(client, input, options.operationId);
   if (commandKey === "tenants onboard") return onboardTenant(client, input, options.operationId);
+  if (commandKey === "payments get") {
+    return client.request({
+      method: "GET",
+      path: `/tenants/${options.tenantId}/rent-payments?period=${encodeURIComponent(input.period)}`
+    });
+  }
+  if (commandKey === "payments mark-collected") {
+    const { period, ...body } = input;
+    return client.request({
+      method: "PUT",
+      path: `/tenants/${options.tenantId}/rent-payments/${period}/collected`,
+      body,
+      mutation: true,
+      idempotencyKey: options.operationId
+    });
+  }
   let path = command.path(options);
   if (command.query) path += queryString(input);
   return client.request({
     method: command.method,
     path,
-    body: command.input ? input : undefined,
+    body: command.input
+      ? input
+      : commandKey.startsWith("agent-notifications ")
+        ? {}
+        : undefined,
     mutation,
     idempotencyKey: options.operationId
   });

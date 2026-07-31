@@ -268,6 +268,8 @@ export const demoTenants: Tenant[] = [
     propertyLabel: "1231 Howe Street",
     unitLabel: "1104",
     moveInDate: "2026-06-01",
+    leaseType: "month_to_month",
+    leaseEndDate: null,
     rentDueDay: 1,
     email: "tenant@example.com",
     phoneE164: "+16045550101",

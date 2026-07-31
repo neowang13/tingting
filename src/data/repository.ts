@@ -2,6 +2,15 @@ import { store } from "@/data/store";
 import { SupabaseRepository } from "@/data/supabase-repository";
 import { resolveDemoMedia } from "@/features/content/media-service";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
+import {
+  buildRentReportSnapshot,
+  currentPaymentPeriod,
+  isTenantLiableForPeriod,
+  paymentPeriod,
+  rentDueDateForPeriod,
+  rentReportWindow,
+  validateRentReceipt
+} from "@/features/rent-payments/service";
 import type {
   DashboardSummary,
   NotificationBatch,
@@ -18,6 +27,9 @@ import type {
   SiteSection,
   Tenant,
   TenantActivitySummary,
+  TenantRentPayment,
+  TenantRentPaymentReceipt,
+  RentReportSnapshot,
   TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
@@ -125,6 +137,48 @@ export interface DataRepository {
     todayStart: string;
     now: string;
   }): Promise<TenantActivitySummary>;
+  materializeRentPeriods(businessDate: string): Promise<number>;
+  getTenantRentPayment(tenantId: string, paymentPeriod: string): Promise<TenantRentPayment>;
+  registerTenantRentReceipt(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    originalFilename: string;
+    declaredMimeType: string;
+    bytes: Uint8Array;
+    actorType: "admin" | "automation";
+    actorId: string;
+  }): Promise<TenantRentPaymentReceipt>;
+  markTenantRentCollected(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    receiptId: string;
+    actorType: "admin" | "automation";
+    actorId: string;
+    collectedAt?: string | null;
+    note?: string | null;
+  }): Promise<TenantRentPayment & { alreadyCollected?: boolean }>;
+  reopenTenantRentPayment(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    expectedVersion: string;
+    actorId: string;
+    reason?: string | null;
+  }): Promise<TenantRentPayment>;
+  tenantRentReceiptUrl(receiptId: string, actorId: string): Promise<string>;
+  rentReportSnapshot(instant: string, timezone: string): Promise<RentReportSnapshot>;
+  findTenantsForPayment(fullName: string, email: string): Promise<Tenant[]>;
+  enqueueAgentNotification(input: {
+    eventKey: string;
+    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
+    payload: Record<string, unknown>;
+    availableAt: string;
+  }): Promise<string>;
+  claimAgentNotification(serviceAccountId: string, now: string): Promise<Record<string, unknown> | null>;
+  acknowledgeAgentNotification(
+    eventId: string,
+    serviceAccountId: string,
+    now: string
+  ): Promise<Record<string, unknown>>;
 }
 
 const memoryOperationalAlertBuckets = new Map<string, string>();
@@ -137,6 +191,33 @@ interface MemoryOwnerNotification extends OwnerNotificationDelivery {
   updatedAt: string;
 }
 const memoryOwnerNotifications = new Map<string, MemoryOwnerNotification>();
+const memoryRentPayments = new Map<string, TenantRentPayment>();
+const memoryRentReceipts = new Map<
+  string,
+  TenantRentPaymentReceipt & { tenantId: string; paymentPeriod: string; bytes: Uint8Array }
+>();
+const memoryAgentNotifications = new Map<string, {
+  id: string;
+  eventKey: string;
+  kind: "weekly_report_sent" | "daily_overdue_rent_summary";
+  payload: Record<string, unknown>;
+  status: "pending" | "claimed" | "acknowledged";
+  availableAt: string;
+  claimedAt: string | null;
+  claimedBy: string | null;
+  acknowledgedAt: string | null;
+}>();
+
+function memoryPaymentKey(tenantId: string, period: string) {
+  return `${tenantId}:${paymentPeriod(period)}`;
+}
+
+async function sha256(bytes: Uint8Array) {
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer as ArrayBuffer);
+  return `sha256:${Array.from(new Uint8Array(digest), (value) =>
+    value.toString(16).padStart(2, "0")
+  ).join("")}`;
+}
 
 class MemoryRepository implements DataRepository {
   async dashboard() { return store.dashboard(); }
@@ -185,7 +266,22 @@ class MemoryRepository implements DataRepository {
   async executeAutomationResourceConfirmation() {
     throw new Error("Durable Automation confirmation execution is unavailable in memory mode.");
   }
-  async listTenants(filters?: TenantListFilters) { return store.listTenants(filters); }
+  async listTenants(filters: TenantListFilters = {}) {
+    const period = currentPaymentPeriod();
+    await this.materializeRentPeriods(period);
+    return store.listTenants(filters)
+      .map((tenant) => ({
+        ...tenant,
+        currentRentPayment: memoryRentPayments.get(memoryPaymentKey(tenant.id, period)) ?? null
+      }))
+      .filter((tenant) =>
+        !filters.rentStatus || tenant.currentRentPayment?.status === filters.rentStatus
+      )
+      .filter((tenant) => {
+        if (filters.leaseType === "needs_details") return tenant.leaseType === null;
+        return !filters.leaseType || tenant.leaseType === filters.leaseType;
+      });
+  }
   async getTenant(id: string) { return store.getTenant(id); }
   async createTenant(payload: unknown) { return store.createTenant(payload); }
   async updateTenant(id: string, payload: unknown, expectedVersion: unknown) {
@@ -323,6 +419,239 @@ class MemoryRepository implements DataRepository {
       todayNewTenants
     };
   }
+  async materializeRentPeriods(businessDate: string) {
+    const period = currentPaymentPeriod(`${businessDate}T12:00:00.000Z`, "UTC");
+    let inserted = 0;
+    for (const tenant of store.listTenants({ limit: 500 })) {
+      if (
+        !tenant.isActive
+        || tenant.archivedAt
+        || !isTenantLiableForPeriod({
+          leaseType: tenant.leaseType,
+          moveInDate: tenant.moveInDate,
+          leaseEndDate: tenant.leaseEndDate,
+          period
+        })
+      ) continue;
+      const key = memoryPaymentKey(tenant.id, period);
+      if (memoryRentPayments.has(key)) continue;
+      const now = new Date().toISOString();
+      memoryRentPayments.set(key, {
+        id: crypto.randomUUID(),
+        tenantId: tenant.id,
+        paymentPeriod: period,
+        dueDate: rentDueDateForPeriod(period, tenant.rentDueDay),
+        status: "due",
+        receiptId: null,
+        collectedAt: null,
+        collectedByType: null,
+        collectedById: null,
+        note: null,
+        createdAt: now,
+        updatedAt: now
+      });
+      inserted += 1;
+    }
+    return inserted;
+  }
+  async getTenantRentPayment(tenantId: string, value: string) {
+    const period = paymentPeriod(value);
+    const key = memoryPaymentKey(tenantId, period);
+    let result = memoryRentPayments.get(key);
+    if (!result) {
+      const { tenant } = store.getTenant(tenantId);
+      const now = new Date().toISOString();
+      result = {
+        id: crypto.randomUUID(),
+        tenantId,
+        paymentPeriod: period,
+        dueDate: rentDueDateForPeriod(period, tenant.rentDueDay),
+        status: "due",
+        receiptId: null,
+        collectedAt: null,
+        collectedByType: null,
+        collectedById: null,
+        note: null,
+        createdAt: now,
+        updatedAt: now
+      };
+      memoryRentPayments.set(key, result);
+    }
+    return structuredClone(result);
+  }
+  async registerTenantRentReceipt(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    originalFilename: string;
+    declaredMimeType: string;
+    bytes: Uint8Array;
+    actorType: "admin" | "automation";
+    actorId: string;
+  }) {
+    store.getTenant(input.tenantId);
+    const period = paymentPeriod(input.paymentPeriod);
+    const validated = validateRentReceipt(
+      input.originalFilename,
+      input.declaredMimeType,
+      input.bytes
+    );
+    const digest = await sha256(input.bytes);
+    const existing = [...memoryRentReceipts.values()].find((receipt) =>
+      receipt.tenantId === input.tenantId
+      && receipt.paymentPeriod === period
+      && receipt.sha256Digest === digest
+    );
+    if (existing) return structuredClone(existing);
+    const receipt = {
+      id: crypto.randomUUID(),
+      tenantId: input.tenantId,
+      paymentPeriod: period,
+      originalFilename: validated.originalFilename,
+      mimeType: validated.mimeType,
+      byteSize: validated.byteSize,
+      sha256Digest: digest,
+      bytes: input.bytes.slice(),
+      createdAt: new Date().toISOString()
+    };
+    memoryRentReceipts.set(receipt.id, receipt);
+    return structuredClone(receipt);
+  }
+  async markTenantRentCollected(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    receiptId: string;
+    actorType: "admin" | "automation";
+    actorId: string;
+    collectedAt?: string | null;
+    note?: string | null;
+  }) {
+    const period = paymentPeriod(input.paymentPeriod);
+    const receipt = memoryRentReceipts.get(input.receiptId);
+    if (
+      !receipt
+      || receipt.tenantId !== input.tenantId
+      || receipt.paymentPeriod !== period
+    ) {
+      throw new Error("Receipt does not match the tenant and payment period.");
+    }
+    const current = await this.getTenantRentPayment(input.tenantId, period);
+    if (current.status === "collected") return { ...current, alreadyCollected: true };
+    const updated = {
+      ...current,
+      status: "collected" as const,
+      receiptId: receipt.id,
+      collectedAt: input.collectedAt ?? new Date().toISOString(),
+      collectedByType: input.actorType,
+      collectedById: input.actorId,
+      note: input.note ?? null,
+      updatedAt: new Date().toISOString()
+    };
+    memoryRentPayments.set(memoryPaymentKey(input.tenantId, period), updated);
+    return structuredClone({ ...updated, alreadyCollected: false });
+  }
+  async reopenTenantRentPayment(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    expectedVersion: string;
+    actorId: string;
+    reason?: string | null;
+  }) {
+    const current = await this.getTenantRentPayment(input.tenantId, input.paymentPeriod);
+    if (current.updatedAt !== input.expectedVersion) {
+      throw new Error("Rent payment changed after it was loaded.");
+    }
+    const updated: TenantRentPayment = {
+      ...current,
+      status: "due",
+      receiptId: null,
+      collectedAt: null,
+      collectedByType: null,
+      collectedById: null,
+      note: input.reason ?? null,
+      updatedAt: new Date().toISOString()
+    };
+    memoryRentPayments.set(memoryPaymentKey(input.tenantId, input.paymentPeriod), updated);
+    return structuredClone(updated);
+  }
+  async tenantRentReceiptUrl(receiptId: string) {
+    if (!memoryRentReceipts.has(receiptId)) throw new Error("Receipt was not found.");
+    return `memory://tenant-rent-payment-receipts/${receiptId}`;
+  }
+  async rentReportSnapshot(instant: string, timezone: string) {
+    const window = rentReportWindow(instant, timezone);
+    for (const value of [
+      window.weekStart,
+      window.weekEnd,
+      window.nextWeekStart,
+      window.nextWeekEnd
+    ]) {
+      await this.materializeRentPeriods(value);
+    }
+    return buildRentReportSnapshot({
+      tenants: store.listTenants({ limit: 500 }),
+      payments: [...memoryRentPayments.values()],
+      instant,
+      timezone
+    });
+  }
+  async findTenantsForPayment(fullName: string, email: string) {
+    const normalizedName = fullName.trim().toLocaleLowerCase();
+    const normalizedEmail = email.trim().toLocaleLowerCase();
+    return store.listTenants({ limit: 500 }).filter((tenant) =>
+      tenant.fullName.trim().toLocaleLowerCase() === normalizedName
+      && tenant.email?.trim().toLocaleLowerCase() === normalizedEmail
+    );
+  }
+  async enqueueAgentNotification(input: {
+    eventKey: string;
+    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
+    payload: Record<string, unknown>;
+    availableAt: string;
+  }) {
+    const existing = memoryAgentNotifications.get(input.eventKey);
+    if (existing) return existing.id;
+    const event = {
+      id: crypto.randomUUID(),
+      ...input,
+      status: "pending" as const,
+      claimedAt: null,
+      claimedBy: null,
+      acknowledgedAt: null
+    };
+    memoryAgentNotifications.set(input.eventKey, event);
+    return event.id;
+  }
+  async claimAgentNotification(serviceAccountId: string, now: string) {
+    const event = [...memoryAgentNotifications.values()]
+      .filter((candidate) =>
+        candidate.availableAt <= now
+        && (
+          candidate.status === "pending"
+          || (
+            candidate.status === "claimed"
+            && candidate.claimedAt
+            && Date.parse(candidate.claimedAt) <= Date.parse(now) - 10 * 60_000
+          )
+        )
+      )
+      .sort((left, right) => left.availableAt.localeCompare(right.availableAt))[0];
+    if (!event) return null;
+    event.status = "claimed";
+    event.claimedAt = now;
+    event.claimedBy = serviceAccountId;
+    return structuredClone(event);
+  }
+  async acknowledgeAgentNotification(eventId: string, serviceAccountId: string, now: string) {
+    const event = [...memoryAgentNotifications.values()].find((candidate) =>
+      candidate.id === eventId
+      && candidate.status === "claimed"
+      && candidate.claimedBy === serviceAccountId
+    );
+    if (!event) throw new Error("Claimed Agent notification was not found.");
+    event.status = "acknowledged";
+    event.acknowledgedAt = now;
+    return structuredClone(event);
+  }
 }
 
 let repository: DataRepository | undefined;
@@ -343,4 +672,7 @@ export function resetRepositoryForTests() {
   repository = undefined;
   memoryOperationalAlertBuckets.clear();
   memoryOwnerNotifications.clear();
+  memoryRentPayments.clear();
+  memoryRentReceipts.clear();
+  memoryAgentNotifications.clear();
 }

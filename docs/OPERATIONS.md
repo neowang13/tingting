@@ -29,7 +29,9 @@ retention period, templates, recipients, and provider dry-run results.
    confirmations are queued after a successful single-tenant Automation API
    upload. The weekly tenant summary defaults to Monday at `09:00` in
    `DEFAULT_TIMEZONE`; change `OWNER_WEEKLY_SUMMARY_DAY` (1=Monday, 7=Sunday)
-   and `OWNER_WEEKLY_SUMMARY_TIME` only with owner approval.
+   and `OWNER_WEEKLY_SUMMARY_TIME` only with owner approval. Daily overdue
+   Email and Agent events are deduplicated by local date and are not queued
+   before `OWNER_DAILY_OVERDUE_TIME` (default `09:00`).
 7. The Cron service invokes:
 
    ```text
@@ -40,7 +42,8 @@ retention period, templates, recipients, and provider dry-run results.
    Each invocation materializes due occurrences, drains at most 200 durable
    events with concurrency 10 and a 45-second work budget, performs once-daily
    retention/reconciliation, drains retryable owner-email notifications, queues
-   one deduplicated weekly tenant summary, and sends operational alerts. While
+   one deduplicated weekly tenant summary, queues daily overdue-rent Email and
+   Agent events, and sends operational alerts. While
    either pause is active, it cannot claim scheduled/manual work; it may claim
    at most 20 `source=test` events created from the saved administrator-owned
    test destination. This is the only outbound dry-run path before unpause.
@@ -114,6 +117,11 @@ run, signed callback, evidence review, and Owner approval sequence.
 
 Provider secrets are server-only. Never expose the service-role key, Resend key,
 full destinations, message bodies, or webhook payloads in logs.
+
+Rent receipts use the private `tenant-rent-payment-receipts` bucket created by
+migration `202607300032`. Access is only through a five-minute signed Admin URL
+and every signed-link request writes `rent.receipt.viewed` to the audit log.
+Never make this bucket public or copy receipt URLs into logs or Agent messages.
 
 ## OpenClaw operations integration
 

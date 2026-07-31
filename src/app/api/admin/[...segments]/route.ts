@@ -86,6 +86,8 @@ export async function GET(request: Request, context: Context) {
         lifecycle: url.searchParams.get("lifecycle") || undefined,
         contact: url.searchParams.get("contact") || undefined,
         schedule: url.searchParams.get("schedule") || undefined,
+        rentStatus: url.searchParams.get("rent") || undefined,
+        leaseType: url.searchParams.get("lease") || undefined,
         limit: 500
       });
       return ok(await repository.listTenants(filters), requestId);

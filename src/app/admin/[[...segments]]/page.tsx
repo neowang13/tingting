@@ -327,6 +327,8 @@ export default async function AdminPage({ params, searchParams }: Props) {
       query: value("q") || undefined,
       lifecycle: (value("lifecycle") || undefined) as "active" | "inactive" | "archived" | undefined,
       schedule: (value("schedule") || undefined) as "enabled" | "disabled" | "missing" | undefined,
+      rentStatus: (value("rent") || undefined) as "due" | "collected" | undefined,
+      leaseType: (value("lease") || undefined) as "month_to_month" | "fixed_term" | "needs_details" | undefined,
       limit: 500
     });
     if (id) {
@@ -375,17 +377,51 @@ export default async function AdminPage({ params, searchParams }: Props) {
               <select id="tenant-schedule" name="schedule" defaultValue={value("schedule")}>
                 <option value="">Automatic reminder: All</option><option value="enabled">Automatic reminder: On</option><option value="disabled">Automatic reminder: Off</option><option value="missing">Automatic reminder: Not set up</option>
               </select>
+              <label className="sr-only" htmlFor="tenant-rent">Current month rent</label>
+              <select id="tenant-rent" name="rent" defaultValue={value("rent")}>
+                <option value="">Current month rent: All</option>
+                <option value="due">Current month rent: Due</option>
+                <option value="collected">Current month rent: Collected</option>
+              </select>
+              <label className="sr-only" htmlFor="tenant-lease">Lease type</label>
+              <select id="tenant-lease" name="lease" defaultValue={value("lease")}>
+                <option value="">Lease type: All</option>
+                <option value="month_to_month">Month to month</option>
+                <option value="fixed_term">Fixed contract</option>
+                <option value="needs_details">Needs lease details</option>
+              </select>
               <button className="sr-only" type="submit">Apply filters</button>
               <Link className="button" href="/admin/tenants/new">Add tenant and reminder</Link>
             </form>
             <div className="table-scroll">
               <table className="admin-table">
-                <thead><tr><th>Tenant</th><th>Rental home</th><th>Move-in date</th><th>Email</th><th>Status</th><th>Next automatic email</th><th>Last email</th><th /></tr></thead>
+                <thead><tr><th>Tenant</th><th>Rental home</th><th>Lease</th><th>Current month rent</th><th>Email</th><th>Status</th><th>Next automatic email</th><th>Last email</th><th /></tr></thead>
                 <tbody>{tenants.map((tenant) => (
                   <tr key={tenant.id}>
                     <td><strong>{tenant.fullName}</strong></td>
                     <td>{tenant.propertyLabel} {tenant.unitLabel}</td>
-                    <td>{formatMoveInDate(tenant.moveInDate)}</td>
+                    <td className={tenant.leaseType === "fixed_term" && tenant.leaseEndDate && tenant.leaseEndDate < new Date().toISOString().slice(0, 10) && tenant.isActive ? "prototype-status error" : undefined}>
+                      {tenant.leaseType === "month_to_month"
+                        ? "Month to month"
+                        : tenant.leaseType === "fixed_term"
+                          ? `Fixed · ends ${formatMoveInDate(tenant.leaseEndDate)}`
+                          : "Needs lease details"}
+                    </td>
+                    <td className={`prototype-status ${
+                      !tenant.isActive || tenant.archivedAt
+                        ? "neutral"
+                        : tenant.currentRentPayment?.status === "collected"
+                          ? "success"
+                          : "waiting"
+                    }`}>
+                      {!tenant.isActive || tenant.archivedAt
+                        ? "Not applicable"
+                        : tenant.currentRentPayment?.status === "collected"
+                          ? `Collected · ${tenant.currentRentPayment.collectedAt ? new Date(tenant.currentRentPayment.collectedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "receipt recorded"}`
+                          : tenant.currentRentPayment
+                            ? `Due · ${formatMoveInDate(tenant.currentRentPayment.dueDate)}`
+                            : "Complete lease details"}
+                    </td>
                     <td>{maskEmail(tenant.email)}</td>
                     <td className={`prototype-status ${tenant.isActive && !tenant.archivedAt ? "success" : "neutral"}`}>
                       {tenant.archivedAt ? "Archived" : tenant.isActive ? "Current" : "Inactive"}

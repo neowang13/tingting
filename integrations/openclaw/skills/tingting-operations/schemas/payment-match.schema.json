@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fullName", "email", "period"],
+  "properties": {
+    "fullName": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "email": { "type": "string", "format": "email", "maxLength": 254 },
+    "period": { "type": "string", "pattern": "^\\d{4}-\\d{2}$" }
+  }
+}

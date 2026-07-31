@@ -222,6 +222,99 @@ $$;
 
 do $$
 declare
+  v_admin uuid := '00000000-0000-4000-8000-000000000001';
+  v_tenant_id uuid;
+  v_receipt jsonb;
+  v_payment jsonb;
+  v_repeat jsonb;
+begin
+  select id into v_tenant_id
+  from public.tenants
+  where email = 'behavior@example.com';
+
+  update public.tenants
+  set move_in_date = '2026-01-01',
+      lease_type = 'month_to_month',
+      lease_end_date = null,
+      rent_due_day = 31,
+      is_active = true,
+      archived_at = null
+  where id = v_tenant_id;
+
+  if public.rent_payment_due_date('2028-02-01'::date, 31::smallint) <> '2028-02-29'::date then
+    raise exception 'leap-year rent due date was not clamped';
+  end if;
+  if public.rent_payment_due_date('2027-02-01'::date, 31::smallint) <> '2027-02-28'::date then
+    raise exception 'non-leap rent due date was not clamped';
+  end if;
+
+  perform public.materialize_tenant_rent_periods('2026-07-30');
+  if not exists (
+    select 1
+    from public.tenant_rent_payments
+    where tenant_id = v_tenant_id
+      and payment_period = '2026-07-01'
+      and due_date = '2026-07-31'
+      and status = 'due'
+  ) then
+    raise exception 'monthly rent period was not materialized';
+  end if;
+
+  v_receipt := public.register_tenant_rent_receipt(
+    v_tenant_id,
+    '2026-07-01',
+    'tests/rent/behavior-receipt.pdf',
+    'behavior-receipt.pdf',
+    'application/pdf',
+    128,
+    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'admin',
+    v_admin
+  );
+  v_payment := public.mark_tenant_rent_collected(
+    v_tenant_id,
+    '2026-07-01',
+    (v_receipt->>'id')::uuid,
+    'admin',
+    v_admin,
+    '2026-07-30T19:00:00Z',
+    'migration behavior test'
+  );
+  v_repeat := public.mark_tenant_rent_collected(
+    v_tenant_id,
+    '2026-07-01',
+    (v_receipt->>'id')::uuid,
+    'admin',
+    v_admin,
+    '2026-07-30T19:00:00Z',
+    null
+  );
+  if v_payment->>'status' <> 'collected'
+    or (v_repeat->>'alreadyCollected')::boolean is not true
+  then
+    raise exception 'rent collection was not atomic and idempotent';
+  end if;
+
+  if exists (
+    select 1
+    from storage.buckets
+    where id = 'tenant-rent-payment-receipts'
+      and public
+  ) then
+    raise exception 'rent receipt bucket is public';
+  end if;
+  if has_table_privilege('anon', 'public.tenant_rent_payments', 'select')
+    or has_table_privilege('authenticated', 'public.tenant_rent_payment_receipts', 'select')
+  then
+    raise exception 'rent payment data grants are too broad';
+  end if;
+
+  raise notice 'tenant rent payment behavior suite passed';
+end
+$$;
+
+do $$
+declare
   v_tenant_id uuid;
   v_move_in_date date :=
     date_trunc('month', (now() at time zone 'America/Vancouver') + interval '5 years')::date;

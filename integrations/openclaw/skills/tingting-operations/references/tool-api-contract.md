@@ -53,6 +53,12 @@ except for an exact current shell-safe managed PDF reference passed with
 | `confirmations execute` | `POST /confirmations/{id}/execute` | action-specific scope | exact confirmed effect |
 | `jobs get` | `GET /jobs/{id}` | `jobs:read` | asynchronous job state |
 | `schedules get` | `GET /tenants/{id}/schedule` | `schedules:read` | read-only derived reminder |
+| `payments match-tenant` | `POST /tenants/payment-match` | `payments:read` | exact name + email tenant match |
+| `payments upload-receipt` | `POST /payment-receipts` | `payments:write` | validated private receipt ID |
+| `payments get` | `GET /tenants/{id}/rent-payments?period=YYYY-MM` | `payments:read` | one monthly rent record |
+| `payments mark-collected` | `PUT /tenants/{id}/rent-payments/{YYYY-MM}/collected` | `payments:write` | idempotent collected record |
+| `agent-notifications claim` | `POST /agent-notifications/claim` | `payments:read` | one safe chat event or null |
+| `agent-notifications ack` | `POST /agent-notifications/{id}/ack` | `payments:read` | acknowledged chat event |
 
 `tenants upload` is the safe conversational create path. `tenants update` is
 the field-level edit path and never accepts contact permission status fields.
@@ -72,6 +78,12 @@ tingtingctl documents update-tenant --id <tenant-uuid> --operation-id <uuid> --m
 tingtingctl tenants onboard --operation-id <uuid> --input <request.json>
 tingtingctl tenants get --id <tenant-uuid>
 tingtingctl tenants update --id <tenant-uuid> --operation-id <uuid> --input <request.json>
+tingtingctl payments match-tenant --input <request.json>
+tingtingctl payments upload-receipt --operation-id <uuid> --input <request.json>
+tingtingctl payments get --tenant-id <tenant-uuid> --input <request.json>
+tingtingctl payments mark-collected --tenant-id <tenant-uuid> --operation-id <uuid> --input <request.json>
+tingtingctl agent-notifications claim
+tingtingctl agent-notifications ack --id <event-uuid> --operation-id <uuid>
 ```
 
 ## API request behavior

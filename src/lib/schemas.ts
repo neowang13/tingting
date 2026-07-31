@@ -251,6 +251,8 @@ export const tenantListFilterSchema = z.object({
   lifecycle: z.enum(["active", "inactive", "archived"]).optional(),
   contact: z.enum(["email_allowed", "email_blocked", "sms_allowed", "sms_blocked"]).optional(),
   schedule: z.enum(["enabled", "disabled", "missing"]).optional(),
+  rentStatus: z.enum(["due", "collected"]).optional(),
+  leaseType: z.enum(["month_to_month", "fixed_term", "needs_details"]).optional(),
   limit: z.number().int().min(1).max(500).optional()
 }).strict();
 
@@ -277,6 +279,8 @@ export const tenantInputSchema = z
     propertyLabel: z.string().trim().min(1).max(160),
     unitLabel: z.string().trim().max(60).nullable().default(null),
     moveInDate: z.iso.date().nullable().optional(),
+    leaseType: z.enum(["month_to_month", "fixed_term"]).nullable().default(null),
+    leaseEndDate: z.iso.date().nullable().default(null),
     rentDueDay: z.number().int().min(1).max(31).default(1),
     email: z.preprocess(
       (value) => typeof value === "string" && value.trim() ? normalizeEmail(value) : null,
@@ -310,6 +314,26 @@ export const tenantInputSchema = z
     }
     if (value.preferredChannels.includes("sms") && !value.phoneE164) {
       ctx.addIssue({ code: "custom", path: ["phoneE164"], message: "Phone is required for the SMS channel." });
+    }
+    if (value.leaseType && !value.moveInDate) {
+      ctx.addIssue({ code: "custom", path: ["moveInDate"], message: "Lease start date is required." });
+    }
+    if (value.leaseType === "fixed_term" && !value.leaseEndDate) {
+      ctx.addIssue({ code: "custom", path: ["leaseEndDate"], message: "Lease end date is required." });
+    }
+    if (
+      value.leaseType === "fixed_term"
+      && value.moveInDate
+      && value.leaseEndDate
+      && value.leaseEndDate <= value.moveInDate
+    ) {
+      ctx.addIssue({ code: "custom", path: ["leaseEndDate"], message: "Lease end date must be after the start date." });
+    }
+    if (value.leaseType === "month_to_month" && value.leaseEndDate) {
+      ctx.addIssue({ code: "custom", path: ["leaseEndDate"], message: "Month-to-month leases cannot have an end date." });
+    }
+    if (!value.leaseType && value.leaseEndDate) {
+      ctx.addIssue({ code: "custom", path: ["leaseEndDate"], message: "Choose a lease type before entering an end date." });
     }
   });
 

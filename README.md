@@ -1,7 +1,8 @@
 # Ting Ting Real Estate
 
 Next.js full-stack application for the public real-estate website, fixed-schema
-content administration, rentals, tenant management, and rent reminders.
+content administration, rentals, tenant management, monthly rent receipts,
+weekly owner reporting, and rent reminders.
 
 ## Run locally
 
@@ -98,7 +99,8 @@ The matching verification matrix is in
 The repository includes a private, versioned Automation API, scoped show-once
 service-account tokens, durable idempotency and confirmations, rental
 draft/publication operations, values-only tenant import preview/atomic commit,
-disabled reminder schedule preparation/confirmed enable, Admin controls, and
+disabled reminder schedule preparation/confirmed enable, private rent-receipt
+collection, scoped payment and Agent-notification commands, Admin controls, and
 the restricted `tingting-operations` Skill/CLI.
 
 All production automation flags default to `false`. OpenClaw never receives a

@@ -64,6 +64,8 @@ services:
         sync: false
       - key: OWNER_NOTIFICATION_TO_EMAIL
         sync: false
+      - key: OWNER_DAILY_OVERDUE_TIME
+        value: "09:00"
       - key: OWNER_WEEKLY_SUMMARY_DAY
         value: "1"
       - key: OWNER_WEEKLY_SUMMARY_TIME
