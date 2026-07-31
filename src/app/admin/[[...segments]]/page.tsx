@@ -31,6 +31,7 @@ import {
   notificationSourceLabel,
   notificationStatusCopy
 } from "@/lib/notification-copy";
+import { Temporal } from "@js-temporal/polyfill";
 
 interface Props {
   params: Promise<{ segments?: string[] }>;
@@ -331,6 +332,12 @@ export default async function AdminPage({ params, searchParams }: Props) {
       leaseType: (value("lease") || undefined) as "month_to_month" | "fixed_term" | "needs_details" | undefined,
       limit: 500
     });
+    const tenantTimezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
+    const tenantToday = Temporal.Now.instant()
+      .toZonedDateTimeISO(tenantTimezone)
+      .toPlainDate();
+    const leaseWarningEnd = tenantToday.add({ days: 30 }).toString();
+    const tenantTodayString = tenantToday.toString();
     if (id) {
       const [initialTenant, pause, sourceMarker] = await Promise.all([
         id === "new" ? Promise.resolve(null) : repository.getTenant(id),
@@ -400,7 +407,13 @@ export default async function AdminPage({ params, searchParams }: Props) {
                   <tr key={tenant.id}>
                     <td><strong>{tenant.fullName}</strong></td>
                     <td>{tenant.propertyLabel} {tenant.unitLabel}</td>
-                    <td className={tenant.leaseType === "fixed_term" && tenant.leaseEndDate && tenant.leaseEndDate < new Date().toISOString().slice(0, 10) && tenant.isActive ? "prototype-status error" : undefined}>
+                    <td className={leaseExpiryTone(
+                      tenant.leaseType,
+                      tenant.leaseEndDate,
+                      tenant.isActive && !tenant.archivedAt,
+                      tenantTodayString,
+                      leaseWarningEnd
+                    )}>
                       {tenant.leaseType === "month_to_month"
                         ? "Month to month"
                         : tenant.leaseType === "fixed_term"
@@ -417,7 +430,7 @@ export default async function AdminPage({ params, searchParams }: Props) {
                       {!tenant.isActive || tenant.archivedAt
                         ? "Not applicable"
                         : tenant.currentRentPayment?.status === "collected"
-                          ? `Collected · ${tenant.currentRentPayment.collectedAt ? new Date(tenant.currentRentPayment.collectedAt).toLocaleDateString("en-CA", { month: "short", day: "numeric" }) : "receipt recorded"}`
+                          ? `Collected · ${tenant.currentRentPayment.collectedAt ? new Date(tenant.currentRentPayment.collectedAt).toLocaleDateString("en-CA", { timeZone: tenantTimezone, month: "short", day: "numeric" }) : "receipt recorded"}`
                           : tenant.currentRentPayment
                             ? `Due · ${formatMoveInDate(tenant.currentRentPayment.dueDate)}`
                             : "Complete lease details"}
@@ -596,6 +609,19 @@ function scheduleStatusLabel(value: "enabled" | "disabled" | "missing" | undefin
     disabled: "Automatic email off",
     missing: "Not set up"
   }[value ?? "missing"];
+}
+
+function leaseExpiryTone(
+  leaseType: "month_to_month" | "fixed_term" | null,
+  leaseEndDate: string | null,
+  active: boolean,
+  today: string,
+  warningEnd: string
+) {
+  if (!active || leaseType !== "fixed_term" || !leaseEndDate) return undefined;
+  if (leaseEndDate < today) return "prototype-status error";
+  if (leaseEndDate <= warningEnd) return "prototype-status waiting";
+  return undefined;
 }
 
 function tenantSaveNotice(value: string) {

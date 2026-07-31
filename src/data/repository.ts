@@ -595,11 +595,11 @@ class MemoryRepository implements DataRepository {
     });
   }
   async findTenantsForPayment(fullName: string, email: string) {
-    const normalizedName = fullName.trim().toLocaleLowerCase();
-    const normalizedEmail = email.trim().toLocaleLowerCase();
+    const normalizedName = fullName.trim().toLocaleLowerCase("en-CA");
+    const normalizedEmail = email.trim().toLocaleLowerCase("en-CA");
     return store.listTenants({ limit: 500 }).filter((tenant) =>
-      tenant.fullName.trim().toLocaleLowerCase() === normalizedName
-      && tenant.email?.trim().toLocaleLowerCase() === normalizedEmail
+      tenant.fullName.trim().toLocaleLowerCase("en-CA") === normalizedName
+      && tenant.email?.trim().toLocaleLowerCase("en-CA") === normalizedEmail
     );
   }
   async enqueueAgentNotification(input: {

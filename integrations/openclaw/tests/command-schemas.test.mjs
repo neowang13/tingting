@@ -306,6 +306,33 @@ test("payment commands use managed receipts and the fixed payment API paths", as
   });
 });
 
+test("missing managed receipts fail without exposing the local media path", async () => {
+  await withDocumentDirectories(async ({ inputDirectory, mediaDirectory }) => {
+    await writeFile(join(inputDirectory, "receipt.json"), JSON.stringify({
+      tenantId: resourceId,
+      period: "2026-07",
+      mediaRef: "media://inbound/missing.pdf"
+    }));
+    const client = {
+      request: async () => assert.fail("a missing receipt must not reach the API")
+    };
+
+    await assert.rejects(
+      run([
+        "payments", "upload-receipt",
+        "--operation-id", operationId,
+        "--input", "receipt.json"
+      ], {
+        TINGTING_INPUT_DIRECTORY: inputDirectory,
+        TINGTING_MEDIA_DIRECTORY: mediaDirectory
+      }, { client }),
+      (error) =>
+        error.code === "RECEIPT_SOURCE_INVALID"
+        && !error.message.includes(mediaDirectory)
+    );
+  });
+});
+
 test("tenant update validates a field-level patch and forwards it", async () => {
   await withInputDirectory(async (directory) => {
     const input = {

@@ -337,6 +337,16 @@ export const tenantInputSchema = z
     }
   });
 
+export const tenantCreateInputSchema = tenantInputSchema.superRefine((value, ctx) => {
+  if (!value.leaseType) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["leaseType"],
+      message: "Lease type is required for a new tenant."
+    });
+  }
+});
+
 export const scheduleInputSchema = z
   .object({
     rentDueDay: z.number().int().min(1).max(31),

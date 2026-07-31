@@ -13,6 +13,7 @@ import {
   reminderSettingsInputSchema,
   notificationEventFilterSchema,
   schedulePreviewSchema,
+  tenantCreateInputSchema,
   tenantListFilterSchema,
   testNotificationConfirmationSchema,
   testNotificationSchema
@@ -225,7 +226,10 @@ export async function POST(request: Request, context: Context) {
       );
     }
     if (resource === "tenants" && !id) {
-      const tenant = await repository.createTenant(body, actorId);
+      const tenant = await repository.createTenant(
+        tenantCreateInputSchema.parse(body),
+        actorId
+      );
       await enqueueTenantUploadNotification(tenant)
         .then(() => deliverOwnerNotifications({ limit: 1 }))
         .catch(() => undefined);

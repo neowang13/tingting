@@ -227,6 +227,7 @@ declare
   v_receipt jsonb;
   v_payment jsonb;
   v_repeat jsonb;
+  v_reopened jsonb;
 begin
   select id into v_tenant_id
   from public.tenants
@@ -294,6 +295,34 @@ begin
   then
     raise exception 'rent collection was not atomic and idempotent';
   end if;
+  if (
+    select count(*)
+    from public.audit_events
+    where action = 'rent.payment.collected'
+      and target_id = v_payment->>'id'
+  ) <> 1 then
+    raise exception 'repeated rent collection created duplicate audit events';
+  end if;
+
+  v_reopened := public.reopen_tenant_rent_payment(
+    v_tenant_id,
+    '2026-07-01',
+    (v_payment->>'updated_at')::timestamptz,
+    v_admin,
+    'behavior reopen'
+  );
+  begin
+    perform public.reopen_tenant_rent_payment(
+      v_tenant_id,
+      '2026-07-01',
+      (v_reopened->>'updated_at')::timestamptz,
+      v_admin,
+      'invalid second reopen'
+    );
+    raise exception 'a due rent payment was reopened';
+  exception
+    when sqlstate '22023' then null;
+  end;
 
   if exists (
     select 1

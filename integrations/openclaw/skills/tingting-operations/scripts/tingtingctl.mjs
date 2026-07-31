@@ -392,16 +392,32 @@ function paymentMediaBasename(mediaRef) {
 
 async function readInboundReceipt(mediaRef, environment, nowMs = Date.now()) {
   const fileName = paymentMediaBasename(mediaRef);
-  const root = await realpath(mediaRoot(environment));
+  let root;
+  try {
+    root = await realpath(mediaRoot(environment));
+  } catch {
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The managed receipt directory is unavailable."
+    );
+  }
   const candidate = resolve(root, fileName);
   const fromRoot = relative(root, candidate);
   if (fromRoot.startsWith("..") || isAbsolute(fromRoot)) {
     throw documentError("RECEIPT_MEDIA_REF_INVALID", "The receipt is outside the managed attachment directory.");
   }
-  const handle = await open(
-    candidate,
-    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
-  );
+  let handle;
+  try {
+    handle = await open(
+      candidate,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    );
+  } catch {
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The receipt must be a non-symlink regular managed attachment."
+    );
+  }
   try {
     const before = await handle.stat();
     if (!before.isFile() || before.size < 1 || before.size > maximumPdfBytes) {
@@ -430,6 +446,12 @@ async function readInboundReceipt(mediaRef, environment, nowMs = Date.now()) {
       ".webp": "image/webp"
     }[extname(fileName).toLocaleLowerCase("en-CA")];
     return { fileName, bytes, mimeType };
+  } catch (error) {
+    if (error?.code?.startsWith?.("RECEIPT_")) throw error;
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The managed receipt could not be read safely."
+    );
   } finally {
     await handle.close();
   }

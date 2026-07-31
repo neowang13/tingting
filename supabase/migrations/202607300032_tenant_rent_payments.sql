@@ -286,37 +286,34 @@ begin
     raise exception using errcode = '23514', message = 'receipt does not match tenant and payment period';
   end if;
 
-  select * into v_payment
-  from public.tenant_rent_payments
-  where tenant_id = p_tenant_id and payment_period = p_payment_period
-  for update;
-  v_previous_status := coalesce(v_payment.status, 'due');
-  if v_payment.status = 'collected' then
-    return to_jsonb(v_payment) || jsonb_build_object('alreadyCollected', true);
-  end if;
-
   insert into public.tenant_rent_payments(
-    tenant_id, payment_period, due_date, status, receipt_id, collected_at,
-    collected_by_type, collected_by_id, note
+    tenant_id, payment_period, due_date, status
   ) values (
     p_tenant_id,
     p_payment_period,
     public.rent_payment_due_date(p_payment_period, v_tenant.rent_due_day),
-    'collected',
-    p_receipt_id,
-    coalesce(p_collected_at, now()),
-    p_actor_type,
-    p_actor_id,
-    nullif(p_note, '')
+    'due'
   )
-  on conflict (tenant_id, payment_period) do update set
+  on conflict (tenant_id, payment_period) do nothing;
+
+  select * into v_payment
+  from public.tenant_rent_payments
+  where tenant_id = p_tenant_id and payment_period = p_payment_period
+  for update;
+  v_previous_status := v_payment.status;
+  if v_payment.status = 'collected' then
+    return to_jsonb(v_payment) || jsonb_build_object('alreadyCollected', true);
+  end if;
+
+  update public.tenant_rent_payments set
     status = 'collected',
-    receipt_id = excluded.receipt_id,
-    collected_at = excluded.collected_at,
-    collected_by_type = excluded.collected_by_type,
-    collected_by_id = excluded.collected_by_id,
-    note = excluded.note,
+    receipt_id = p_receipt_id,
+    collected_at = coalesce(p_collected_at, now()),
+    collected_by_type = p_actor_type,
+    collected_by_id = p_actor_id,
+    note = nullif(p_note, ''),
     updated_at = now()
+  where id = v_payment.id
   returning * into v_payment;
 
   insert into public.audit_events(
@@ -365,6 +362,9 @@ begin
   if not found then raise exception using errcode = 'P0002', message = 'rent payment not found'; end if;
   if v_payment.updated_at <> p_expected_updated_at then
     raise exception using errcode = 'TT409', message = 'rent payment changed';
+  end if;
+  if v_payment.status <> 'collected' then
+    raise exception using errcode = '22023', message = 'only a collected rent payment can be reopened';
   end if;
   v_receipt_id := v_payment.receipt_id;
   update public.tenant_rent_payments set

@@ -100,8 +100,8 @@ describe("owner email notifications", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       subject: expect.stringMatching(/^婷婷租务周报｜本周应收 \d+ · 已收 \d+ · 还差 \d+$/),
-      text: expect.stringContaining("过去 7 天新增"),
-      html: expect.stringContaining("租客动态")
+      text: expect.stringContaining("本周收款活动（包含补收往期）"),
+      html: expect.stringContaining("已提前收到")
     }));
     await expect(getRepository().claimAgentNotification(
       crypto.randomUUID(),
@@ -171,6 +171,28 @@ describe("owner email notifications", () => {
       emailQueued: false,
       agentQueued: true
     });
+  });
+
+  it("skips a stale daily overdue email instead of sending it on a later day", async () => {
+    const repository = getRepository();
+    await repository.createTenant({
+      ...tenantPayload("Stale Reminder Tenant"),
+      moveInDate: "2026-01-01",
+      rentDueDay: 1,
+      email: "stale@example.com"
+    }, crypto.randomUUID());
+    await repository.materializeRentPeriods("2026-08-10");
+    await enqueueDailyOverdueRentSummary(new Date("2026-08-10T16:01:00.000Z"));
+    const send = vi.fn().mockResolvedValue({
+      providerMessageId: "must-not-send",
+      status: "queued"
+    });
+
+    await expect(deliverOwnerNotifications({
+      now: new Date("2026-08-11T16:01:00.000Z"),
+      provider: { send } as EmailProvider
+    })).resolves.toMatchObject({ claimed: 1, sent: 0, skipped: 1 });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("retries a failed owner email with backoff without duplicating the queue item", async () => {

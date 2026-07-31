@@ -326,14 +326,21 @@ export async function POST(request: Request, context: Context) {
       if (!(file instanceof File) || !tenantId) {
         throw new ApiError(400, "INVALID_MULTIPART", "tenantId, period, and a managed receipt file are required.");
       }
-      const digest = sha256Digest(new Uint8Array(await file.arrayBuffer()));
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = sha256Digest({
+        tenantId,
+        period,
+        originalFilename: file.name,
+        declaredMimeType: file.type,
+        fileDigest: sha256Digest(bytes)
+      });
       const result = await idempotent(request, actor, digest, async () => {
         const receipt = await getRepository().registerTenantRentReceipt({
           tenantId,
           paymentPeriod: period,
           originalFilename: file.name,
           declaredMimeType: file.type,
-          bytes: new Uint8Array(await file.arrayBuffer()),
+          bytes,
           actorType: "automation",
           actorId: actor!.serviceAccountId
         });
@@ -429,16 +436,63 @@ export async function POST(request: Request, context: Context) {
     if (resource === "agent-notifications" && id === "claim" && !action) {
       routeName = "agentNotifications.claim";
       authorize(actor, routeName);
-      const claimed = await getRepository().claimAgentNotification(
-        actor.serviceAccountId,
-        new Date().toISOString()
-      );
+      const repository = getRepository();
+      const now = new Date().toISOString();
+      const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
+      const localDate = Temporal.Instant.from(now)
+        .toZonedDateTimeISO(timezone)
+        .toPlainDate()
+        .toString();
+      let claimed: Record<string, unknown> | null = null;
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        const candidate = await repository.claimAgentNotification(
+          actor.serviceAccountId,
+          now
+        );
+        if (!candidate) break;
+        const candidateId = typeof candidate.id === "string" ? candidate.id : null;
+        if (!candidateId) {
+          throw new ApiError(
+            500,
+            "AGENT_NOTIFICATION_INVALID",
+            "The claimed Agent notification is invalid."
+          );
+        }
+        const payload = candidate.payload && typeof candidate.payload === "object"
+          ? candidate.payload as Record<string, unknown>
+          : {};
+        const staleDaily = candidate.kind === "daily_overdue_rent_summary"
+          && payload.localDate !== localDate;
+        if (staleDaily) {
+          await repository.acknowledgeAgentNotification(
+            candidateId,
+            actor.serviceAccountId,
+            now
+          );
+          continue;
+        }
+        claimed = candidate;
+        break;
+      }
       if (!claimed) return success(null, requestId);
       if (claimed.kind === "daily_overdue_rent_summary") {
-        const snapshot = await getRepository().rentReportSnapshot(
-          new Date().toISOString(),
-          process.env.DEFAULT_TIMEZONE ?? "America/Vancouver"
-        );
+        const snapshot = await repository.rentReportSnapshot(now, timezone);
+        if (snapshot.overdue.length === 0) {
+          const claimedId = typeof claimed.id === "string" ? claimed.id : null;
+          if (!claimedId) {
+            throw new ApiError(
+              500,
+              "AGENT_NOTIFICATION_INVALID",
+              "The claimed Agent notification is invalid."
+            );
+          }
+          await repository.acknowledgeAgentNotification(
+            claimedId,
+            actor.serviceAccountId,
+            now
+          );
+          return success(null, requestId);
+        }
         const visible = snapshot.overdue.slice(0, 20);
         const details = visible.map((detail) =>
           `${detail.tenant.fullName}（${detail.tenant.propertyLabel}${detail.tenant.unitLabel ? ` / ${detail.tenant.unitLabel}` : ""}）${detail.payment.paymentPeriod.slice(0, 7)} 月租金已逾期 ${detail.daysOverdue} 天`

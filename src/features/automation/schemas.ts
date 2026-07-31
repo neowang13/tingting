@@ -41,6 +41,7 @@ export const automationRentalInputSchema = z
 export const automationTenantInputSchema = z
   .object({
     ...tenantInputSchema.shape,
+    leaseType: z.enum(["month_to_month", "fixed_term"]),
     leaseStartDate: z.iso.date().nullable().optional(),
     sourceSystem: z.string().trim().min(1).max(60).nullable().default("openclaw"),
     externalReference: z.string().trim().min(1).max(120).nullable().default(null)
@@ -62,6 +63,40 @@ export const automationTenantInputSchema = z
         code: "custom",
         path: ["leaseStartDate"],
         message: "leaseStartDate and legacy moveInDate must match when both are supplied."
+      });
+    }
+    const leaseStartDate = value.leaseStartDate ?? value.moveInDate;
+    if (!leaseStartDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["leaseStartDate"],
+        message: "Lease start date is required."
+      });
+    }
+    if (value.leaseType === "fixed_term" && !value.leaseEndDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["leaseEndDate"],
+        message: "Lease end date is required."
+      });
+    }
+    if (
+      value.leaseType === "fixed_term"
+      && leaseStartDate
+      && value.leaseEndDate
+      && value.leaseEndDate <= leaseStartDate
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["leaseEndDate"],
+        message: "Lease end date must be after the start date."
+      });
+    }
+    if (value.leaseType === "month_to_month" && value.leaseEndDate) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["leaseEndDate"],
+        message: "Month-to-month leases cannot have an end date."
       });
     }
   })

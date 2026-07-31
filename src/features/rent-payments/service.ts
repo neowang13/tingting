@@ -78,6 +78,16 @@ export function calendarDaysBetween(start: string, end: string) {
   return Temporal.PlainDate.from(start).until(Temporal.PlainDate.from(end)).days;
 }
 
+function startOfLocalDayInstant(date: string, timezone: string) {
+  return Temporal.PlainDate.from(date)
+    .toZonedDateTime({
+      timeZone: timezone,
+      plainTime: Temporal.PlainTime.from("00:00")
+    })
+    .toInstant()
+    .toString();
+}
+
 export function validateRentReceipt(
   filename: string,
   declaredMimeType: string,
@@ -163,15 +173,26 @@ export function buildRentReportSnapshot(input: {
   timezone: string;
 }): RentReportSnapshot {
   const window = rentReportWindow(input.instant, input.timezone);
+  const recentCollectionStart = Temporal.Instant.from(
+    startOfLocalDayInstant(window.weekStart, input.timezone)
+  );
+  const reportInstant = Temporal.Instant.from(input.instant);
   const tenants = new Map(input.tenants.map((tenant) => [tenant.id, tenant]));
   const details = input.payments.flatMap((payment) => {
     const tenant = tenants.get(payment.tenantId);
     return tenant ? [{ tenant, payment }] : [];
   });
+  const activeDetails = details.filter((detail) =>
+    detail.tenant.isActive && !detail.tenant.archivedAt
+  );
   const between = (detail: RentPaymentDetail, start: string, end: string) =>
     detail.payment.dueDate >= start && detail.payment.dueDate < end;
-  const thisWeekDue = details.filter((detail) => between(detail, window.weekStart, window.weekEnd));
-  const nextWeekDue = details.filter((detail) => between(detail, window.nextWeekStart, window.nextWeekEnd));
+  const thisWeekDue = activeDetails.filter((detail) =>
+    between(detail, window.weekStart, window.weekEnd)
+  );
+  const nextWeekDue = activeDetails.filter((detail) =>
+    between(detail, window.nextWeekStart, window.nextWeekEnd)
+  );
   const activeTenants = input.tenants.filter((tenant) => tenant.isActive && !tenant.archivedAt);
   const expiring = activeTenants
     .filter((tenant) => tenant.leaseType === "fixed_term" && tenant.leaseEndDate)
@@ -183,7 +204,7 @@ export function buildRentReportSnapshot(input: {
       left.tenant.leaseEndDate!.localeCompare(right.tenant.leaseEndDate!)
       || left.tenant.fullName.localeCompare(right.tenant.fullName)
     );
-  const overdue = details
+  const overdue = activeDetails
     .filter((detail) => detail.payment.status === "due" && detail.payment.dueDate < window.today)
     .map((detail) => ({
       ...detail,
@@ -227,7 +248,14 @@ export function buildRentReportSnapshot(input: {
       .filter((detail) =>
         detail.payment.status === "collected"
         && detail.payment.collectedAt
-        && detail.payment.collectedAt >= window.weekStart
+        && Temporal.Instant.compare(
+          Temporal.Instant.from(detail.payment.collectedAt),
+          recentCollectionStart
+        ) >= 0
+        && Temporal.Instant.compare(
+          Temporal.Instant.from(detail.payment.collectedAt),
+          reportInstant
+        ) <= 0
       )
       .sort((left, right) =>
         (right.payment.collectedAt ?? "").localeCompare(left.payment.collectedAt ?? "")

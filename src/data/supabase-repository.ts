@@ -1410,14 +1410,18 @@ export class SupabaseRepository implements DataRepository {
   }
 
   async findTenantsForPayment(fullName: string, email: string) {
+    const normalizedName = fullName.trim().toLocaleLowerCase("en-CA");
     const { data, error } = await this.client()
       .from("tenants")
       .select("*")
-      .ilike("full_name", fullName.trim())
-      .eq("email", email.trim().toLocaleLowerCase())
+      .eq("email", email.trim().toLocaleLowerCase("en-CA"))
       .limit(10);
     if (error) databaseError(error);
-    return asRows(data).map(mapTenant);
+    return asRows(data)
+      .map(mapTenant)
+      .filter((tenant) =>
+        tenant.fullName.trim().toLocaleLowerCase("en-CA") === normalizedName
+      );
   }
 
   async enqueueAgentNotification(input: {

@@ -129,6 +129,48 @@ describe("rent payment dates and reporting", () => {
     expect(snapshot.leases.expiredActive.map((item) => item.tenant.id)).toEqual([expired.id]);
   });
 
+  it("omits inactive and archived tenants from next-week receivables", () => {
+    const active = tenant();
+    const inactive = tenant({ id: crypto.randomUUID(), isActive: false });
+    const archived = tenant({
+      id: crypto.randomUUID(),
+      archivedAt: "2026-07-20T12:00:00.000Z"
+    });
+    const snapshot = buildRentReportSnapshot({
+      tenants: [active, inactive, archived],
+      payments: [
+        payment(active.id, "2026-08-03"),
+        payment(inactive.id, "2026-08-04"),
+        payment(archived.id, "2026-08-05")
+      ],
+      instant: "2026-07-31T19:00:00.000Z",
+      timezone: "America/Vancouver"
+    });
+
+    expect(snapshot.nextWeek.due.map((detail) => detail.tenant.id)).toEqual([active.id]);
+  });
+
+  it("uses the Vancouver week boundary and report instant for recent collections", () => {
+    const included = tenant();
+    const tooEarly = tenant({ id: crypto.randomUUID() });
+    const future = tenant({ id: crypto.randomUUID() });
+    const includedPayment = payment(included.id, "2026-07-01", "collected");
+    includedPayment.collectedAt = "2026-07-27T07:00:00.000Z";
+    const tooEarlyPayment = payment(tooEarly.id, "2026-07-01", "collected");
+    tooEarlyPayment.collectedAt = "2026-07-27T06:59:59.999Z";
+    const futurePayment = payment(future.id, "2026-07-01", "collected");
+    futurePayment.collectedAt = "2026-07-31T19:00:00.001Z";
+
+    const snapshot = buildRentReportSnapshot({
+      tenants: [included, tooEarly, future],
+      payments: [includedPayment, tooEarlyPayment, futurePayment],
+      instant: "2026-07-31T19:00:00.000Z",
+      timezone: "America/Vancouver"
+    });
+
+    expect(snapshot.recentCollections.map((detail) => detail.tenant.id)).toEqual([included.id]);
+  });
+
   it("validates extension, MIME, magic bytes, and size", () => {
     const pdf = new TextEncoder().encode("%PDF-1.7 receipt");
     expect(validateRentReceipt("receipt.pdf", "application/pdf", pdf))

@@ -138,6 +138,19 @@ function weeklySummaryMessage(
       ? details.map((detail) => `<li style="margin:6px 0">${safeHtml(paymentLine(detail))}</li>`).join("")
       : "<li>无</li>"
     }</ul>`;
+  const collectionLine = (detail: RentPaymentDetail) =>
+    `${paymentLine(detail)} — 收到 ${detail.payment.collectedAt
+      ? formatDateTime(detail.payment.collectedAt, timezone)
+      : "时间未记录"}`;
+  const collectionText = rent.recentCollections.length
+    ? rent.recentCollections.map((detail) => `- ${collectionLine(detail)}`)
+    : ["- 无"];
+  const collectionHtml = `<ul style="margin:8px 0 0;padding-left:20px">${rent.recentCollections.length
+    ? rent.recentCollections.map((detail) =>
+        `<li style="margin:6px 0">${safeHtml(collectionLine(detail))}</li>`
+      ).join("")
+    : "<li>无</li>"
+  }</ul>`;
   const leaseLine = (detail: RentReportSnapshot["leases"]["expiringWithin30Days"][number]) =>
     `${detail.tenant.fullName} — ${detail.tenant.propertyLabel}${detail.tenant.unitLabel ? ` / ${detail.tenant.unitLabel}` : ""} — ${detail.tenant.moveInDate} 至 ${detail.tenant.leaseEndDate} — 剩余 ${detail.daysRemaining} 天`;
   const leaseHtml = (details: typeof rent.leases.expiringWithin30Days) =>
@@ -155,10 +168,11 @@ function weeklySummaryMessage(
     : "<li>无</li>"
   }</ul>`;
   const subject = `婷婷租务周报｜本周应收 ${rent.thisWeek.due.length} · 已收 ${rent.thisWeek.collected.length} · 还差 ${rent.thisWeek.outstanding.length}`;
+  const weekEndInclusive = Temporal.PlainDate.from(rent.weekEnd).subtract({ days: 1 }).toString();
   const text = [
     "TING TING REAL ESTATE",
     "Weekly rental overview",
-    `${rent.weekStart} 至 ${rent.weekEnd}（${timezone}）`,
+    `${rent.weekStart} 至 ${weekEndInclusive}（${timezone}）`,
     `生成时间：${dateLabel}`,
     "",
     `本周应收：${rent.thisWeek.due.length}`,
@@ -171,8 +185,12 @@ function weeklySummaryMessage(
     "本周未收",
     ...paymentText(rent.thisWeek.outstanding),
     "",
+    "本周收款活动（包含补收往期）",
+    ...collectionText,
+    "",
     `下周应收：${rent.nextWeek.due.length}`,
     `已提前收到：${rent.nextWeek.collectedEarly.length}`,
+    ...paymentText(rent.nextWeek.collectedEarly),
     `下周待收：${rent.nextWeek.outstanding.length}`,
     ...paymentText(rent.nextWeek.outstanding),
     "",
@@ -195,10 +213,10 @@ function weeklySummaryMessage(
     "This is an automated weekly summary from Ting Ting Admin."
   ].join("\n");
   const card = (label: string, value: number, color = "#2F6F5E") =>
-    `<td style="background:#fff;border:1px solid #E4E0DA;border-radius:12px;padding:16px;text-align:center;width:33%"><div style="color:#6B6F6D;font-size:12px;font-weight:600;text-transform:uppercase">${safeHtml(label)}</div><div style="color:${color};font-size:30px;font-weight:700;font-variant-numeric:tabular-nums">${value}</div></td>`;
+    `<td class="summary-card" style="background:#fff;border:1px solid #E4E0DA;border-radius:12px;padding:16px;text-align:center;width:33%"><div style="color:#6B6F6D;font-size:12px;font-weight:600;text-transform:uppercase">${safeHtml(label)}</div><div style="color:${color};font-size:30px;font-weight:700;font-variant-numeric:tabular-nums">${value}</div></td>`;
   const section = (title: string, body: string) =>
     `<section style="background:#fff;border:1px solid #E4E0DA;border-radius:12px;margin-top:16px;padding:20px"><h2 style="color:#1F2321;font-size:18px;margin:0 0 8px">${safeHtml(title)}</h2>${body}</section>`;
-  const html = `<!doctype html><html><body style="background:#F6F4EF;color:#1F2321;font-family:'IBM Plex Sans','Segoe UI',sans-serif;margin:0;padding:24px"><main style="margin:0 auto;max-width:600px"><header style="background:#1C2B28;border-radius:14px;color:#fff;padding:24px"><div style="font-size:12px;font-weight:700;letter-spacing:.12em">TING TING REAL ESTATE</div><h1 style="font-size:26px;margin:8px 0">Weekly rental overview</h1><p style="color:#DDE8E4;margin:0">${rent.weekStart} 至 ${rent.weekEnd}<br>${safeHtml(dateLabel)} · ${safeHtml(timezone)}</p></header><table role="presentation" style="border-collapse:separate;border-spacing:8px;margin:12px -8px 0;width:calc(100% + 16px)"><tr>${card("本周应收", rent.thisWeek.due.length)}${card("本周已收", rent.thisWeek.collected.length)}${card("本周还差", rent.thisWeek.outstanding.length, "#A6720A")}</tr></table>${section("本周收款", `<h3 style="font-size:14px;margin:0">已收</h3>${paymentHtml(rent.thisWeek.collected)}<h3 style="font-size:14px;margin:16px 0 0">未收</h3>${paymentHtml(rent.thisWeek.outstanding)}`)}${section("下周到期", `<p style="margin:0">应收 <strong>${rent.nextWeek.due.length}</strong> · 已提前收到 <strong>${rent.nextWeek.collectedEarly.length}</strong> · 待收 <strong style="color:#A6720A">${rent.nextWeek.outstanding.length}</strong></p>${paymentHtml(rent.nextWeek.outstanding)}`)}${section("逾期未收", `<p style="margin:0">当前仍有 <strong style="color:#B3411F">${rent.overdue.length}</strong> 份逾期账期。未解决记录将继续每天通过 Email 和 Agent 提醒。</p>${overdueHtml}`)}${section("租客动态", `<p style="margin:0">当前 Active <strong>${activity.activeCount}</strong> · 过去 7 天新增 <strong>${activity.periodNewCount}</strong> · 今天新增 <strong>${activity.todayNewCount}</strong></p>`)}${section("固定租约即将到期", `<p style="margin:0">Month to month <strong>${rent.leases.monthToMonthCount}</strong> · 未来 7 天 <strong style="color:#A6720A">${rent.leases.expiringWithin7Days.length}</strong> · 未来 30 天 <strong>${rent.leases.expiringWithin30Days.length}</strong></p>${leaseHtml(rent.leases.expiringWithin30Days)}${rent.leases.expiredActive.length ? `<h3 style="color:#B3411F;font-size:14px;margin:16px 0 0">需要核对：已过期但仍 Active</h3>${leaseHtml(rent.leases.expiredActive)}` : ""}`)}<footer style="color:#6B6F6D;font-size:12px;padding:20px 4px;text-align:center">This is an automated weekly summary from Ting Ting Admin.<br>${safeHtml(timezone)} · ${safeHtml(dateLabel)}</footer></main></body></html>`;
+  const html = `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>@media only screen and (max-width:620px){.summary-row,.summary-card{display:block!important;width:auto!important}.summary-card{margin:8px 0!important}}</style></head><body style="background:#F6F4EF;color:#1F2321;font-family:'IBM Plex Sans','Segoe UI',sans-serif;margin:0;padding:24px"><main style="margin:0 auto;max-width:600px"><header style="background:#1C2B28;border-radius:14px;color:#fff;padding:24px"><div style="font-size:12px;font-weight:700;letter-spacing:.12em">TING TING REAL ESTATE</div><h1 style="font-size:26px;margin:8px 0">Weekly rental overview</h1><p style="color:#DDE8E4;margin:0">${rent.weekStart} 至 ${weekEndInclusive}<br>${safeHtml(dateLabel)} · ${safeHtml(timezone)}</p></header><table role="presentation" style="border-collapse:separate;border-spacing:8px;margin:12px -8px 0;width:calc(100% + 16px)"><tr class="summary-row">${card("本周应收", rent.thisWeek.due.length)}${card("本周已收", rent.thisWeek.collected.length)}${card("本周还差", rent.thisWeek.outstanding.length, "#A6720A")}</tr></table>${section("本周收款", `<h3 style="font-size:14px;margin:0">已收</h3>${paymentHtml(rent.thisWeek.collected)}<h3 style="font-size:14px;margin:16px 0 0">未收</h3>${paymentHtml(rent.thisWeek.outstanding)}`)}${section("本周收款活动（包含补收往期）", collectionHtml)}${section("下周到期", `<p style="margin:0">应收 <strong>${rent.nextWeek.due.length}</strong> · 已提前收到 <strong>${rent.nextWeek.collectedEarly.length}</strong> · 待收 <strong style="color:#A6720A">${rent.nextWeek.outstanding.length}</strong></p><h3 style="font-size:14px;margin:16px 0 0">已提前收到</h3>${paymentHtml(rent.nextWeek.collectedEarly)}<h3 style="font-size:14px;margin:16px 0 0">待收</h3>${paymentHtml(rent.nextWeek.outstanding)}`)}${section("逾期未收", `<p style="margin:0">当前仍有 <strong style="color:#B3411F">${rent.overdue.length}</strong> 份逾期账期。未解决记录将继续每天通过 Email 和 Agent 提醒。</p>${overdueHtml}`)}${section("租客动态", `<p style="margin:0">当前 Active <strong>${activity.activeCount}</strong> · 过去 7 天新增 <strong>${activity.periodNewCount}</strong> · 今天新增 <strong>${activity.todayNewCount}</strong></p>`)}${section("固定租约即将到期", `<p style="margin:0">Month to month <strong>${rent.leases.monthToMonthCount}</strong> · 未来 7 天 <strong style="color:#A6720A">${rent.leases.expiringWithin7Days.length}</strong> · 未来 30 天 <strong>${rent.leases.expiringWithin30Days.length}</strong></p>${leaseHtml(rent.leases.expiringWithin30Days)}${rent.leases.expiredActive.length ? `<h3 style="color:#B3411F;font-size:14px;margin:16px 0 0">需要核对：已过期但仍 Active</h3>${leaseHtml(rent.leases.expiredActive)}` : ""}`)}<footer style="color:#6B6F6D;font-size:12px;padding:20px 4px;text-align:center">This is an automated weekly summary from Ting Ting Admin.<br>${safeHtml(timezone)} · ${safeHtml(dateLabel)}</footer></main></body></html>`;
   return {
     subject,
     text,
@@ -247,7 +265,11 @@ function requiredPayloadTimestamp(
   return value;
 }
 
-async function renderDelivery(delivery: OwnerNotificationDelivery, timezone: string) {
+async function renderDelivery(
+  delivery: OwnerNotificationDelivery,
+  timezone: string,
+  now: string
+) {
   const repository = getRepository();
   if (delivery.kind === "tenant_upload") {
     if (!delivery.tenantId) {
@@ -257,8 +279,17 @@ async function renderDelivery(delivery: OwnerNotificationDelivery, timezone: str
     return tenantUploadMessage(tenant, timezone);
   }
   const generatedThrough = requiredPayloadTimestamp(delivery, "generatedThrough");
-  const rent = await repository.rentReportSnapshot(generatedThrough, timezone);
+  const rent = await repository.rentReportSnapshot(
+    delivery.kind === "daily_overdue_rent_summary" ? now : generatedThrough,
+    timezone
+  );
   if (delivery.kind === "daily_overdue_rent_summary") {
+    const localDate = delivery.payload.localDate;
+    const today = Temporal.Instant.from(now)
+      .toZonedDateTimeISO(timezone)
+      .toPlainDate()
+      .toString();
+    if (typeof localDate !== "string" || localDate !== today) return null;
     return rent.overdue.length === 0 ? null : dailyOverdueMessage(rent);
   }
   const periodStart = requiredPayloadTimestamp(delivery, "periodStart");
@@ -414,12 +445,12 @@ export async function deliverOwnerNotifications(options: {
   const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
   for (const delivery of deliveries) {
     try {
-      const message = await renderDelivery(delivery, timezone);
+      const message = await renderDelivery(delivery, timezone, now.toISOString());
       if (!message) {
         await repository.finishOwnerNotification(delivery.id, {
           status: "sent",
           providerMessageId: null,
-          safeErrorCode: "NO_OVERDUE_RENT",
+          safeErrorCode: "STALE_OR_RESOLVED_OVERDUE_RENT",
           nextAttemptAt: null
         });
         summary.skipped += 1;
