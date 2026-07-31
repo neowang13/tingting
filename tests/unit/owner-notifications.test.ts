@@ -100,7 +100,7 @@ describe("owner email notifications", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       subject: expect.stringMatching(/^婷婷租务周报｜本周应收 \d+ · 已收 \d+ · 还差 \d+$/),
-      html: expect.stringMatching(/本周收款[\s\S]*本周收款活动（包含补收往期）[\s\S]*下周到期[\s\S]*逾期未收[\s\S]*租客动态[\s\S]*固定租约即将到期/),
+      html: expect.stringMatching(/<p style="color:#FFFFFF;margin:0">[\s\S]*本周收款[\s\S]*本周收款活动（包含补收往期）[\s\S]*下周到期[\s\S]*逾期未收[\s\S]*租客动态[\s\S]*固定租约即将到期/),
       text: expect.stringMatching(/本周应收[\s\S]*本周已收[\s\S]*本周还差[\s\S]*下周应收[\s\S]*已提前收到[\s\S]*下周待收[\s\S]*逾期未收[\s\S]*过去 7 天新增[\s\S]*Month to month[\s\S]*未来 7 天到期 Fixed contract[\s\S]*未来 30 天到期 Fixed contract/)
     }));
     await expect(getRepository().claimAgentNotification(
