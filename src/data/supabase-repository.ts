@@ -19,6 +19,7 @@ import type {
   NotificationEvent,
   NotificationEventFilters,
   NotificationTemplate,
+  OwnerNotificationDelivery,
   ReminderSchedule,
   ReminderSettings,
   RentalListing,
@@ -26,6 +27,7 @@ import type {
   SectionKey,
   SiteSection,
   Tenant,
+  TenantActivitySummary,
   TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
@@ -286,6 +288,22 @@ function mapTenant(value: unknown): Tenant {
     tenant.lastDeliveryAt = nullableText(row, "last_delivery_at");
   }
   return tenant;
+}
+
+function mapOwnerNotification(value: unknown): OwnerNotificationDelivery {
+  const row = asRow(value);
+  const payload = row.payload;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new ApiError(500, "INVALID_DATABASE_RESPONSE", "Owner notification payload is invalid.");
+  }
+  return {
+    id: text(row, "id"),
+    notificationKey: text(row, "notification_key"),
+    kind: text(row, "kind") as OwnerNotificationDelivery["kind"],
+    tenantId: nullableText(row, "tenant_id"),
+    payload: payload as Record<string, unknown>,
+    attemptCount: numberValue(row, "attempt_count")
+  };
 }
 
 function mapSchedule(value: unknown): ReminderSchedule {
@@ -1015,6 +1033,130 @@ export class SupabaseRepository implements DataRepository {
       })
       .eq("id", id);
     if (error) databaseError(error);
+  }
+
+  async enqueueOwnerNotification(input: {
+    notificationKey: string;
+    kind: OwnerNotificationDelivery["kind"];
+    tenantId: string | null;
+    payload: Record<string, unknown>;
+    scheduledFor: string;
+  }) {
+    const row = {
+      notification_key: input.notificationKey,
+      kind: input.kind,
+      tenant_id: input.tenantId,
+      payload: input.payload,
+      scheduled_for: input.scheduledFor,
+      next_attempt_at: input.scheduledFor,
+      status: "scheduled"
+    };
+    const { data, error } = await this.client()
+      .from("owner_notification_deliveries")
+      .insert(row)
+      .select("id")
+      .maybeSingle();
+    if (error?.code !== "23505" && error) databaseError(error);
+    if (data) return text(asRow(data), "id");
+    const { data: existing, error: existingError } = await this.client()
+      .from("owner_notification_deliveries")
+      .select("id")
+      .eq("notification_key", input.notificationKey)
+      .single();
+    if (existingError) databaseError(existingError);
+    return text(asRow(existing), "id");
+  }
+
+  async claimOwnerNotifications(now: string, limit: number) {
+    const rows = await this.rpc("claim_owner_notifications", {
+      p_now: now,
+      p_limit: limit
+    });
+    return asRows(rows).map(mapOwnerNotification);
+  }
+
+  async finishOwnerNotification(
+    id: string,
+    input: {
+      status: "sent" | "failed";
+      providerMessageId: string | null;
+      safeErrorCode: string | null;
+      nextAttemptAt: string | null;
+    }
+  ) {
+    const { error } = await this.client()
+      .from("owner_notification_deliveries")
+      .update({
+        status: input.status,
+        provider_message_id: input.providerMessageId,
+        safe_error_code: input.safeErrorCode,
+        next_attempt_at: input.nextAttemptAt,
+        completed_at: input.status === "sent" ? new Date().toISOString() : null,
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", id);
+    if (error) databaseError(error);
+  }
+
+  async tenantActivitySummary(input: {
+    periodStart: string;
+    periodEnd: string;
+    todayStart: string;
+    now: string;
+  }): Promise<TenantActivitySummary> {
+    const [
+      activeResult,
+      periodCountResult,
+      periodRowsResult,
+      todayCountResult,
+      todayRowsResult
+    ] = await Promise.all([
+      this.client()
+        .from("tenants")
+        .select("id", { count: "exact", head: true })
+        .eq("is_active", true)
+        .is("archived_at", null),
+      this.client()
+        .from("tenants")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", input.periodStart)
+        .lt("created_at", input.periodEnd),
+      this.client()
+        .from("tenants")
+        .select("*")
+        .gte("created_at", input.periodStart)
+        .lt("created_at", input.periodEnd)
+        .order("created_at", { ascending: false })
+        .limit(100),
+      this.client()
+        .from("tenants")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", input.todayStart)
+        .lte("created_at", input.now),
+      this.client()
+        .from("tenants")
+        .select("*")
+        .gte("created_at", input.todayStart)
+        .lte("created_at", input.now)
+        .order("created_at", { ascending: false })
+        .limit(100)
+    ]);
+    for (const result of [
+      activeResult,
+      periodCountResult,
+      periodRowsResult,
+      todayCountResult,
+      todayRowsResult
+    ]) {
+      if (result.error) databaseError(result.error);
+    }
+    return {
+      activeCount: activeResult.count ?? 0,
+      periodNewCount: periodCountResult.count ?? 0,
+      periodNewTenants: asRows(periodRowsResult.data).map(mapTenant),
+      todayNewCount: todayCountResult.count ?? 0,
+      todayNewTenants: asRows(todayRowsResult.data).map(mapTenant)
+    };
   }
 
   async runDailyMaintenance() {

@@ -4,18 +4,34 @@
   "additionalProperties": false,
   "required": ["slug", "title", "addressLine", "city", "monthlyRentCents", "bedrooms", "bathrooms", "description", "sortOrder", "images"],
   "properties": {
-    "sourceSystem": { "type": "string", "maxLength": 60, "default": "openclaw" },
-    "externalReference": { "type": ["string", "null"], "maxLength": 120 },
+    "sourceSystem": { "type": "string", "minLength": 1, "maxLength": 60, "default": "openclaw" },
+    "externalReference": { "type": ["string", "null"], "minLength": 1, "maxLength": 120 },
     "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$", "minLength": 2, "maxLength": 100 },
     "title": { "type": "string", "minLength": 1, "maxLength": 120 },
     "addressLine": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "neighbourhood": { "type": ["string", "null"], "maxLength": 100 },
     "city": { "type": "string", "minLength": 1, "maxLength": 100 },
     "monthlyRentCents": { "type": "integer", "minimum": 1 },
     "bedrooms": { "type": "number", "minimum": 0, "maximum": 20 },
     "bathrooms": { "type": "number", "minimum": 0, "maximum": 20 },
+    "squareFeet": { "type": ["integer", "null"], "minimum": 1 },
+    "availableOn": { "type": ["string", "null"], "format": "date" },
+    "petPolicy": { "type": ["string", "null"], "maxLength": 240 },
     "description": { "type": "string", "minLength": 1, "maxLength": 5000 },
     "sortOrder": { "type": "integer" },
-    "images": { "type": "array", "maxItems": 20 }
+    "images": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mediaAssetId", "sortOrder", "isCover"],
+        "properties": {
+          "mediaAssetId": { "type": "string", "format": "uuid" },
+          "sortOrder": { "type": "integer", "minimum": 0 },
+          "isCover": { "type": "boolean" }
+        }
+      }
+    }
   }
 }
-

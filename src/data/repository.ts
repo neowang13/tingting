@@ -8,6 +8,7 @@ import type {
   NotificationEvent,
   NotificationEventFilters,
   NotificationTemplate,
+  OwnerNotificationDelivery,
   ReminderSchedule,
   ReminderSettings,
   RentalListing,
@@ -16,6 +17,7 @@ import type {
   PublicSiteSection,
   SiteSection,
   Tenant,
+  TenantActivitySummary,
   TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
@@ -100,9 +102,41 @@ export interface DataRepository {
   ): Promise<void>;
   runDailyMaintenance(): Promise<unknown>;
   runReminderWorker(): Promise<unknown>;
+  enqueueOwnerNotification(input: {
+    notificationKey: string;
+    kind: OwnerNotificationDelivery["kind"];
+    tenantId: string | null;
+    payload: Record<string, unknown>;
+    scheduledFor: string;
+  }): Promise<string>;
+  claimOwnerNotifications(now: string, limit: number): Promise<OwnerNotificationDelivery[]>;
+  finishOwnerNotification(
+    id: string,
+    input: {
+      status: "sent" | "failed";
+      providerMessageId: string | null;
+      safeErrorCode: string | null;
+      nextAttemptAt: string | null;
+    }
+  ): Promise<void>;
+  tenantActivitySummary(input: {
+    periodStart: string;
+    periodEnd: string;
+    todayStart: string;
+    now: string;
+  }): Promise<TenantActivitySummary>;
 }
 
 const memoryOperationalAlertBuckets = new Map<string, string>();
+interface MemoryOwnerNotification extends OwnerNotificationDelivery {
+  status: "scheduled" | "processing" | "sent" | "failed";
+  scheduledFor: string;
+  nextAttemptAt: string;
+  providerMessageId: string | null;
+  safeErrorCode: string | null;
+  updatedAt: string;
+}
+const memoryOwnerNotifications = new Map<string, MemoryOwnerNotification>();
 
 class MemoryRepository implements DataRepository {
   async dashboard() { return store.dashboard(); }
@@ -209,6 +243,86 @@ class MemoryRepository implements DataRepository {
     };
   }
   async runReminderWorker() { return store.runReminderWorker(); }
+  async enqueueOwnerNotification(input: {
+    notificationKey: string;
+    kind: OwnerNotificationDelivery["kind"];
+    tenantId: string | null;
+    payload: Record<string, unknown>;
+    scheduledFor: string;
+  }) {
+    const existing = memoryOwnerNotifications.get(input.notificationKey);
+    if (existing) return existing.id;
+    const now = new Date().toISOString();
+    const delivery: MemoryOwnerNotification = {
+      id: crypto.randomUUID(),
+      ...input,
+      attemptCount: 0,
+      status: "scheduled",
+      nextAttemptAt: input.scheduledFor,
+      providerMessageId: null,
+      safeErrorCode: null,
+      updatedAt: now
+    };
+    memoryOwnerNotifications.set(input.notificationKey, delivery);
+    return delivery.id;
+  }
+  async claimOwnerNotifications(now: string, limit: number) {
+    const claimBefore = Date.parse(now) - 10 * 60_000;
+    const claimed = [...memoryOwnerNotifications.values()]
+      .filter((delivery) => {
+        if (delivery.attemptCount >= 5 || Date.parse(delivery.nextAttemptAt) > Date.parse(now)) {
+          return false;
+        }
+        if (delivery.status === "scheduled" || delivery.status === "failed") return true;
+        return delivery.status === "processing" && Date.parse(delivery.updatedAt) <= claimBefore;
+      })
+      .sort((left, right) => left.nextAttemptAt.localeCompare(right.nextAttemptAt))
+      .slice(0, limit);
+    for (const delivery of claimed) {
+      delivery.status = "processing";
+      delivery.attemptCount += 1;
+      delivery.updatedAt = now;
+    }
+    return structuredClone(claimed);
+  }
+  async finishOwnerNotification(
+    id: string,
+    input: {
+      status: "sent" | "failed";
+      providerMessageId: string | null;
+      safeErrorCode: string | null;
+      nextAttemptAt: string | null;
+    }
+  ) {
+    const delivery = [...memoryOwnerNotifications.values()].find((item) => item.id === id);
+    if (!delivery) return;
+    delivery.status = input.status;
+    delivery.providerMessageId = input.providerMessageId;
+    delivery.safeErrorCode = input.safeErrorCode;
+    delivery.nextAttemptAt = input.nextAttemptAt ?? delivery.nextAttemptAt;
+    delivery.updatedAt = new Date().toISOString();
+  }
+  async tenantActivitySummary(input: {
+    periodStart: string;
+    periodEnd: string;
+    todayStart: string;
+    now: string;
+  }) {
+    const tenants = store.listTenants({ limit: 500 });
+    const periodNewTenants = tenants.filter(
+      (tenant) => tenant.createdAt >= input.periodStart && tenant.createdAt < input.periodEnd
+    );
+    const todayNewTenants = tenants.filter(
+      (tenant) => tenant.createdAt >= input.todayStart && tenant.createdAt <= input.now
+    );
+    return {
+      activeCount: tenants.filter((tenant) => tenant.isActive && !tenant.archivedAt).length,
+      periodNewCount: periodNewTenants.length,
+      periodNewTenants,
+      todayNewCount: todayNewTenants.length,
+      todayNewTenants
+    };
+  }
 }
 
 let repository: DataRepository | undefined;
@@ -228,4 +342,5 @@ export function getRepository(): DataRepository {
 export function resetRepositoryForTests() {
   repository = undefined;
   memoryOperationalAlertBuckets.clear();
+  memoryOwnerNotifications.clear();
 }

@@ -2,6 +2,10 @@ import { handleApiError, ok, ApiError } from "@/lib/api";
 import { isDemoMode } from "@/lib/auth";
 import { getRepository } from "@/data/repository";
 import { deliverOperationalAlerts } from "@/features/operations/alerts";
+import {
+  deliverOwnerNotifications,
+  enqueueWeeklyTenantSummary
+} from "@/features/notifications/owner-notifications";
 
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
@@ -24,12 +28,23 @@ export async function POST(request: Request) {
     const alertsBeforeRun = await deliverOperationalAlerts(effectiveWarnings, requestId);
     const worker = await repository.runReminderWorker();
     const maintenance = await repository.runDailyMaintenance();
+    const weeklyTenantSummary = await enqueueWeeklyTenantSummary()
+      .catch(() => ({ queued: false, reason: "queue_error" as const }));
+    const ownerNotifications = await deliverOwnerNotifications()
+      .catch(() => ({ claimed: 0, sent: 0, failed: 1, skipped: 0 }));
     const after = await repository.dashboard();
     const alertsAfterRun = await deliverOperationalAlerts(
       forcePaused ? after.warnings.filter((warning) => !warning.includes("15 minutes")) : after.warnings,
       requestId
     );
-    return ok({ worker, maintenance, alertsBeforeRun, alertsAfterRun }, requestId);
+    return ok({
+      worker,
+      maintenance,
+      weeklyTenantSummary,
+      ownerNotifications,
+      alertsBeforeRun,
+      alertsAfterRun
+    }, requestId);
   } catch (error) {
     return handleApiError(error, requestId);
   }

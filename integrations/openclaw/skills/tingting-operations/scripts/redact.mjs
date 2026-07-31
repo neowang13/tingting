@@ -1,5 +1,5 @@
 const email = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
-const phone = /(?<![\w])\+?[1-9][\d().\s-]{7,20}\d(?![\w])/g;
+const phone = /(?<![\w-])(?:\+[1-9]\d{7,14}|\(?[2-9]\d{2}\)?[ .-]\d{3}[ .-]\d{4})(?![\w-])/g;
 const token = /\btta_[A-Za-z0-9_-]{8,20}_[A-Za-z0-9_-]{40,}\b/g;
 const bearer = /\bBearer\s+[^\s"']+/gi;
 const signedUrl = /https?:\/\/[^\s"']+(?:token|signature|sig|expires)=[^\s"']+/gi;
@@ -27,4 +27,3 @@ export function redact(value, key = "") {
   }
   return value;
 }
-

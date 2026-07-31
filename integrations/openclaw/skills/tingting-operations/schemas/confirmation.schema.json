@@ -8,8 +8,8 @@
     "acknowledged": {
       "type": "array",
       "uniqueItems": true,
+      "maxItems": 20,
       "items": { "type": "string", "minLength": 1, "maxLength": 120 }
     }
   }
 }
-

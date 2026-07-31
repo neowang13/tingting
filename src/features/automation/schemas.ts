@@ -67,15 +67,15 @@ export const automationTenantPatchSchema = z
   .object({
     fullName: tenantInputSchema.shape.fullName.optional(),
     propertyLabel: tenantInputSchema.shape.propertyLabel.optional(),
-    unitLabel: tenantInputSchema.shape.unitLabel.optional(),
+    unitLabel: tenantInputSchema.shape.unitLabel.removeDefault().optional(),
     moveInDate: tenantInputSchema.shape.moveInDate.optional(),
-    rentDueDay: tenantInputSchema.shape.rentDueDay.optional(),
-    email: tenantInputSchema.shape.email.optional(),
-    phoneE164: tenantInputSchema.shape.phoneE164.optional(),
+    rentDueDay: tenantInputSchema.shape.rentDueDay.removeDefault().optional(),
+    email: tenantInputSchema.shape.email.removeDefault().optional(),
+    phoneE164: tenantInputSchema.shape.phoneE164.removeDefault().optional(),
     preferredChannels: tenantInputSchema.shape.preferredChannels.optional(),
-    timezone: tenantInputSchema.shape.timezone.optional(),
-    internalNotes: tenantInputSchema.shape.internalNotes.optional(),
-    isActive: tenantInputSchema.shape.isActive.optional()
+    timezone: tenantInputSchema.shape.timezone.removeDefault().optional(),
+    internalNotes: tenantInputSchema.shape.internalNotes.removeDefault().optional(),
+    isActive: tenantInputSchema.shape.isActive.removeDefault().optional()
   })
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

@@ -250,6 +250,25 @@ export interface Tenant extends Versioned {
   lastDeliveryAt?: string | null;
 }
 
+export type OwnerNotificationKind = "tenant_upload" | "weekly_tenant_summary";
+
+export interface OwnerNotificationDelivery {
+  id: string;
+  notificationKey: string;
+  kind: OwnerNotificationKind;
+  tenantId: string | null;
+  payload: Record<string, unknown>;
+  attemptCount: number;
+}
+
+export interface TenantActivitySummary {
+  activeCount: number;
+  periodNewCount: number;
+  periodNewTenants: Tenant[];
+  todayNewCount: number;
+  todayNewTenants: Tenant[];
+}
+
 export interface NotificationTemplate extends Versioned {
   id: string;
   name: string;

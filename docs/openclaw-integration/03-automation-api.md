@@ -324,8 +324,30 @@ Automation-created tenants default to:
 - `isActive=true`;
 - no enabled schedule.
 
-`PATCH` may preserve an existing `allowed` status but cannot create a transition
-to `allowed`. That transition uses a permission preview with
+The OpenClaw adapter exposes `tenants upload` as the preferred conversational
+entry point. It validates a minimal single-tenant payload, derives preferred
+channels only from supplied destinations, forces both permission states to
+`unconfirmed`, and performs a duplicate preflight before calling `POST
+/tenants`. An external-reference match is returned as an existing record; an
+exact name/property/unit match without an external reference requires review.
+
+`PATCH` is field-level so the agent never needs to read and resubmit unmasked
+stored contact data:
+
+```json
+{
+  "changes": {
+    "fullName": "Xiaochen Wang",
+    "email": "xiaochen@example.com",
+    "phoneE164": "+16045550123"
+  },
+  "expectedVersion": "2026-07-26T20:00:00Z"
+}
+```
+
+Permission fields are rejected by this route. An unchanged destination
+preserves its current status; a changed email or phone resets that channel to
+`unconfirmed`. A transition to `allowed` uses a permission preview with
 `permissions:grant`.
 
 ### Permission preview

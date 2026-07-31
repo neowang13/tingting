@@ -62,6 +62,12 @@ services:
         sync: false
       - key: ALERT_TO_EMAIL
         sync: false
+      - key: OWNER_NOTIFICATION_TO_EMAIL
+        sync: false
+      - key: OWNER_WEEKLY_SUMMARY_DAY
+        value: "1"
+      - key: OWNER_WEEKLY_SUMMARY_TIME
+        value: "09:00"
       - key: RESEND_WEBHOOK_SECRET
         sync: false
       - key: TWILIO_ACCOUNT_SID

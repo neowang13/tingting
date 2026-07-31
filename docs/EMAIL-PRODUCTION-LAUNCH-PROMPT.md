@@ -132,7 +132,13 @@ dry run、签名回调、Owner 批准准备以及生产备份恢复演练。
    ```text
    CONTACT_TO_EMAIL
    ALERT_TO_EMAIL
+   OWNER_NOTIFICATION_TO_EMAIL
    ```
+
+   `OWNER_NOTIFICATION_TO_EMAIL` 接收每次租客上传成功通知和每周租客汇总。
+   默认周一温哥华时间 09:00；如需调整，设置
+   `OWNER_WEEKLY_SUMMARY_DAY`（1=周一，7=周日）及
+   `OWNER_WEEKLY_SUMMARY_TIME`（24 小时制 `HH:mm`）。
 
 4. 在 Resend 创建 Webhook：
 

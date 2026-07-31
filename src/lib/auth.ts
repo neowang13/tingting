@@ -35,6 +35,11 @@ interface VerifiedClaims {
   amr?: Array<{ method?: string; timestamp?: number }>;
 }
 
+interface SupabaseSessionTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
 function isProductionAdminMode() {
   return process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_APP_MODE === "production";
 }
@@ -54,6 +59,40 @@ function assertValidClaims(claims: VerifiedClaims) {
   if (isProductionAdminMode() && claims.aal !== "aal2") {
     throw new ApiError(403, "MFA_REQUIRED", "Multi-factor authentication is required.");
   }
+}
+
+async function resolveSupabaseAdminIdentity(
+  url: string,
+  serviceKey: string,
+  user: { id: string; email?: string },
+  claims: VerifiedClaims
+): Promise<AdminIdentity> {
+  assertValidClaims(claims);
+
+  const serviceClient = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const { data: verifiedProfile } = await serviceClient
+    .from("admin_profiles")
+    .select("display_name,is_active")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (!verifiedProfile?.is_active) {
+    await writeRateLimitedAuthAudit(user.id, {
+      actorUserId: user.id,
+      action: "auth.inactive_admin_denied",
+      targetType: "admin_profile",
+      targetId: user.id
+    });
+    throw new ApiError(403, "FORBIDDEN", "This administrator account is inactive.");
+  }
+
+  return {
+    userId: user.id,
+    email: user.email ?? "",
+    displayName: verifiedProfile.display_name,
+    authenticatedAt: new Date(latestAuthenticationTimestamp(claims) * 1000).toISOString(),
+    assuranceLevel: claims.aal ?? "aal1"
+  };
 }
 
 async function writeRateLimitedAuthAudit(
@@ -165,29 +204,42 @@ export async function requireAdminRequest(
     throw error;
   }
 
-  const serviceClient = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const { data: verifiedProfile } = await serviceClient
-    .from("admin_profiles")
-    .select("display_name,is_active")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
+  return resolveSupabaseAdminIdentity(url, serviceKey, data.user, claims);
+}
 
-  if (!verifiedProfile?.is_active) {
-    await writeRateLimitedAuthAudit(data.user.id, {
-      actorUserId: data.user.id,
-      action: "auth.inactive_admin_denied",
-      targetType: "admin_profile",
-      targetId: data.user.id
-    });
-    throw new ApiError(403, "FORBIDDEN", "This administrator account is inactive.");
+export async function establishAdminSession(
+  tokens: SupabaseSessionTokens
+): Promise<AdminIdentity> {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !anonKey || !serviceKey) {
+    throw new ApiError(503, "AUTH_CONFIGURATION_ERROR", "Administrator authentication is not configured.");
   }
-  return {
-    userId: data.user.id,
-    email: data.user.email ?? "",
-    displayName: verifiedProfile.display_name,
-    authenticatedAt: new Date(latestAuthenticationTimestamp(claims) * 1000).toISOString(),
-    assuranceLevel: claims.aal ?? "aal1"
-  };
+
+  const cookieStore = await cookies();
+  const client = createServerClient(url, anonKey, {
+    cookies: {
+      getAll: () => cookieStore.getAll(),
+      setAll: (items) => {
+        items.forEach(({ name, value, options }) => cookieStore.set(name, value, options));
+      }
+    }
+  });
+  const sessionResult = await client.auth.setSession({
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken
+  });
+  const accessToken = sessionResult.data.session?.access_token;
+  if (sessionResult.error || !sessionResult.data.user || !accessToken) {
+    throw new ApiError(401, "UNAUTHORIZED", "The session is invalid.");
+  }
+
+  const claimsResult = await client.auth.getClaims(accessToken);
+  const claims = (claimsResult.data?.claims ?? {}) as VerifiedClaims;
+  if (claimsResult.error) throw new ApiError(401, "UNAUTHORIZED", "The session is invalid.");
+
+  return resolveSupabaseAdminIdentity(url, serviceKey, sessionResult.data.user, claims);
 }
 
 export async function requireAdminPage(): Promise<AdminIdentity> {

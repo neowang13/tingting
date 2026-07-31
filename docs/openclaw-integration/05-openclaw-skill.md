@@ -21,6 +21,8 @@ skills/tingting-operations/
   SKILL.md
   references/
     rental-fields.md
+    tool-api-contract.md
+    tenant-upload.md
     tenant-import-columns.md
     permission-statuses.md
     reminder-schedules.md
@@ -32,9 +34,10 @@ skills/tingting-operations/
     redact.mjs
   schemas/
     rental-draft.schema.json
+    tenant-upload.schema.json
     tenant-import-request.schema.json
-    schedule.schema.json
     confirmation.schema.json
+    command-specific query and preview schemas
 ```
 
 The Skill must not contain the API token, production hostname, tenant data, or
@@ -63,7 +66,8 @@ sandbox scope: agent
 workspace access: read/write only inside the dedicated workspace
 browser: denied
 general network: denied except the configured Ting Ting API host
-shell: allowlisted command only
+tools: read, write, exec only
+exec: allowlisted tingtingctl command only
 ```
 
 Allowed executable:
@@ -90,6 +94,7 @@ requests. The wrapper:
 - adds bearer authentication;
 - validates input locally against JSON Schema;
 - creates request and idempotency UUIDs;
+- accepts a caller-stable operation UUID for mutation recovery;
 - performs bounded retry with the same idempotency key;
 - redacts output before returning it to the model;
 - emits JSON on stdout and safe diagnostics on stderr;
@@ -102,27 +107,24 @@ tingtingctl health
 
 tingtingctl rentals list --input request.json
 tingtingctl rentals get --id <uuid>
-tingtingctl rentals create-draft --input rental.json
-tingtingctl rentals update-draft --id <uuid> --input rental.json
-tingtingctl rentals upload-media --input media.json
-tingtingctl rentals preview-status --id <uuid> --input action.json
+tingtingctl rentals create-draft --operation-id <uuid> --input rental.json
+tingtingctl rentals update-draft --id <uuid> --operation-id <uuid> --input rental.json
+tingtingctl rentals upload-media --operation-id <uuid> --input media.json
+tingtingctl rentals preview-status --id <uuid> --operation-id <uuid> --input action.json
 
 tingtingctl tenants search --input request.json
 tingtingctl tenants get --id <uuid>
-tingtingctl tenants create --input tenant.json
-tingtingctl tenants update --id <uuid> --input tenant.json
-tingtingctl tenants preview-permission --id <uuid> --input permission.json
+tingtingctl tenants upload --operation-id <uuid> --input tenant.json
+tingtingctl tenants preview-permission --id <uuid> --operation-id <uuid> --input permission.json
 
-tingtingctl imports create --input import.json
+tingtingctl imports create --operation-id <uuid> --input import.json
 tingtingctl imports get --id <uuid>
 tingtingctl imports rows --id <uuid> --input filters.json
-tingtingctl imports preview-commit --id <uuid> --input preview.json
+tingtingctl imports preview-commit --id <uuid> --operation-id <uuid> --input preview.json
 
 tingtingctl schedules get --tenant-id <uuid>
-tingtingctl schedules save-disabled --tenant-id <uuid> --input schedule.json
-tingtingctl schedules preview-status --tenant-id <uuid> --input status.json
 
-tingtingctl confirmations execute --id <uuid> --input confirmation.json
+tingtingctl confirmations execute --id <uuid> --operation-id <uuid> --input confirmation.json
 tingtingctl jobs get --id <uuid>
 ```
 
@@ -136,7 +138,7 @@ Use this Skill only for:
 - uploading rental media;
 - searching, creating, updating, or importing tenants;
 - reviewing tenant import errors;
-- setting monthly rent-reminder schedules;
+- reading derived monthly rent-reminder status;
 - reviewing or executing a pending Ting Ting confirmation;
 - checking Automation API job status.
 
@@ -160,14 +162,11 @@ rental.publish
 rental.unpublish
 rental.archive
 tenant.search
-tenant.create
-tenant.update
+tenant.upload
 tenant.import.preview
 tenant.import.commit
 tenant.permission.grant
-schedule.prepare
-schedule.enable
-schedule.disable
+schedule.read
 confirmation.execute
 job.status
 ```
@@ -179,7 +178,7 @@ media upload -> rental draft -> rental publish preview
 
 tenant import preview -> tenant import commit preview -> commit
 
-tenant create/update -> schedule disabled save -> schedule enable preview
+tenant upload -> permission preview
 ```
 
 Never merge multiple sensitive confirmations into one confirmation unless the
@@ -231,14 +230,14 @@ Extract only values explicitly provided or safely derived:
 - Internal notes must not contain passwords, government IDs, banking details,
   health details, or unnecessary sensitive information.
 
-### Schedule
+### Reminder status
 
 - Distinguish `rentDueDay` from `dayOfMonth`.
 - Interpret time in the tenant's timezone.
-- Use a 24-hour `HH:mm` API value.
-- Both selected channels use the same monthly schedule in v1.
-- If the owner asks for different email and SMS times, explain the current
-  limitation and do not silently collapse them.
+- Treat per-tenant schedule resources as read-only under the global Reminder
+  policy.
+- Direct the owner to Admin for global timing, template, channel, or enabled
+  state changes.
 
 ## 10. Confirmation policy
 
@@ -336,18 +335,12 @@ Nothing has been saved. Resolve the three blocking rows before commit.
 Do not print full PII, tokens, raw imported rows, signed media URLs, stack
 traces, or provider secrets.
 
-## 14. Optional OpenClaw Cron
+## 14. Monitoring boundary
 
-One daily isolated job may call a read-only health command and notify the owner
-when:
-
-- the Automation API is unavailable;
-- production is unexpectedly using memory mode;
-- the reminder worker is stale;
-- a backlog or repeated provider failure warning is active.
-
-It must not create, update, or send tenant reminders. Scheduled tenant delivery
-belongs to the website reminder worker.
+This Agent has no Cron or messaging tool. If a separate operations monitor is
+introduced, it may call read-only health with a distinct token and notify the
+owner through an independently approved channel. It must not share this
+Agent's mutation token or create, update, or send tenant reminders.
 
 ## 15. Skill tests
 
@@ -366,4 +359,3 @@ The Skill test suite must include:
 - masked PII output;
 - different channel-time limitation;
 - API and CLI error recovery.
-

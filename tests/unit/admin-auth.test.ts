@@ -37,6 +37,7 @@ vi.mock("../../src/features/content/media-service", async (importOriginal) => {
 import {
   assertRecentAuthentication,
   assertSameOrigin,
+  establishAdminSession,
   requireAdminRequest
 } from "../../src/lib/auth";
 import { GET as getMedia } from "../../src/app/api/admin/media/route";
@@ -153,6 +154,59 @@ describe("Supabase administrator API authentication", () => {
       "anon-test",
       expect.objectContaining({ cookies: expect.any(Object) })
     );
+  });
+
+  it("establishes the SSR Cookie Session from freshly verified MFA tokens", async () => {
+    const user = {
+      id: "00000000-0000-4000-8000-000000000001",
+      email: "admin@example.test"
+    };
+    const cookieClient = {
+      auth: {
+        setSession: vi.fn().mockResolvedValue({
+          data: {
+            user,
+            session: {
+              access_token: "verified-access-token",
+              refresh_token: "verified-refresh-token"
+            }
+          },
+          error: null
+        }),
+        getClaims: vi.fn().mockResolvedValue({
+          data: {
+            claims: {
+              aal: "aal2",
+              iat: nowSeconds - 10,
+              exp: nowSeconds + 3600,
+              amr: [{ method: "totp", timestamp: nowSeconds - 10 }]
+            }
+          },
+          error: null
+        })
+      }
+    };
+    const serviceClient = {
+      from: vi.fn().mockReturnValue(
+        queryResult({ display_name: "Test Admin", is_active: true })
+      )
+    };
+    mocks.createServerClient.mockReturnValue(cookieClient);
+    mocks.createClient.mockReturnValue(serviceClient);
+
+    await expect(establishAdminSession({
+      accessToken: "fresh-access-token",
+      refreshToken: "fresh-refresh-token"
+    })).resolves.toMatchObject({
+      email: "admin@example.test",
+      assuranceLevel: "aal2",
+      displayName: "Test Admin"
+    });
+    expect(cookieClient.auth.setSession).toHaveBeenCalledWith({
+      access_token: "fresh-access-token",
+      refresh_token: "fresh-refresh-token"
+    });
+    expect(cookieClient.auth.getClaims).toHaveBeenCalledWith("verified-access-token");
   });
 
   it("only allows an untracked Cookie Session during server-side session establishment", async () => {

@@ -84,7 +84,54 @@ describe("Automation API route", () => {
     expect((await forbidden.json()).error.code).toBe("AUTOMATION_SCOPE_REQUIRED");
   });
 
-  it("updates existing tenant contacts through a field-level patch", async () => {
+  it("creates a single tenant with masked output and unconfirmed contact permission", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Tenant upload writer",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:read", "tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/tenants",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          sourceSystem: "openclaw",
+          externalReference: "lease-2026-0042",
+          fullName: "Jane Chen",
+          propertyLabel: "123 Main Street",
+          unitLabel: "1208",
+          moveInDate: "2026-08-01",
+          rentDueDay: 1,
+          email: "jane@example.com",
+          preferredChannels: ["email"]
+        })
+      }
+    ), context(["tenants"]));
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(payload.data).toMatchObject({
+      fullName: "Jane Chen",
+      propertyLabel: "123 Main Street",
+      unitLabel: "1208",
+      emailMasked: "j***@example.com",
+      phoneMasked: null,
+      emailContactStatus: "unconfirmed",
+      smsContactStatus: "unconfirmed",
+      sourceSystem: "openclaw",
+      externalReference: "lease-2026-0042"
+    });
+    expect(JSON.stringify(payload)).not.toContain("jane@example.com");
+  });
+
+  it("updates existing tenant fields without exposing stored contact data", async () => {
     const repository = getAutomationRepository();
     const credential = await repository.createServiceAccount({
       name: "Tenant field editor",
@@ -104,8 +151,9 @@ describe("Automation API route", () => {
         },
         body: JSON.stringify({
           changes: {
+            fullName: "Xiaochen Wang",
             email: "xiaochen@example.com",
-            phoneE164: "+17783856771"
+            phoneE164: "+16045550123"
           },
           expectedVersion: existing.updatedAt
         })
@@ -116,14 +164,60 @@ describe("Automation API route", () => {
 
     expect(response.status, JSON.stringify(payload)).toBe(200);
     expect(payload.data).toMatchObject({
+      fullName: "Xiaochen Wang",
       emailMasked: "x***@example.com",
-      phoneMasked: "+17***71",
+      phoneMasked: "+16***23",
       preferredChannels: expect.arrayContaining(["email", "sms"]),
       emailContactStatus: "unconfirmed",
       smsContactStatus: "unconfirmed"
     });
     expect(saved.email).toBe("xiaochen@example.com");
-    expect(saved.phoneE164).toBe("+17783856771");
+    expect(saved.phoneE164).toBe("+16045550123");
+    expect(JSON.stringify(payload)).not.toContain("xiaochen@example.com");
+    expect(JSON.stringify(payload)).not.toContain("+16045550123");
+  });
+
+  it("preserves unrelated tenant fields during a partial update", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Tenant partial-field editor",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const existing = store.listTenants()[0];
+    const before = store.getTenant(existing.id).tenant;
+    const response = await PATCH(new Request(
+      `http://localhost/api/automation/v1/tenants/${existing.id}`,
+      {
+        method: "PATCH",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          changes: {
+            unitLabel: "507",
+            rentDueDay: 15
+          },
+          expectedVersion: existing.updatedAt
+        })
+      }
+    ), context(["tenants", existing.id]));
+    const payload = await response.json();
+    const saved = store.getTenant(existing.id).tenant;
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(saved).toMatchObject({
+      unitLabel: "507",
+      rentDueDay: 15,
+      email: before.email,
+      phoneE164: before.phoneE164,
+      preferredChannels: before.preferredChannels,
+      emailContactStatus: before.emailContactStatus,
+      smsContactStatus: before.smsContactStatus
+    });
   });
 
   it("accepts Supabase offset timestamps as tenant resource versions", async () => {
@@ -145,7 +239,10 @@ describe("Automation API route", () => {
           "idempotency-key": crypto.randomUUID()
         },
         body: JSON.stringify({
-          changes: { email: "xiaochen@example.com" },
+          changes: {
+            email: "xiaochen@example.com",
+            phoneE164: "+17783856771"
+          },
           expectedVersion: "2026-07-30T05:18:03.400566+00:00"
         })
       }
@@ -156,7 +253,7 @@ describe("Automation API route", () => {
     expect(payload.error.code).toBe("VERSION_CONFLICT");
   });
 
-  it("rejects permission changes through the tenant patch route", async () => {
+  it("rejects permission changes through the field-level tenant edit route", async () => {
     const repository = getAutomationRepository();
     const credential = await repository.createServiceAccount({
       name: "Tenant field editor",
@@ -180,9 +277,39 @@ describe("Automation API route", () => {
         })
       }
     ), context(["tenants", existing.id]));
-    const payload = await response.json();
 
+    const payload = await response.json();
     expect(response.status, JSON.stringify(payload)).toBe(400);
     expect(payload.error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("allows production HTTP only for an explicitly enabled loopback request", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Loopback health reader",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: [],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const request = () => new Request(
+      "http://127.0.0.1/api/automation/v1/health",
+      { headers: { authorization: `Bearer ${credential.token}` } }
+    );
+
+    const rejected = await GET(request(), context(["health"]));
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()).error.code).toBe("HTTPS_REQUIRED");
+
+    vi.stubEnv("AUTOMATION_ALLOW_LOOPBACK_HTTP", "true");
+    const accepted = await GET(request(), context(["health"]));
+    expect(accepted.status).toBe(200);
+    expect((await accepted.json()).data).toMatchObject({
+      apiVersion: "v1",
+      featureFlags: {
+        api: true,
+        mutations: true
+      }
+    });
   });
 });

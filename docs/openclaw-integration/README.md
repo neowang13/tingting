@@ -5,8 +5,7 @@ Last updated: 2026-07-26
 Owner: Ting Ting Real Estate
 
 This directory is the implementation contract for allowing OpenClaw to manage
-rental listings, import tenant records, and configure monthly rent-reminder
-schedules.
+rental listings and tenant records and to read derived reminder status.
 
 The specs assume the product named by the owner is
 [OpenClaw](https://docs.openclaw.ai/). If a different product called
@@ -22,8 +21,8 @@ rules remain unchanged; only the agent adapter described in
 3. The website's durable reminder worker remains the only component that sends
    scheduled email and SMS.
 4. Creating and editing drafts may be automated. Publishing a rental, committing
-   a tenant import, granting contact permission, or enabling a schedule requires
-   an explicit confirmation step.
+   a tenant import, or granting contact permission requires an explicit
+   confirmation step.
 5. Real tenant data cannot be imported while `DATA_BACKEND=memory`.
 6. Real delivery remains disabled until Supabase, Resend, Twilio, the production
    domain, provider callbacks, and owner approvals are complete.
@@ -47,12 +46,13 @@ rules remain unchanged; only the agent adapter described in
 | [12-implementation-plan.md](./12-implementation-plan.md) | Backlog-ready work packages, dependencies, acceptance gates, and file map |
 | [13-full-development-prompt.md](./13-full-development-prompt.md) | Copy-ready master prompt for a coding agent to implement and verify the full scope |
 | [14-dependency-decisions.md](./14-dependency-decisions.md) | XLSX parser and dependency-risk decisions |
+| [15-agent-skill-tool-api-design.md](./15-agent-skill-tool-api-design.md) | Production Agent configuration, tool policy, exec allowlist, and exact API invocation flow |
 
 ## Reading order
 
 - Product or business review: 01, 06, 07, 08.
 - Backend implementation: 02, 03, 04, 10.
-- OpenClaw implementation: 03, 05, 06, 07, 08.
+- OpenClaw implementation: 03, 05, 06, 07, 08, 15.
 - QA and release: 09, 10, 11, 12.
 
 ## Existing project contracts

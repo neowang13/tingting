@@ -19,7 +19,8 @@ export class TingTingApiClient {
     baseUrl,
     token,
     fetchImpl = fetch,
-    sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+    sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+    timeoutMs = 15_000
   }) {
     this.baseUrl = validateBaseUrl(baseUrl);
     if (!token || !/^tta_[A-Za-z0-9_-]{8,20}_[A-Za-z0-9_-]{40,}$/.test(token)) {
@@ -28,6 +29,7 @@ export class TingTingApiClient {
     this.token = token;
     this.fetchImpl = fetchImpl;
     this.sleep = sleep;
+    this.timeoutMs = timeoutMs;
   }
 
   async request({
@@ -57,19 +59,27 @@ export class TingTingApiClient {
         const response = await this.fetchImpl(url, {
           method,
           headers,
-          body: form ?? (body === undefined ? undefined : JSON.stringify(body))
+          body: form ?? (body === undefined ? undefined : JSON.stringify(body)),
+          signal: AbortSignal.timeout(this.timeoutMs)
         });
         const payload = await response.json().catch(() => ({
           success: false,
           error: { code: "INVALID_SERVER_RESPONSE", message: "The API returned invalid JSON." },
           requestId
         }));
-        if (response.ok) return redact(payload);
+        const safePayload = redact(payload);
+        if (response.ok) return safePayload;
         if (!transientStatuses.has(response.status) || attempt === 2) {
-          const error = new Error(payload?.error?.message ?? `Automation API returned ${response.status}.`);
-          error.code = payload?.error?.code ?? "AUTOMATION_API_ERROR";
+          const error = new Error(safePayload?.error?.message ?? `Automation API returned ${response.status}.`);
+          error.code = safePayload?.error?.code ?? "AUTOMATION_API_ERROR";
           error.status = response.status;
-          error.requestId = payload?.requestId ?? requestId;
+          error.requestId = safePayload?.requestId ?? requestId;
+          if (
+            error.code === "VALIDATION_ERROR" &&
+            Array.isArray(safePayload?.error?.details)
+          ) {
+            error.validationIssues = safePayload.error.details;
+          }
           throw error;
         }
         const retryAfter = Number(response.headers.get("retry-after"));
@@ -79,7 +89,17 @@ export class TingTingApiClient {
       } catch (error) {
         lastError = error;
         if (error?.status && !transientStatuses.has(error.status)) throw error;
-        if (attempt === 2) throw error;
+        if (attempt === 2) {
+          if (typeof error?.code === "string") throw error;
+          const terminal = new Error(
+            error?.name === "TimeoutError"
+              ? "The Automation API request timed out."
+              : "The Automation API request failed."
+          );
+          terminal.code = error?.name === "TimeoutError" ? "REQUEST_TIMEOUT" : "NETWORK_ERROR";
+          terminal.requestId = requestId;
+          throw terminal;
+        }
         await this.sleep(Math.min(250 * 2 ** attempt, 2_000));
       }
     }
@@ -90,4 +110,3 @@ export class TingTingApiClient {
 export function isTransientStatus(status) {
   return transientStatuses.has(status);
 }
-

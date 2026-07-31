@@ -197,7 +197,7 @@ export class AutomationRepository implements IdempotencyStore {
     }
     const { data, error } = await this.client()
       .from("automation_service_account_tokens")
-      .select("id,token_prefix,token_hash,is_active,expires_at,revoked_at,service_account_id,automation_service_accounts!inner(id,name,delegated_admin_user_id,scopes,is_active,expires_at,admin_profiles!inner(is_active))")
+      .select("id,token_prefix,token_hash,is_active,expires_at,revoked_at,service_account_id,automation_service_accounts!inner(id,name,delegated_admin_user_id,scopes,is_active,expires_at,admin_profiles!automation_service_accounts_delegated_admin_user_id_fkey!inner(is_active))")
       .eq("token_prefix", prefix)
       .maybeSingle();
     if (error) dbError(error);
@@ -668,8 +668,7 @@ export class AutomationRepository implements IdempotencyStore {
 
   async getTenant(id: string) {
     const result = await getRepository().getTenant(id);
-    const tenant = (await this.allAutomationTenants()).find((item) => item.id === id);
-    if (!tenant) throw new ApiError(404, "NOT_FOUND", "Tenant was not found.");
+    const tenant = await this.withAutomationIdentity(result.tenant);
     return {
       tenant: {
         ...tenant,
@@ -678,6 +677,29 @@ export class AutomationRepository implements IdempotencyStore {
         internalNotes: null
       },
       schedule: result.schedule
+    };
+  }
+
+  private async withAutomationIdentity(tenant: Tenant): Promise<AutomationTenant> {
+    if (!this.isDurable()) {
+      return {
+        ...tenant,
+        ...(memoryState().externalTenants.get(tenant.id) ?? {
+          sourceSystem: null,
+          externalReference: null
+        })
+      };
+    }
+    const { data, error } = await this.client()
+      .from("tenants")
+      .select("source_system,external_reference")
+      .eq("id", tenant.id)
+      .maybeSingle();
+    if (error) dbError(error);
+    return {
+      ...tenant,
+      sourceSystem: data?.source_system ?? null,
+      externalReference: data?.external_reference ?? null
     };
   }
 
@@ -732,28 +754,39 @@ export class AutomationRepository implements IdempotencyStore {
           ? "allowed"
           : input.smsContactStatus
     };
-    const repositoryInput = { ...safeInput };
-    delete (repositoryInput as Partial<typeof repositoryInput>).sourceSystem;
-    delete (repositoryInput as Partial<typeof repositoryInput>).externalReference;
-    const saved = id
-      ? await getRepository().updateTenant(id, repositoryInput, expectedVersion, actor.delegatedAdminUserId)
-      : await getRepository().createTenant(repositoryInput, actor.delegatedAdminUserId);
+    let savedId: string;
     if (this.isDurable()) {
-      const { error } = await this.client().from("tenants").update({
-        source_system: input.sourceSystem,
-        external_reference: input.externalReference
-      }).eq("id", saved.id);
+      const { data, error } = await this.client().rpc("save_tenant", {
+        p_id: id,
+        p_payload: safeInput,
+        p_expected_updated_at: expectedVersion,
+        p_actor_id: actor.delegatedAdminUserId
+      });
       if (error) dbError(error);
+      const durableId = (data as { id?: unknown } | null)?.id;
+      if (typeof durableId !== "string") {
+        dbError({ message: "The tenant save did not return a resource identifier." });
+      }
+      savedId = durableId;
     } else {
-      memoryState().externalTenants.set(saved.id, {
+      const repositoryInput = { ...safeInput };
+      delete (repositoryInput as Partial<typeof repositoryInput>).sourceSystem;
+      delete (repositoryInput as Partial<typeof repositoryInput>).externalReference;
+      const saved = id
+        ? await getRepository().updateTenant(id, repositoryInput, expectedVersion, actor.delegatedAdminUserId)
+        : await getRepository().createTenant(repositoryInput, actor.delegatedAdminUserId);
+      savedId = saved.id;
+      memoryState().externalTenants.set(savedId, {
         sourceSystem: input.sourceSystem,
         externalReference: input.externalReference
       });
     }
-    await this.writeAudit(actor, actor.delegatedAdminUserId, id ? "automation.tenant.updated" : "automation.tenant.created", "tenant", saved.id, {
+    await this.writeAudit(actor, actor.delegatedAdminUserId, id ? "automation.tenant.updated" : "automation.tenant.created", "tenant", savedId, {
       changedFields: Object.keys(input).filter((key) => !["email", "phoneE164", "internalNotes"].includes(key))
     });
-    return (await this.allAutomationTenants()).find((tenant) => tenant.id === saved.id)!;
+    const savedTenant = (await this.allAutomationTenants()).find((tenant) => tenant.id === savedId);
+    if (!savedTenant) dbError({ message: "The saved tenant could not be reloaded." });
+    return savedTenant;
   }
 
   async patchTenant(
@@ -762,10 +795,8 @@ export class AutomationRepository implements IdempotencyStore {
     expectedVersion: string,
     actor: AutomationActor
   ) {
-    const current = (await this.allAutomationTenants()).find(
-      (tenant) => tenant.id === id
-    );
-    if (!current) throw new ApiError(404, "NOT_FOUND", "Tenant was not found.");
+    const stored = await getRepository().getTenant(id);
+    const current = await this.withAutomationIdentity(stored.tenant);
     if (current.updatedAt !== expectedVersion) {
       throw new ApiError(
         409,

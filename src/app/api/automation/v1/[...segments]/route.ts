@@ -32,6 +32,10 @@ import {
   tenantPatchSchema
 } from "@/features/automation/schemas";
 import { nextOccurrence } from "@/features/reminders/scheduler";
+import {
+  deliverOwnerNotifications,
+  enqueueTenantUploadNotification
+} from "@/features/notifications/owner-notifications";
 import { ApiError, handleApiError, readJson } from "@/lib/api";
 import { readServerEnvironment } from "@/lib/env";
 import { NextResponse } from "next/server";
@@ -52,6 +56,12 @@ function requestIdFor(request: Request) {
   return supplied && requestIdSchema.safeParse(supplied).success ? supplied : crypto.randomUUID();
 }
 
+function allowsExplicitLoopbackHttp(request: Request) {
+  if (process.env.AUTOMATION_ALLOW_LOOPBACK_HTTP !== "true") return false;
+  const hostname = new URL(request.url).hostname;
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname);
+}
+
 async function authenticate(request: Request, requestId: string) {
   const environment = readServerEnvironment(process.env, { fresh: true });
   if (environment.AUTOMATION_API_ENABLED !== "true") {
@@ -60,7 +70,8 @@ async function authenticate(request: Request, requestId: string) {
   if (
     process.env.NODE_ENV === "production" &&
     new URL(request.url).protocol !== "https:" &&
-    request.headers.get("x-forwarded-proto") !== "https"
+    request.headers.get("x-forwarded-proto") !== "https" &&
+    !allowsExplicitLoopbackHttp(request)
   ) {
     throw new ApiError(400, "HTTPS_REQUIRED", "Automation requests require HTTPS.");
   }
@@ -341,6 +352,9 @@ export async function POST(request: Request, context: Context) {
       const input = automationTenantInputSchema.parse(rawBody);
       const result = await idempotent(request, actor, bodyDigest, async () => {
         const tenant = await repository.saveTenant(null, input, null, actor!);
+        await enqueueTenantUploadNotification(tenant)
+          .then(() => deliverOwnerNotifications({ limit: 1 }))
+          .catch(() => undefined);
         return {
           status: 201,
           data: publicTenantResult(tenant),

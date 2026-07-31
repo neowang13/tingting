@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
+    "configure:openclaw": "tsx --env-file-if-exists=.env.local scripts/configure-openclaw-tenant-automation.ts",
     "provision:supabase": "tsx --env-file-if-exists=.env.local scripts/provision-supabase.ts"
   },
   "dependencies": {

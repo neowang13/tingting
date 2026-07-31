@@ -1,7 +1,6 @@
 "use client";
 
 import { createBrowserClient } from "@supabase/ssr";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
@@ -33,12 +32,19 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
     }).catch(() => undefined);
   }
 
-  async function finishLogin(mfaFlow?: "challenge" | "enrollment") {
+  async function finishLogin(
+    mfaFlow?: "challenge" | "enrollment",
+    session?: { access_token: string; refresh_token: string } | null
+  ) {
     if (authMode === "supabase") {
       const response = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mfaFlow })
+        body: JSON.stringify({
+          mfaFlow,
+          accessToken: session?.access_token,
+          refreshToken: session?.refresh_token
+        })
       });
       if (!response.ok) {
         await recordFailure("mfa_challenge_failed", "session_establishment_failed", accountEmail);
@@ -98,7 +104,10 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
             setBusy(false);
             return;
           }
-          await finishLogin(stage === "enroll" ? "enrollment" : "challenge");
+          await finishLogin(
+            stage === "enroll" ? "enrollment" : "challenge",
+            verified.data
+          );
           return;
         }
 
@@ -116,7 +125,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
         }
 
         if (process.env.NEXT_PUBLIC_APP_MODE !== "production") {
-          await finishLogin();
+          await finishLogin(undefined, signedIn.data.session);
           return;
         }
 
@@ -170,14 +179,14 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
           {stage === "enroll" && (
             <>
               <p>Scan this code with an authenticator app, then enter the six-digit code.</p>
-              {/* Supabase returns a local data URI, so optimization is intentionally disabled. */}
-              <Image
+              {/* Supabase returns an SVG data URI, which next/image intentionally rejects. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 className="mfa-qr"
                 src={qrCode}
                 alt="Authenticator setup QR code"
                 width={240}
                 height={240}
-                unoptimized
               />
               <details>
                 <summary>Enter the setup key manually</summary>

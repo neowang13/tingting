@@ -1,5 +1,11 @@
 import { readFile } from "node:fs/promises";
 
+function validIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function typeMatches(value, type) {
   if (type === "null") return value === null;
   if (type === "array") return Array.isArray(value);
@@ -26,7 +32,19 @@ function visit(schema, value, path, errors) {
     if (schema.format === "uuid" && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
       errors.push(`${path} must be a UUID.`);
     }
-    if (schema.format === "date-time" && Number.isNaN(Date.parse(value))) errors.push(`${path} must be an ISO timestamp.`);
+    if (
+      schema.format === "date-time" &&
+      (
+        Number.isNaN(Date.parse(value)) ||
+        !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      )
+    ) {
+      errors.push(`${path} must be an ISO timestamp with an offset.`);
+    }
+    if (schema.format === "date" && !validIsoDate(value)) errors.push(`${path} must be an ISO date.`);
+    if (schema.format === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())) {
+      errors.push(`${path} must be an email address.`);
+    }
   }
   if (typeof value === "number") {
     if (schema.minimum !== undefined && value < schema.minimum) errors.push(`${path} is below the minimum.`);
@@ -40,6 +58,13 @@ function visit(schema, value, path, errors) {
   }
   if (value && typeof value === "object" && !Array.isArray(value)) {
     const properties = schema.properties ?? {};
+    const propertyCount = Object.keys(value).length;
+    if (schema.minProperties !== undefined && propertyCount < schema.minProperties) {
+      errors.push(`${path} has too few properties.`);
+    }
+    if (schema.maxProperties !== undefined && propertyCount > schema.maxProperties) {
+      errors.push(`${path} has too many properties.`);
+    }
     for (const required of schema.required ?? []) {
       if (!(required in value)) errors.push(`${path}.${required} is required.`);
     }
@@ -65,4 +90,3 @@ export async function validateWithSchema(schemaUrl, value) {
   }
   return value;
 }
-

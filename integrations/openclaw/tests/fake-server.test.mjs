@@ -25,6 +25,19 @@ before(async () => {
         response.end(JSON.stringify({ success: false, error: { code: "TEMPORARY" }, requestId: "00000000-0000-4000-8000-000000000001" }));
         return;
       }
+      if (request.url === "/api/automation/v1/error") {
+        response.statusCode = 422;
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({
+          success: false,
+          error: {
+            code: "VALIDATION_ERROR",
+            message: `Tenant tenant@example.com used tta_abcdefgh_${"x".repeat(43)}.`
+          },
+          requestId: "00000000-0000-4000-8000-000000000001"
+        }));
+        return;
+      }
       response.statusCode = 200;
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({
@@ -79,6 +92,17 @@ test("redaction removes tokens and signed URLs from diagnostics", () => {
   assert.doesNotMatch(output, /tta_|secret/);
 });
 
+test("redaction preserves ISO dates and UUIDs while removing phone numbers", () => {
+  const value = redact({
+    moveInDate: "2024-06-15",
+    requestId: "ed1c864e-dfb0-4000-8000-29d297e283e1",
+    phone: "+16045550123"
+  });
+  assert.equal(value.moveInDate, "2024-06-15");
+  assert.equal(value.requestId, "ed1c864e-dfb0-4000-8000-29d297e283e1");
+  assert.equal(value.phone, "[PHONE_REDACTED]");
+});
+
 test("client rejects external URL paths", async () => {
   const client = new TingTingApiClient({
     baseUrl,
@@ -90,3 +114,38 @@ test("client rejects external URL paths", async () => {
   );
 });
 
+test("client redacts server error messages before throwing", async () => {
+  const client = new TingTingApiClient({
+    baseUrl,
+    token: `tta_abcdefgh_${"x".repeat(43)}`
+  });
+  await assert.rejects(
+    client.request({ method: "POST", path: "/error", body: {}, mutation: true }),
+    (error) =>
+      error.code === "VALIDATION_ERROR" &&
+      !error.message.includes("tenant@example.com") &&
+      !error.message.includes("tta_") &&
+      error.message.includes("[EMAIL_REDACTED]") &&
+      error.message.includes("[AUTOMATION_TOKEN_REDACTED]")
+  );
+});
+
+test("client bounds hung requests and returns a stable timeout code", async () => {
+  const client = new TingTingApiClient({
+    baseUrl,
+    token: `tta_abcdefgh_${"x".repeat(43)}`,
+    timeoutMs: 5,
+    sleep: async () => {},
+    fetchImpl: async (_url, options) => new Promise((resolve, reject) => {
+      void resolve;
+      options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+    })
+  });
+  await assert.rejects(
+    client.request({ method: "GET", path: "/health" }),
+    (error) =>
+      error.code === "REQUEST_TIMEOUT" &&
+      error.requestId &&
+      !error.message.includes(baseUrl)
+  );
+});

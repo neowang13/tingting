@@ -32,6 +32,10 @@ import {
   verifyTestSendPreviewToken
 } from "@/features/notifications/test-send-preview";
 import {
+  deliverOwnerNotifications,
+  enqueueTenantUploadNotification
+} from "@/features/notifications/owner-notifications";
+import {
   formatRentDueDate
 } from "@/features/reminders/due-date";
 import { getAutomationRepository } from "@/data/automation-repository";
@@ -218,7 +222,13 @@ export async function POST(request: Request, context: Context) {
         requestId
       );
     }
-    if (resource === "tenants" && !id) return ok(await repository.createTenant(body, actorId), requestId, 201);
+    if (resource === "tenants" && !id) {
+      const tenant = await repository.createTenant(body, actorId);
+      await enqueueTenantUploadNotification(tenant)
+        .then(() => deliverOwnerNotifications({ limit: 1 }))
+        .catch(() => undefined);
+      return ok(tenant, requestId, 201);
+    }
     if (resource === "tenants" && id && action === "archive") {
       const payload = body as { expectedVersion?: unknown };
       return ok(await repository.archiveTenant(id, payload.expectedVersion, actorId), requestId);
