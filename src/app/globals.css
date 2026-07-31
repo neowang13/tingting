@@ -5875,8 +5875,7 @@ a {
   padding-bottom: 64px;
 }
 
-.rental-listing-overview,
-.rental-contact-panel {
+.rental-listing-overview {
   border: 1px solid var(--line);
   border-radius: 14px;
   background: #fff;
@@ -6045,8 +6044,7 @@ a {
 
 .rental-about h2,
 .rental-glance h2,
-.rental-fees h2,
-.rental-contact-panel h2 {
+.rental-fees h2 {
   margin: 0 0 13px;
   font-size: 1.22rem;
 }
@@ -6257,8 +6255,7 @@ a {
   padding: 14px;
 }
 
-.rental-fee-icon,
-.rental-agent-mark {
+.rental-fee-icon {
   display: grid;
   flex: 0 0 auto;
   place-items: center;
@@ -6285,84 +6282,6 @@ a {
   margin-top: 3px;
   color: var(--muted);
   font-size: 0.65rem;
-}
-
-.rental-contact-panel {
-  display: grid;
-  grid-template-columns: minmax(270px, 0.75fr) minmax(0, 1.45fr);
-  gap: 30px;
-  margin-top: 18px;
-  padding: clamp(22px, 3vw, 32px);
-}
-
-.rental-agent-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.rental-agent-mark {
-  width: 74px;
-  height: 88px;
-  border-radius: 12px;
-  font-size: 1.25rem;
-  font-weight: 850;
-}
-
-.rental-agent-card p {
-  max-width: 270px;
-  margin: 0 0 15px;
-  color: var(--muted);
-  font-size: 0.76rem;
-  line-height: 1.5;
-}
-
-.rental-agent-card a {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 8px;
-  color: #3c4640;
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.rental-agent-card a svg {
-  width: 15px;
-}
-
-.rental-contact-form-wrap .contact-form {
-  gap: 10px;
-}
-
-.rental-contact-form-wrap .contact-form-grid {
-  gap: 10px;
-}
-
-.rental-contact-form-wrap .field {
-  gap: 4px;
-}
-
-.rental-contact-form-wrap .field label {
-  font-size: 0.66rem;
-}
-
-.rental-contact-form-wrap .field input,
-.rental-contact-form-wrap .field select,
-.rental-contact-form-wrap .field textarea {
-  min-height: 40px;
-  padding: 0.62rem 0.75rem;
-  font-size: 0.75rem;
-}
-
-.rental-contact-form-wrap .field textarea {
-  min-height: 74px;
-}
-
-.rental-contact-form-wrap .contact-submit {
-  width: 100%;
-  min-height: 40px;
-  font-size: 0.75rem;
 }
 
 .rental-similar {
@@ -6422,10 +6341,6 @@ a {
 
   .rental-quick-facts > div:nth-child(n + 4) {
     border-top: 1px solid var(--line);
-  }
-
-  .rental-contact-panel {
-    grid-template-columns: 1fr 1.35fr;
   }
 
   .rental-amenity-grid-3,
@@ -6504,8 +6419,7 @@ a {
     flex: 1;
   }
 
-  .rental-about,
-  .rental-contact-panel {
+  .rental-about {
     grid-template-columns: 1fr;
   }
 
@@ -6548,8 +6462,7 @@ a {
     padding-bottom: 42px;
   }
 
-  .rental-listing-overview,
-  .rental-contact-panel {
+  .rental-listing-overview {
     border-radius: 12px;
     padding: 18px;
   }
@@ -6602,11 +6515,6 @@ a {
   .rental-fees li > span:last-child {
     grid-column: 2;
     text-align: left;
-  }
-
-  .rental-agent-card {
-    display: grid;
-    grid-template-columns: auto 1fr;
   }
 
   .rental-similar-grid {
