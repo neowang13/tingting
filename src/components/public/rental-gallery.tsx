@@ -43,41 +43,59 @@ export function RentalGallery({
     );
   }
 
-  return (
-    <div className="rental-gallery">
-      <button
-        className="rental-gallery-main"
-        type="button"
-        aria-label={`Open photo ${activeIndex + 1} of ${images.length}`}
-        onClick={(event) => openGallery(event.currentTarget)}
-      >
-        {active?.url && !broken.has(activeIndex) ? (
-          <Image
-            src={active.url}
-            alt={active.alt || `${title} in ${city}`}
-            fill
-            priority
-            sizes="(max-width: 767px) calc(100vw - 32px), (max-width: 1100px) 60vw, 760px"
-            onError={() => setBroken((items) => new Set(items).add(activeIndex))}
-          />
-        ) : (
-          <span className="rental-gallery-fallback"><Images aria-hidden />Photo unavailable</span>
-        )}
-      </button>
+  const visibleThumbnails = images.slice(1, 4);
+  const remaining = Math.max(0, images.length - 4);
 
-      {images.length > 1 && (
+  return (
+    <div className={`rental-gallery rental-gallery-count-${Math.min(images.length, 4)}`}>
+      <div className="rental-gallery-main-wrap">
+        <button
+          className="rental-gallery-main"
+          type="button"
+          aria-label={`Open photo ${activeIndex + 1} of ${images.length}`}
+          onClick={(event) => openGallery(event.currentTarget)}
+        >
+          {active?.url && !broken.has(activeIndex) ? (
+            <Image
+              src={active.url}
+              alt={active.alt || `${title} in ${city}`}
+              fill
+              loading="eager"
+              fetchPriority="high"
+              sizes="(max-width: 800px) calc(100vw - 32px), (max-width: 1180px) 68vw, 800px"
+              onError={() => setBroken((items) => new Set(items).add(activeIndex))}
+            />
+          ) : (
+            <span className="rental-gallery-fallback"><Images aria-hidden />Photo unavailable</span>
+          )}
+        </button>
+        {images.length > 1 && (
+          <>
+            <button className="rental-gallery-inline-previous" type="button" aria-label="Previous photo" onClick={() => move(-1)}>
+              <ChevronLeft aria-hidden />
+            </button>
+            <button className="rental-gallery-inline-next" type="button" aria-label="Next photo" onClick={() => move(1)}>
+              <ChevronRight aria-hidden />
+            </button>
+          </>
+        )}
+        <span className="rental-gallery-count">{activeIndex + 1} / {images.length}</span>
+      </div>
+
+      {visibleThumbnails.length > 0 && (
         <div className="rental-gallery-thumbnails" aria-label="Rental photos">
-          {images.slice(0, 5).map((image, index) => {
-            const remaining = images.length - 5;
+          {visibleThumbnails.map((image, thumbnailIndex) => {
+            const index = thumbnailIndex + 1;
+            const isLast = thumbnailIndex === visibleThumbnails.length - 1;
             return (
               <button
                 className={index === activeIndex ? "active" : ""}
                 type="button"
                 key={`${image.mediaAssetId}-${image.sortOrder}`}
-                aria-label={`View photo ${index + 1} of ${images.length}`}
+                aria-label={isLast && remaining > 0 ? `Open all ${images.length} photos` : `View photo ${index + 1} of ${images.length}`}
                 aria-current={index === activeIndex ? "true" : undefined}
                 onClick={(event) => {
-                  if (index === 4 && remaining > 0) openGallery(event.currentTarget, index);
+                  if (isLast && remaining > 0) openGallery(event.currentTarget, index);
                   else setActiveIndex(index);
                 }}
               >
@@ -86,13 +104,11 @@ export function RentalGallery({
                     src={image.url}
                     alt=""
                     fill
-                    sizes="140px"
+                    sizes="(max-width: 800px) 31vw, 320px"
                     onError={() => setBroken((items) => new Set(items).add(index))}
                   />
                 ) : <span className="rental-gallery-fallback"><Images aria-hidden /></span>}
-                {index === 4 && remaining > 0 && (
-                  <span className="rental-gallery-more">+{remaining} photos</span>
-                )}
+                {isLast && remaining > 0 && <span className="rental-gallery-more">+ {remaining} More Photos</span>}
               </button>
             );
           })}

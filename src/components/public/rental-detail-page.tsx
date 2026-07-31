@@ -1,8 +1,29 @@
 import Link from "next/link";
-import { Bath, BedDouble, CalendarDays, Mail, PawPrint, Phone, Ruler } from "lucide-react";
+import {
+  Bath,
+  BedDouble,
+  Building2,
+  CalendarDays,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  CircleParking,
+  ClipboardCheck,
+  House,
+  Mail,
+  MapPin,
+  PawPrint,
+  Phone,
+  Ruler,
+  ShieldCheck,
+  Sofa,
+  Warehouse
+} from "lucide-react";
+import { ContactForm } from "@/components/public/contact-form";
 import { ContactModalProvider, ContactTrigger } from "@/components/public/contact-modal";
 import { RentalCard } from "@/components/public/rental-card";
 import { RentalGallery } from "@/components/public/rental-gallery";
+import { SaveListingButton } from "@/components/public/save-listing-button";
 import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import {
   formatRentalArea,
@@ -13,6 +34,13 @@ import {
   type PublicRentalDetailData
 } from "@/features/content/public-rental-detail";
 import { amenityGroups, utilityOptions } from "@/features/rentals/v2";
+
+type Rental = PublicRentalDetailData["rental"];
+
+interface DetailItem {
+  label: string;
+  value?: string | null;
+}
 
 export function RentalDetailPage({
   rental,
@@ -34,16 +62,58 @@ export function RentalDetailPage({
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
-  const amenityLabels = new Map(
-    amenityGroups.flatMap((group) => group.items.map(([code, label]) => [code, label] as const))
-  );
-  const utilityLabels = new Map(utilityOptions);
+  const contactName = rental.contact?.mode === "custom" && rental.contact.name
+    ? rental.contact.name
+    : "Ting Ting Xu";
   const contactPhone = rental.contact?.mode === "custom" && rental.contact.phone
     ? rental.contact.phone
     : sections.contact.publicPhone;
   const contactEmail = rental.contact?.mode === "custom" && rental.contact.email
     ? rental.contact.email
     : sections.contact.publicEmail;
+  const availability = rental.availableOn
+    ? formatRentalAvailability(rental.availableOn)
+    : rental.availabilityStatus
+      ? availabilityLabel(rental.availabilityStatus)
+      : null;
+  const lease = leaseLabel(rental);
+  const petPolicy = petLabel(rental);
+  const propertyType = rental.property?.propertyType
+    ? humanize(rental.property.propertyType)
+    : null;
+  const amenityCards = amenityGroups
+    .map((group) => ({
+      label: group.label,
+      items: group.items.filter(([code]) => rental.amenityCodes?.includes(code))
+    }))
+    .filter((group) => group.items.length > 0);
+  const utilityLabels = new Map(utilityOptions);
+  const utilities = rental.includedUtilityCodes?.map(
+    (code) => utilityLabels.get(code as never) ?? humanize(code)
+  ) ?? [];
+  const glanceItems: DetailItem[] = [
+    { label: "Building name", value: rental.property?.buildingName },
+    { label: "Unit number", value: rental.property?.unitNumber },
+    { label: "Neighbourhood", value: rental.neighbourhood },
+    { label: "City", value: rental.city },
+    { label: "Province", value: provinceLabel(rental.property?.provinceCode) },
+    { label: "Postal code", value: rental.property?.postalCode },
+    { label: "Country", value: rental.property?.countryCode === "CA" ? "Canada" : null },
+    { label: "Property type", value: propertyType },
+    { label: "Bedrooms / Bathrooms", value: `${formatRentalCount(rental.bedrooms)} / ${formatRentalCount(rental.bathrooms)}` },
+    { label: "Dens", value: rental.denCount ? String(rental.denCount) : null },
+    { label: "Square feet", value: rental.squareFeet !== null ? formatRentalArea(rental.squareFeet) : null },
+    { label: "Furnishing", value: rental.furnishedStatus ? humanize(rental.furnishedStatus) : null },
+    { label: "Availability", value: availability },
+    { label: "Lease type", value: lease }
+  ].filter((item) => Boolean(item.value));
+  const hasParkingStorage = Boolean(
+    rental.parking?.available || rental.parking?.visitorAvailable || rental.parking?.notes ||
+    rental.storage?.available || rental.storage?.notes
+  );
+  const hasPolicyRequirements = Boolean(
+    petPolicy || rental.smokingPolicy || rental.creditCheckRequired || rental.referencesRequired
+  );
 
   return (
     <ContactModalProvider contact={sections.contact}>
@@ -52,120 +122,173 @@ export function RentalDetailPage({
           <SiteHeader header={sections.header} />
           <div className="container rental-detail-hero-inner">
             <nav className="rental-breadcrumb" aria-label="Breadcrumb">
-              <Link href="/rentals">← Back to Rentals</Link>
+              <Link href="/">Home</Link>
+              <ChevronRight aria-hidden />
+              <Link href="/rentals">Rentals</Link>
+              <ChevronRight aria-hidden />
+              <span aria-current="page">{rental.addressLine}, {rental.city}</span>
             </nav>
-            <div className="rental-detail-hero-grid">
+            <div className="rental-gallery-stage">
+              {availability && <span className="rental-status-badge">{availability}</span>}
               <RentalGallery title={rental.title} city={rental.city} images={images} />
-              <aside className="rental-summary-card">
-                <span className="rental-status-badge">For rent</span>
-                <h1>{rental.title}</h1>
-                <p className="rent-price">{formatRentalPrice(rental.monthlyRentCents)} <span>/ month</span></p>
-                <p className="rental-summary-address">{rental.addressLine}</p>
-                <p>{formatRentalLocation(rental.neighbourhood, rental.city)}</p>
-                <dl className="rental-summary-facts">
-                  <div><dt><BedDouble aria-hidden /> Bedrooms</dt><dd>{formatRentalCount(rental.bedrooms)}</dd></div>
-                  <div><dt><Bath aria-hidden /> Bathrooms</dt><dd>{formatRentalCount(rental.bathrooms)}</dd></div>
-                  {rental.squareFeet !== null && (
-                    <div><dt><Ruler aria-hidden /> Size</dt><dd>{formatRentalArea(rental.squareFeet)}</dd></div>
-                  )}
-                </dl>
-                <div className="rental-viewing-actions">
-                  <ContactTrigger className="button rental-viewing-cta">Book a viewing</ContactTrigger>
-                  <div>
-                    {contactPhone && (
-                      <a href={`tel:${contactPhone.replace(/[^\d+]/g, "")}`}>
-                        <Phone aria-hidden /> {contactPhone}
-                      </a>
-                    )}
-                    {contactEmail && (
-                      <a href={`mailto:${contactEmail}`}>
-                        <Mail aria-hidden /> {contactEmail}
-                      </a>
-                    )}
-                  </div>
-                </div>
-              </aside>
             </div>
           </div>
         </div>
 
         <main className="rental-detail-content">
-          <div className="container rental-detail-content-grid">
-            <section className="rental-about" aria-labelledby="rental-about-heading">
-              <div className="eyebrow">THE HOME</div>
-              <h2 id="rental-about-heading">About this rental</h2>
-              {paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-            </section>
-            <section className="rental-details-card" aria-labelledby="rental-details-heading">
-              <h2 id="rental-details-heading">Listing details</h2>
-              <dl>
-                <div><dt><BedDouble aria-hidden /> Bedrooms</dt><dd>{formatRentalCount(rental.bedrooms)}</dd></div>
-                <div><dt><Bath aria-hidden /> Bathrooms</dt><dd>{formatRentalCount(rental.bathrooms)}</dd></div>
-                {rental.squareFeet !== null && (
-                  <div><dt><Ruler aria-hidden /> Square feet</dt><dd>{formatRentalArea(rental.squareFeet)}</dd></div>
-                )}
-                {rental.availableOn && (
-                  <div><dt><CalendarDays aria-hidden /> Available</dt><dd>{formatRentalAvailability(rental.availableOn)}</dd></div>
-                )}
-                {rental.availabilityStatus && !rental.availableOn && (
-                  <div><dt><CalendarDays aria-hidden /> Available</dt><dd>{availabilityLabel(rental.availabilityStatus)}</dd></div>
-                )}
-                {rental.property?.propertyType && (
-                  <div><dt>Property type</dt><dd>{humanize(rental.property.propertyType)}</dd></div>
-                )}
-                {rental.denCount !== undefined && rental.denCount > 0 && (
-                  <div><dt>Dens</dt><dd>{rental.denCount}</dd></div>
-                )}
-                {rental.furnishedStatus && (
-                  <div><dt>Furnishing</dt><dd>{humanize(rental.furnishedStatus)}</dd></div>
-                )}
-                {rental.leaseType && (
-                  <div><dt>Lease</dt><dd>{humanize(rental.leaseType)}{rental.minimumLeaseMonths ? ` · ${rental.minimumLeaseMonths} months minimum` : ""}</dd></div>
-                )}
-                {(rental.pets?.status || rental.petPolicy) && (
-                  <div><dt><PawPrint aria-hidden /> Pet policy</dt><dd>{rental.pets?.status ? petLabel(rental) : rental.petPolicy}</dd></div>
-                )}
-                {rental.smokingPolicy && <div><dt>Smoking</dt><dd>{humanize(rental.smokingPolicy)}</dd></div>}
+          <div className="container rental-listing-shell">
+            <section className="rental-listing-overview" aria-labelledby="rental-title">
+              <header className="rental-listing-heading">
+                <div>
+                  <h1 id="rental-title">{rental.title}</h1>
+                  <p className="rental-summary-address"><MapPin aria-hidden />{rental.addressLine}</p>
+                  <p>{formatRentalLocation(rental.neighbourhood, rental.city)}</p>
+                </div>
+                <div className="rental-heading-price">
+                  <strong className="rent-price">{formatRentalPrice(rental.monthlyRentCents)} <span>/ month</span></strong>
+                  {propertyType && <span className="rental-property-type"><Building2 aria-hidden />{propertyType}</span>}
+                </div>
+              </header>
+
+              <dl className="rental-quick-facts">
+                <QuickFact icon={<BedDouble aria-hidden />} label="Bedrooms" value={formatRentalCount(rental.bedrooms)} />
+                <QuickFact icon={<Bath aria-hidden />} label="Bathrooms" value={formatRentalCount(rental.bathrooms)} />
+                {rental.denCount !== undefined && <QuickFact icon={<House aria-hidden />} label="Dens" value={String(rental.denCount)} />}
+                {rental.squareFeet !== null && <QuickFact icon={<Ruler aria-hidden />} label="Sq. ft." value={rental.squareFeet.toLocaleString("en-CA")} />}
+                {rental.furnishedStatus && <QuickFact icon={<Sofa aria-hidden />} label="Furnishing" value={humanize(rental.furnishedStatus)} />}
+                {availability && <QuickFact icon={<CalendarDays aria-hidden />} label="Availability" value={availability} accent />}
               </dl>
+
+              <div className="rental-primary-actions">
+                {lease && <p><strong>Lease:</strong> {lease}</p>}
+                <div>
+                  <SaveListingButton slug={rental.slug} />
+                  <ContactTrigger className="button secondary rental-contact-button">Ask Ting Ting</ContactTrigger>
+                  <ContactTrigger className="button">Book a viewing</ContactTrigger>
+                </div>
+              </div>
+
+              <section className="rental-about" aria-labelledby="rental-about-heading">
+                <div>
+                  <h2 id="rental-about-heading">About this home</h2>
+                  {paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                </div>
+                <aside className="rental-about-summary" aria-label="Property overview">
+                  {rental.property?.buildingName && <DetailLine label="Building" value={rental.property.buildingName} />}
+                  {propertyType && <DetailLine label="Property type" value={propertyType} />}
+                  <DetailLine label="Location" value={formatRentalLocation(rental.neighbourhood, rental.city)} />
+                  {availability && <DetailLine label="Availability" value={availability} />}
+                </aside>
+              </section>
+
+              <section className="rental-glance" aria-labelledby="rental-glance-heading">
+                <h2 id="rental-glance-heading">At a glance</h2>
+                <dl>
+                  {glanceItems.map((item) => (
+                    <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>
+                  ))}
+                </dl>
+              </section>
+
+              {(hasParkingStorage || hasPolicyRequirements || utilities.length > 0 || rental.utilitiesNotes || amenityCards.length > 0 || rental.amenityNotes) && (
+                <section className="rental-information-grid" aria-label="Rental features and policies">
+                  {(hasParkingStorage || hasPolicyRequirements || utilities.length > 0 || rental.utilitiesNotes) && (
+                    <div className="rental-practical-grid">
+                      {hasParkingStorage && (
+                        <article className="rental-info-card">
+                          <h2><CircleParking aria-hidden />Parking &amp; storage</h2>
+                          <ul>
+                            {rental.parking?.available && <InfoItem label="Parking available" value={parkingLabel(rental)} />}
+                            {rental.parking?.visitorAvailable && <InfoItem label="Visitor parking" value="Available" />}
+                            {rental.parking?.notes && <InfoItem label="Parking notes" value={rental.parking.notes} />}
+                            {rental.storage?.available && <InfoItem label="Storage available" value={storageLabel(rental)} />}
+                            {rental.storage?.notes && <InfoItem label="Storage notes" value={rental.storage.notes} />}
+                          </ul>
+                        </article>
+                      )}
+
+                      {hasPolicyRequirements && (
+                        <article className="rental-info-card">
+                          <h2><PawPrint aria-hidden />Pets, smoking &amp; requirements</h2>
+                          <ul>
+                            {petPolicy && <InfoItem label="Pet policy" value={petPolicy} />}
+                            {rental.smokingPolicy && <InfoItem label="Smoking policy" value={humanize(rental.smokingPolicy)} />}
+                            {rental.creditCheckRequired && <InfoItem label="Application" value="Credit check required" />}
+                            {rental.referencesRequired && <InfoItem label="Application" value="References required" />}
+                          </ul>
+                        </article>
+                      )}
+
+                      {(utilities.length > 0 || rental.utilitiesNotes) && (
+                        <article className="rental-info-card">
+                          <h2><ShieldCheck aria-hidden />Included utilities</h2>
+                          {utilities.length > 0 && <CheckList items={utilities} />}
+                          {rental.utilitiesNotes && <p className="rental-info-note"><strong>Additional notes</strong>{rental.utilitiesNotes}</p>}
+                        </article>
+                      )}
+                    </div>
+                  )}
+
+                  {amenityCards.length > 0 && (
+                    <div className={`rental-amenity-grid rental-amenity-grid-${amenityCards.length}`}>
+                      {amenityCards.map((group) => (
+                        <article className="rental-info-card rental-amenity-card" key={group.label}>
+                          <h2><CheckCircle2 aria-hidden />{group.label}</h2>
+                          <CheckList items={group.items.map(([, label]) => label)} />
+                        </article>
+                      ))}
+                    </div>
+                  )}
+
+                  {rental.amenityNotes && (
+                    <article className="rental-info-card rental-feature-note">
+                      <h2><ClipboardCheck aria-hidden />Additional features</h2>
+                      <p className="rental-info-note">{rental.amenityNotes}</p>
+                    </article>
+                  )}
+                </section>
+              )}
+
+              {(rental.fees?.length ?? 0) > 0 && (
+                <section className="rental-fees" aria-labelledby="rental-fees-heading">
+                  <h2 id="rental-fees-heading">Fees &amp; deposits</h2>
+                  <ul>
+                    {rental.fees?.map((fee, index) => (
+                      <li key={fee.id ?? `${fee.feeType}-${index}`}>
+                        <span className="rental-fee-icon"><Warehouse aria-hidden /></span>
+                        <span><strong>{fee.label ?? humanize(fee.feeType)}</strong>{fee.notes && <small>{fee.notes}</small>}</span>
+                        <span><strong>{formatRentalPrice(fee.amountCents)}</strong><small>{fee.frequency === "monthly" ? "Monthly" : "One time"}{fee.refundable ? " · Refundable" : ""}{fee.required ? " · Required" : ""}</small></span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </section>
+
+            <section className="rental-contact-panel" aria-labelledby="rental-contact-heading">
+              <div className="rental-agent-card">
+                <span className="rental-agent-mark" aria-hidden>TX</span>
+                <div>
+                  <h2>{contactName}</h2>
+                  <p>Have questions or want to book a private viewing? I’m here to help.</p>
+                  {contactPhone && <a href={`tel:${contactPhone.replace(/[^\d+]/g, "")}`}><Phone aria-hidden />{contactPhone}</a>}
+                  {contactEmail && <a href={`mailto:${contactEmail}`}><Mail aria-hidden />{contactEmail}</a>}
+                </div>
+              </div>
+              <div className="rental-contact-form-wrap">
+                <h2 id="rental-contact-heading">Interested in this home?</h2>
+                <ContactForm
+                  idPrefix="rental-inquiry"
+                  labels={sections.contact.fieldLabels}
+                  options={sections.contact.preferredContactOptions}
+                  submitLabel={sections.contact.submitLabel}
+                  successMessage={sections.contact.successMessage}
+                  errorMessage={sections.contact.errorMessage}
+                  defaultMessage={`I'm interested in ${rental.title} at ${rental.addressLine}.`}
+                />
+              </div>
             </section>
           </div>
-
-          {(rental.parking?.available || rental.storage?.available) && (
-            <section className="section rental-structured-section" aria-labelledby="parking-storage-heading">
-              <div className="container"><div className="eyebrow">PRACTICAL DETAILS</div><h2 id="parking-storage-heading">Parking and storage</h2>
-                <div className="rental-feature-grid">
-                  {rental.parking?.available && <article><h3>Parking</h3><p>{[
-                    rental.parking.type ? humanize(rental.parking.type) : null,
-                    rental.parking.stalls !== null ? `${rental.parking.stalls} stall${rental.parking.stalls === 1 ? "" : "s"}` : null,
-                    rental.parking.included ? "included in rent" : null
-                  ].filter(Boolean).join(" · ")}</p>{rental.parking.notes && <p>{rental.parking.notes}</p>}</article>}
-                  {rental.storage?.available && <article><h3>Storage</h3><p>{[
-                    rental.storage.lockers !== null ? `${rental.storage.lockers} locker${rental.storage.lockers === 1 ? "" : "s"}` : null,
-                    rental.storage.included ? "included in rent" : null
-                  ].filter(Boolean).join(" · ")}</p>{rental.storage.notes && <p>{rental.storage.notes}</p>}</article>}
-                </div>
-              </div>
-            </section>
-          )}
-
-          {((rental.includedUtilityCodes?.length ?? 0) > 0 || (rental.amenityCodes?.length ?? 0) > 0) && (
-            <section className="section rental-structured-section" aria-labelledby="features-heading">
-              <div className="container"><div className="eyebrow">WHAT’S INCLUDED</div><h2 id="features-heading">Features and amenities</h2>
-                <div className="rental-feature-grid">
-                  {(rental.includedUtilityCodes?.length ?? 0) > 0 && <article><h3>Utilities included in rent</h3><ul>{rental.includedUtilityCodes?.map((code) => <li key={code}>{utilityLabels.get(code as never) ?? humanize(code)}</li>)}</ul>{rental.utilitiesNotes && <p>{rental.utilitiesNotes}</p>}</article>}
-                  {(rental.amenityCodes?.length ?? 0) > 0 && <article><h3>Home and building features</h3><ul>{rental.amenityCodes?.map((code) => <li key={code}>{amenityLabels.get(code as never) ?? humanize(code)}</li>)}</ul>{rental.amenityNotes && <p>{rental.amenityNotes}</p>}</article>}
-                </div>
-              </div>
-            </section>
-          )}
-
-          {(rental.fees?.length ?? 0) > 0 && (
-            <section className="section rental-structured-section" aria-labelledby="fees-heading">
-              <div className="container"><div className="eyebrow">COSTS</div><h2 id="fees-heading">Fees and deposits</h2>
-                <ul className="rental-fee-list">{rental.fees?.map((fee, index) => <li key={fee.id ?? `${fee.feeType}-${index}`}><strong>{fee.label ?? humanize(fee.feeType)}</strong><span>{formatRentalPrice(fee.amountCents)} · {fee.frequency === "monthly" ? "monthly" : "one time"}{fee.refundable ? " · refundable" : ""}</span></li>)}</ul>
-              </div>
-            </section>
-          )}
 
           {similarRentals.length > 0 && (
             <section className="section rental-similar" aria-labelledby="similar-rentals-heading">
@@ -178,9 +301,7 @@ export function RentalDetailPage({
                   <Link className="text-link" href="/rentals">View all rentals →</Link>
                 </div>
                 <div className="rental-grid rental-similar-grid">
-                  {similarRentals.map((candidate) => (
-                    <RentalCard rental={candidate} key={candidate.id} />
-                  ))}
+                  {similarRentals.map((candidate) => <RentalCard rental={candidate} key={candidate.id} />)}
                 </div>
               </div>
             </section>
@@ -192,24 +313,81 @@ export function RentalDetailPage({
   );
 }
 
+function QuickFact({
+  icon,
+  label,
+  value,
+  accent = false
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  accent?: boolean;
+}) {
+  return <div className={accent ? "accent" : undefined}><dt>{icon}<span>{value}</span></dt><dd>{label}</dd></div>;
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  return <p><span>{label}</span><strong>{value}</strong></p>;
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return <li><Check aria-hidden /><span><strong>{label}</strong><small>{value}</small></span></li>;
+}
+
+function CheckList({ items }: { items: readonly string[] }) {
+  return <ul className="rental-check-list">{items.map((item) => <li key={item}><Check aria-hidden />{item}</li>)}</ul>;
+}
+
 function humanize(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function availabilityLabel(value: NonNullable<PublicRentalDetailData["rental"]["availabilityStatus"]>) {
+function availabilityLabel(value: NonNullable<Rental["availabilityStatus"]>) {
   if (value === "available_now") return "Available now";
   if (value === "contact") return "Contact for availability";
   return "Available on a date";
 }
 
-function petLabel(rental: PublicRentalDetailData["rental"]) {
-  if (!rental.pets?.status) return rental.petPolicy ?? "";
+function leaseLabel(rental: Rental) {
+  if (!rental.leaseType) return null;
+  const type = humanize(rental.leaseType);
+  return rental.minimumLeaseMonths ? `${type} · ${rental.minimumLeaseMonths} months minimum` : type;
+}
+
+function petLabel(rental: Rental) {
+  if (!rental.pets?.status) return rental.petPolicy;
   const details = [
     humanize(rental.pets.status),
-    rental.pets.catsAllowed ? "cats" : null,
-    rental.pets.dogsAllowed ? "dogs" : null,
-    rental.pets.maxCount ? `maximum ${rental.pets.maxCount}` : null,
-    rental.pets.sizeLimitLbs ? `up to ${rental.pets.sizeLimitLbs} lbs` : null
+    rental.pets.catsAllowed ? "Cats" : null,
+    rental.pets.dogsAllowed ? "Dogs" : null,
+    rental.pets.maxCount ? `Maximum ${rental.pets.maxCount}` : null,
+    rental.pets.sizeLimitLbs ? `Up to ${rental.pets.sizeLimitLbs} lbs` : null
   ].filter(Boolean);
   return `${details.join(" · ")}${rental.pets.notes ? ` — ${rental.pets.notes}` : ""}`;
+}
+
+function parkingLabel(rental: Rental) {
+  const parking = rental.parking;
+  if (!parking) return "Available";
+  return [
+    parking.type ? humanize(parking.type) : null,
+    parking.stalls !== null ? `${parking.stalls} stall${parking.stalls === 1 ? "" : "s"}` : null,
+    parking.included ? "Included in rent" : null
+  ].filter(Boolean).join(" · ") || "Available";
+}
+
+function storageLabel(rental: Rental) {
+  const storage = rental.storage;
+  if (!storage) return "Available";
+  return [
+    storage.lockers !== null ? `${storage.lockers} locker${storage.lockers === 1 ? "" : "s"}` : null,
+    storage.included ? "Included in rent" : null
+  ].filter(Boolean).join(" · ") || "Available";
+}
+
+function provinceLabel(code?: string | null) {
+  if (!code) return null;
+  if (code === "BC") return "British Columbia";
+  return code;
 }

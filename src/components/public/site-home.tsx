@@ -226,6 +226,7 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
               </a>
             </div>
             <ContactForm
+              idPrefix="homepage-contact"
               labels={contact.fieldLabels}
               options={contact.preferredContactOptions}
               submitLabel={contact.submitLabel}
