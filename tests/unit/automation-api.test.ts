@@ -6,10 +6,14 @@ import {
 import {
   GET,
   PATCH,
-  POST
+  POST,
+  PUT
 } from "@/app/api/automation/v1/[...segments]/route";
+import { getRepository, resetRepositoryForTests } from "@/data/repository";
 import { store } from "@/data/store";
 import { resetEnvironmentCache } from "@/lib/env";
+import { currentPaymentPeriod } from "@/features/rent-payments/service";
+import { Temporal } from "@js-temporal/polyfill";
 
 const context = (segments: string[]) => ({
   params: Promise.resolve({ segments })
@@ -26,6 +30,7 @@ describe("Automation API route", () => {
     vi.stubEnv("AUTOMATION_TOKEN_PEPPER", "route-test-pepper-value-that-is-longer-than-32-characters");
     resetEnvironmentCache();
     resetAutomationRepositoryForTests();
+    resetRepositoryForTests();
     store.reset();
   });
 
@@ -33,6 +38,7 @@ describe("Automation API route", () => {
     vi.unstubAllEnvs();
     resetEnvironmentCache();
     resetAutomationRepositoryForTests();
+    resetRepositoryForTests();
   });
 
   it("authenticates, enforces exact scopes, and replays a mutation idempotently", async () => {
@@ -107,7 +113,8 @@ describe("Automation API route", () => {
           fullName: "Jane Chen",
           propertyLabel: "123 Main Street",
           unitLabel: "1208",
-          moveInDate: "2026-08-01",
+          leaseType: "month_to_month",
+          leaseStartDate: "2026-08-01",
           rentDueDay: 1,
           email: "jane@example.com",
           preferredChannels: ["email"]
@@ -129,6 +136,157 @@ describe("Automation API route", () => {
       externalReference: "lease-2026-0042"
     });
     expect(JSON.stringify(payload)).not.toContain("jane@example.com");
+  });
+
+  it("rejects a new tenant without complete lease facts", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Tenant lease validation writer",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/tenants",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          fullName: "Incomplete Lease",
+          propertyLabel: "123 Main Street",
+          preferredChannels: []
+        })
+      }
+    ), context(["tenants"]));
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe("VALIDATION_ERROR");
+  });
+
+  it("matches a tenant, uploads a private receipt, marks rent collected, and reads it back", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "Rent payment assistant",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["payments:read", "payments:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const period = currentPaymentPeriod(new Date().toISOString(), "America/Vancouver").slice(0, 7);
+    const auth = { authorization: `Bearer ${credential.token}` };
+
+    const wildcardMatch = await POST(new Request(
+      "http://localhost/api/automation/v1/tenants/payment-match",
+      {
+        method: "POST",
+        headers: { ...auth, "content-type": "application/json" },
+        body: JSON.stringify({
+          fullName: "%",
+          email: "tenant@example.com",
+          period
+        })
+      }
+    ), context(["tenants", "payment-match"]));
+    expect(wildcardMatch.status).toBe(404);
+
+    const matchResponse = await POST(new Request(
+      "http://localhost/api/automation/v1/tenants/payment-match",
+      {
+        method: "POST",
+        headers: { ...auth, "content-type": "application/json" },
+        body: JSON.stringify({
+          fullName: "Demo Tenant",
+          email: "tenant@example.com",
+          period
+        })
+      }
+    ), context(["tenants", "payment-match"]));
+    const matchPayload = await matchResponse.json();
+    expect(matchResponse.status, JSON.stringify(matchPayload)).toBe(200);
+    expect(matchPayload.data).toMatchObject({
+      unique: true,
+      matches: [{
+        id: "30000000-0000-4000-8000-000000000001",
+        emailMasked: "te•••@example.com"
+      }]
+    });
+
+    const form = new FormData();
+    form.set("tenantId", matchPayload.data.matches[0].id);
+    form.set("period", period);
+    form.set("file", new File(
+      [new TextEncoder().encode("%PDF-1.7 automation receipt")],
+      "rent-receipt.pdf",
+      { type: "application/pdf" }
+    ));
+    const receiptIdempotencyKey = crypto.randomUUID();
+    const uploadResponse = await POST(new Request(
+      "http://localhost/api/automation/v1/payment-receipts",
+      {
+        method: "POST",
+        headers: { ...auth, "idempotency-key": receiptIdempotencyKey },
+        body: form
+      }
+    ), context(["payment-receipts"]));
+    const uploadPayload = await uploadResponse.json();
+    expect(uploadResponse.status, JSON.stringify(uploadPayload)).toBe(201);
+
+    const otherPeriod = Temporal.PlainDate.from(`${period}-01`)
+      .add({ months: 1 })
+      .toString()
+      .slice(0, 7);
+    const reusedForm = new FormData();
+    reusedForm.set("tenantId", matchPayload.data.matches[0].id);
+    reusedForm.set("period", otherPeriod);
+    reusedForm.set("file", new File(
+      [new TextEncoder().encode("%PDF-1.7 automation receipt")],
+      "rent-receipt.pdf",
+      { type: "application/pdf" }
+    ));
+    const reusedResponse = await POST(new Request(
+      "http://localhost/api/automation/v1/payment-receipts",
+      {
+        method: "POST",
+        headers: { ...auth, "idempotency-key": receiptIdempotencyKey },
+        body: reusedForm
+      }
+    ), context(["payment-receipts"]));
+    expect(reusedResponse.status).toBe(409);
+    expect((await reusedResponse.json()).error.code).toBe("IDEMPOTENCY_KEY_REUSED");
+
+    const collectResponse = await PUT(new Request(
+      `http://localhost/api/automation/v1/tenants/${matchPayload.data.matches[0].id}/rent-payments/${period}/collected`,
+      {
+        method: "PUT",
+        headers: {
+          ...auth,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({ receiptId: uploadPayload.data.id })
+      }
+    ), context([
+      "tenants",
+      matchPayload.data.matches[0].id,
+      "rent-payments",
+      period,
+      "collected"
+    ]));
+    expect(collectResponse.status, await collectResponse.text()).toBe(200);
+
+    const getResponse = await GET(new Request(
+      `http://localhost/api/automation/v1/tenants/${matchPayload.data.matches[0].id}/rent-payments?period=${period}`,
+      { headers: auth }
+    ), context(["tenants", matchPayload.data.matches[0].id, "rent-payments"]));
+    await expect(getResponse.json()).resolves.toMatchObject({
+      data: {
+        status: "collected",
+        receiptId: uploadPayload.data.id
+      }
+    });
   });
 
   it("atomically onboards an owner-confirmed PDF tenant with email permission and reminders", async () => {
@@ -155,7 +313,9 @@ describe("Automation API route", () => {
             fullName: "Mei Lin",
             propertyLabel: "456 Oak Street",
             unitLabel: "305",
-            moveInDate: "2026-08-01",
+            leaseType: "fixed_term",
+            leaseStartDate: "2026-08-01",
+            leaseEndDate: "2027-07-31",
             rentDueDay: 1,
             email: "mei@example.com",
             phoneE164: "+16045550123",
@@ -232,6 +392,69 @@ describe("Automation API route", () => {
 
     expect(response.status).toBe(403);
     expect((await response.json()).error.code).toBe("AUTOMATION_SCOPE_REQUIRED");
+  });
+
+  it("drops stale Agent overdue events and returns only today's event", async () => {
+    const automationRepository = getAutomationRepository();
+    const credential = await automationRepository.createServiceAccount({
+      name: "Agent overdue reader",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["payments:read"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const repository = getRepository();
+    const now = Temporal.Now.instant();
+    const localToday = now.toZonedDateTimeISO("America/Vancouver").toPlainDate();
+    await repository.createTenant({
+      fullName: "Agent Overdue Tenant",
+      propertyLabel: "789 Pine Street",
+      unitLabel: null,
+      moveInDate: localToday.subtract({ months: 2 }).toString(),
+      leaseType: "month_to_month",
+      leaseEndDate: null,
+      rentDueDay: 1,
+      email: null,
+      phoneE164: null,
+      preferredChannels: [],
+      timezone: "America/Vancouver",
+      internalNotes: null,
+      isActive: true
+    }, crypto.randomUUID());
+    await repository.materializeRentPeriods(
+      localToday.subtract({ months: 1 }).toString()
+    );
+    const availableAt = now.subtract({ seconds: 1 }).toString();
+    await repository.enqueueAgentNotification({
+      eventKey: `agent-stale:${crypto.randomUUID()}`,
+      kind: "daily_overdue_rent_summary",
+      payload: { localDate: localToday.subtract({ days: 1 }).toString() },
+      availableAt
+    });
+    await repository.enqueueAgentNotification({
+      eventKey: `agent-current:${crypto.randomUUID()}`,
+      kind: "daily_overdue_rent_summary",
+      payload: { localDate: localToday.toString() },
+      availableAt
+    });
+
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/agent-notifications/claim",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json"
+        },
+        body: "{}"
+      }
+    ), context(["agent-notifications", "claim"]));
+    const payload = await response.json();
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.data).toMatchObject({
+      kind: "daily_overdue_rent_summary",
+      text: expect.stringContaining("Agent Overdue Tenant")
+    });
   });
 
   it("updates existing tenant fields without exposing stored contact data", async () => {

@@ -1,5 +1,6 @@
 import { getRepository } from "@/data/repository";
 import { createNotificationProviders, resolveEmailProviderMode } from "@/features/notifications/providers";
+import type { EmailProvider } from "@/features/notifications/providers/types";
 import { ApiError } from "@/lib/api";
 
 export interface OperationalAlertDeliverySummary {
@@ -7,6 +8,16 @@ export interface OperationalAlertDeliverySummary {
   sent: number;
   failed: number;
   skipped: number;
+}
+
+export function warningsBeforeReminderRepair(
+  warnings: string[],
+  forcePaused: boolean
+) {
+  return warnings.filter((warning) =>
+    !warning.includes("reconciliation")
+    && (!forcePaused || !warning.includes("15 minutes"))
+  );
 }
 
 function alertCode(message: string) {
@@ -34,9 +45,37 @@ function safeHtml(value: string) {
     .replaceAll("'", "&#039;");
 }
 
+function alertMessage(code: string, warning: string, requestId: string) {
+  if (code === "reconciliation_gap") {
+    const text = [
+      "The reminder worker tried to repair a missing scheduled rent reminder, but a gap still remains.",
+      "No tenant reminder was confirmed for that schedule.",
+      "Open Admin → Email activity and review the Not sent or Delivery failed item before sending another copy.",
+      "",
+      `Request/job ID: ${requestId}`
+    ].join("\n");
+    return {
+      subject: "Ting Ting action needed: a rent reminder could not be repaired",
+      text,
+      html: [
+        "<p>The reminder worker tried to repair a missing scheduled rent reminder, but a gap still remains.</p>",
+        "<p><strong>No tenant reminder was confirmed for that schedule.</strong></p>",
+        "<p>Open Admin → Email activity and review the Not sent or Delivery failed item before sending another copy.</p>",
+        `<p>Request/job ID: ${safeHtml(requestId)}</p>`
+      ].join("")
+    };
+  }
+  return {
+    subject: `Ting Ting admin alert: ${code.replaceAll("_", " ")}`,
+    text: `${warning}\n\nRequest/job ID: ${requestId}`,
+    html: `<p>${safeHtml(warning)}</p><p>Request/job ID: ${safeHtml(requestId)}</p>`
+  };
+}
+
 export async function deliverOperationalAlerts(
   warnings: string[],
-  requestId: string
+  requestId: string,
+  providerOverride?: EmailProvider
 ): Promise<OperationalAlertDeliverySummary> {
   const uniqueWarnings = [...new Set(warnings)];
   const summary = { considered: uniqueWarnings.length, sent: 0, failed: 0, skipped: 0 };
@@ -48,7 +87,8 @@ export async function deliverOperationalAlerts(
   }
 
   const repository = getRepository();
-  const provider = createNotificationProviders({ email: mode, sms: "disabled" }).email;
+  const provider = providerOverride
+    ?? createNotificationProviders({ email: mode, sms: "disabled" }).email;
   for (const warning of uniqueWarnings) {
     const code = alertCode(warning);
     const bucket = bucketStart(code);
@@ -58,11 +98,10 @@ export async function deliverOperationalAlerts(
       continue;
     }
     try {
+      const message = alertMessage(code, warning, requestId);
       const result = await provider.send({
         to: recipient,
-        subject: `Ting Ting admin alert: ${code.replaceAll("_", " ")}`,
-        text: `${warning}\n\nRequest/job ID: ${requestId}`,
-        html: `<p>${safeHtml(warning)}</p><p>Request/job ID: ${safeHtml(requestId)}</p>`,
+        ...message,
         idempotencyKey: `operational-alert:${code}:${bucket}`
       });
       await repository.finishOperationalAlert(deliveryId, "sent", result.providerMessageId, null);

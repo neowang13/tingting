@@ -1,9 +1,13 @@
 import { handleApiError, ok, ApiError } from "@/lib/api";
 import { isDemoMode } from "@/lib/auth";
 import { getRepository } from "@/data/repository";
-import { deliverOperationalAlerts } from "@/features/operations/alerts";
+import {
+  deliverOperationalAlerts,
+  warningsBeforeReminderRepair
+} from "@/features/operations/alerts";
 import {
   deliverOwnerNotifications,
+  enqueueDailyOverdueRentSummary,
   enqueueWeeklyTenantSummary
 } from "@/features/notifications/owner-notifications";
 
@@ -22,13 +26,16 @@ export async function POST(request: Request) {
     const repository = getRepository();
     const before = await repository.dashboard();
     const forcePaused = process.env.REMINDERS_FORCE_PAUSED !== "false";
-    const effectiveWarnings = forcePaused
-      ? before.warnings.filter((warning) => !warning.includes("15 minutes"))
-      : before.warnings;
+    const effectiveWarnings = warningsBeforeReminderRepair(
+      before.warnings,
+      forcePaused
+    );
     const alertsBeforeRun = await deliverOperationalAlerts(effectiveWarnings, requestId);
     const worker = await repository.runReminderWorker();
     const maintenance = await repository.runDailyMaintenance();
     const weeklyTenantSummary = await enqueueWeeklyTenantSummary()
+      .catch(() => ({ queued: false, reason: "queue_error" as const }));
+    const dailyOverdueRentSummary = await enqueueDailyOverdueRentSummary()
       .catch(() => ({ queued: false, reason: "queue_error" as const }));
     const ownerNotifications = await deliverOwnerNotifications()
       .catch(() => ({ claimed: 0, sent: 0, failed: 1, skipped: 0 }));
@@ -41,6 +48,7 @@ export async function POST(request: Request) {
       worker,
       maintenance,
       weeklyTenantSummary,
+      dailyOverdueRentSummary,
       ownerNotifications,
       alertsBeforeRun,
       alertsAfterRun

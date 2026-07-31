@@ -23,7 +23,9 @@ const scopes: AutomationScope[] = [
   "tenants:import",
   "permissions:grant",
   "jobs:read",
-  "schedules:read"
+  "schedules:read",
+  "payments:read",
+  "payments:write"
 ];
 
 function valueFor(text: string, key: string) {

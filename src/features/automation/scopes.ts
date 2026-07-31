@@ -22,6 +22,12 @@ export type AutomationRouteName =
   | "schedules.get"
   | "schedules.save"
   | "schedules.statusPreview"
+  | "payments.matchTenant"
+  | "payments.uploadReceipt"
+  | "payments.get"
+  | "payments.markCollected"
+  | "agentNotifications.claim"
+  | "agentNotifications.ack"
   | "confirmations.execute"
   | "jobs.get";
 
@@ -46,6 +52,12 @@ export const routeScopes: Record<AutomationRouteName, AutomationScope | null> = 
   "schedules.get": "schedules:read",
   "schedules.save": "schedules:write",
   "schedules.statusPreview": "schedules:enable",
+  "payments.matchTenant": "payments:read",
+  "payments.uploadReceipt": "payments:write",
+  "payments.get": "payments:read",
+  "payments.markCollected": "payments:write",
+  "agentNotifications.claim": "payments:read",
+  "agentNotifications.ack": "payments:read",
   "confirmations.execute": null,
   "jobs.get": "jobs:read"
 };

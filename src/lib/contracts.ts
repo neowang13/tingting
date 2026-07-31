@@ -55,6 +55,7 @@ export type PropertyType =
 export type AvailabilityStatus = "available_now" | "available_on" | "contact";
 export type FurnishedStatus = "unfurnished" | "furnished" | "partly_furnished";
 export type LeaseType = "fixed_term" | "month_to_month" | "flexible";
+export type TenantLeaseType = "fixed_term" | "month_to_month";
 export type SmokingPolicy = "not_allowed" | "outdoor_only" | "allowed" | "contact";
 export type PetStatus = "not_allowed" | "considered" | "allowed";
 export type NotificationStatus =
@@ -227,6 +228,8 @@ export interface Tenant extends Versioned {
   propertyLabel: string;
   unitLabel: string | null;
   moveInDate: string | null;
+  leaseType: TenantLeaseType | null;
+  leaseEndDate: string | null;
   rentDueDay: number;
   email: string | null;
   phoneE164: string | null;
@@ -248,9 +251,78 @@ export interface Tenant extends Versioned {
   nextRunAt?: string | null;
   lastDeliveryStatus?: NotificationStatus | null;
   lastDeliveryAt?: string | null;
+  currentRentPayment?: TenantRentPayment | null;
 }
 
-export type OwnerNotificationKind = "tenant_upload" | "weekly_tenant_summary";
+export type RentPaymentStatus = "due" | "collected";
+
+export interface TenantRentPayment extends Versioned {
+  id: string;
+  tenantId: string;
+  paymentPeriod: string;
+  dueDate: string;
+  status: RentPaymentStatus;
+  receiptId: string | null;
+  collectedAt: string | null;
+  collectedByType: "admin" | "automation" | null;
+  collectedById: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export interface TenantRentPaymentReceipt {
+  id: string;
+  tenantId: string;
+  paymentPeriod: string;
+  originalFilename: string;
+  mimeType: "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
+  byteSize: number;
+  sha256Digest: string;
+  createdAt: string;
+}
+
+export interface RentPaymentDetail {
+  tenant: Tenant;
+  payment: TenantRentPayment;
+}
+
+export interface LeaseExpiryDetail {
+  tenant: Tenant;
+  daysRemaining: number;
+}
+
+export interface RentReportSnapshot {
+  timezone: string;
+  generatedThrough: string;
+  weekStart: string;
+  weekEnd: string;
+  nextWeekStart: string;
+  nextWeekEnd: string;
+  leaseExpiryWindowEnd: string;
+  thisWeek: {
+    due: RentPaymentDetail[];
+    collected: RentPaymentDetail[];
+    outstanding: RentPaymentDetail[];
+  };
+  nextWeek: {
+    due: RentPaymentDetail[];
+    collectedEarly: RentPaymentDetail[];
+    outstanding: RentPaymentDetail[];
+  };
+  overdue: Array<RentPaymentDetail & { daysOverdue: number }>;
+  leases: {
+    monthToMonthCount: number;
+    expiringWithin7Days: LeaseExpiryDetail[];
+    expiringWithin30Days: LeaseExpiryDetail[];
+    expiredActive: LeaseExpiryDetail[];
+  };
+  recentCollections: RentPaymentDetail[];
+}
+
+export type OwnerNotificationKind =
+  | "tenant_upload"
+  | "weekly_tenant_summary"
+  | "daily_overdue_rent_summary";
 
 export interface OwnerNotificationDelivery {
   id: string;
@@ -363,6 +435,8 @@ export interface TenantListFilters {
   lifecycle?: "active" | "inactive" | "archived";
   contact?: "email_allowed" | "email_blocked" | "sms_allowed" | "sms_blocked";
   schedule?: "enabled" | "disabled" | "missing";
+  rentStatus?: RentPaymentStatus;
+  leaseType?: TenantLeaseType | "needs_details";
   limit?: number;
 }
 

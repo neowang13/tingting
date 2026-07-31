@@ -24,6 +24,8 @@ import {
   importCommitPreviewSchema,
   importModeSchema,
   limitSchema,
+  markRentCollectedSchema,
+  paymentMatchSchema,
   permissionPreviewSchema,
   rentalStatusPreviewSchema,
   rentalUpdateSchema,
@@ -32,7 +34,13 @@ import {
   tenantPdfOnboardingSchema,
   tenantPatchSchema
 } from "@/features/automation/schemas";
+import {
+  currentPaymentPeriod,
+  paymentPeriod
+} from "@/features/rent-payments/service";
+import { Temporal } from "@js-temporal/polyfill";
 import { nextOccurrence } from "@/features/reminders/scheduler";
+import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 import {
   deliverOwnerNotifications,
   enqueueTenantUploadNotification
@@ -117,11 +125,33 @@ function publicTenantResult(tenant: Awaited<ReturnType<ReturnType<typeof getAuto
     emailContactStatus: tenant.emailContactStatus,
     smsContactStatus: tenant.smsContactStatus,
     timezone: tenant.timezone,
+    leaseType: tenant.leaseType,
+    leaseStartDate: tenant.moveInDate,
+    moveInDate: tenant.moveInDate,
+    leaseEndDate: tenant.leaseEndDate,
     isActive: tenant.isActive,
     sourceSystem: tenant.sourceSystem,
     externalReference: tenant.externalReference,
     updatedAt: tenant.updatedAt
   };
+}
+
+function assertPaymentPeriodAllowed(value: string) {
+  const period = Temporal.PlainDate.from(paymentPeriod(value));
+  const current = Temporal.PlainDate.from(currentPaymentPeriod());
+  const earliest = current.subtract({ months: 12 });
+  const latest = current.add({ months: 1 });
+  if (
+    Temporal.PlainDate.compare(period, earliest) < 0
+    || Temporal.PlainDate.compare(period, latest) > 0
+  ) {
+    throw new ApiError(
+      422,
+      "PAYMENT_PERIOD_OUT_OF_RANGE",
+      "Automation may use the past 12 months through next month."
+    );
+  }
+  return period.toString();
 }
 
 async function idempotent<T>(
@@ -203,6 +233,16 @@ export async function GET(request: Request, context: Context) {
       authorize(actor, routeName);
       return success(await repository.getTenant(id), requestId);
     }
+    if (resource === "tenants" && id && action === "rent-payments") {
+      routeName = "payments.get";
+      authorize(actor, routeName);
+      const url = new URL(request.url);
+      const period = assertPaymentPeriodAllowed(url.searchParams.get("period") ?? "");
+      return success(
+        await getRepository().getTenantRentPayment(id, period),
+        requestId
+      );
+    }
     if (resource === "tenants" && id && action === "schedule") {
       routeName = "schedules.get";
       authorize(actor, routeName);
@@ -276,6 +316,45 @@ export async function POST(request: Request, context: Context) {
     const [resource, id, action] = segments;
     const repository = getAutomationRepository();
 
+    if (resource === "payment-receipts" && !id) {
+      routeName = "payments.uploadReceipt";
+      authorize(actor, routeName);
+      assertMutationAvailable();
+      const form = await request.formData();
+      const file = form.get("file");
+      const tenantId = String(form.get("tenantId") ?? "");
+      const period = assertPaymentPeriodAllowed(String(form.get("period") ?? ""));
+      if (!(file instanceof File) || !tenantId) {
+        throw new ApiError(400, "INVALID_MULTIPART", "tenantId, period, and a managed receipt file are required.");
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const digest = sha256Digest({
+        tenantId,
+        period,
+        originalFilename: file.name,
+        declaredMimeType: file.type,
+        fileDigest: sha256Digest(bytes)
+      });
+      const result = await idempotent(request, actor, digest, async () => {
+        const receipt = await getRepository().registerTenantRentReceipt({
+          tenantId,
+          paymentPeriod: period,
+          originalFilename: file.name,
+          declaredMimeType: file.type,
+          bytes,
+          actorType: "automation",
+          actorId: actor!.serviceAccountId
+        });
+        return {
+          status: 201,
+          data: receipt,
+          resourceType: "tenant_rent_payment_receipt",
+          resourceId: receipt.id
+        };
+      });
+      return success(result.data, requestId, result.status);
+    }
+
     if (resource === "media" && !id) {
       routeName = "media.upload";
       authorize(actor, routeName);
@@ -327,6 +406,132 @@ export async function POST(request: Request, context: Context) {
     const rawBody = await readJson(request);
     const bodyDigest = sha256Digest(rawBody);
 
+    if (resource === "tenants" && id === "payment-match" && !action) {
+      routeName = "payments.matchTenant";
+      authorize(actor, routeName);
+      const input = paymentMatchSchema.parse(rawBody);
+      const period = assertPaymentPeriodAllowed(input.period);
+      const matches = await getRepository().findTenantsForPayment(input.fullName, input.email);
+      if (matches.length === 0) {
+        throw new ApiError(
+          404,
+          "TENANT_PAYMENT_MATCH_NOT_FOUND",
+          "The name and email do not identify the same tenant."
+        );
+      }
+      return success({
+        period,
+        unique: matches.length === 1,
+        matches: matches.map((tenant) => ({
+          id: tenant.id,
+          fullName: tenant.fullName,
+          emailMasked: tenant.email
+            ? `${tenant.email.slice(0, 2)}•••@${tenant.email.split("@")[1]}`
+            : null,
+          propertyLabel: tenant.propertyLabel,
+          unitLabel: tenant.unitLabel,
+          updatedAt: tenant.updatedAt
+        }))
+      }, requestId);
+    }
+    if (resource === "agent-notifications" && id === "claim" && !action) {
+      routeName = "agentNotifications.claim";
+      authorize(actor, routeName);
+      const repository = getRepository();
+      const now = new Date().toISOString();
+      const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
+      const localDate = Temporal.Instant.from(now)
+        .toZonedDateTimeISO(timezone)
+        .toPlainDate()
+        .toString();
+      let claimed: Record<string, unknown> | null = null;
+      for (let attempt = 0; attempt < 25; attempt += 1) {
+        const candidate = await repository.claimAgentNotification(
+          actor.serviceAccountId,
+          now
+        );
+        if (!candidate) break;
+        const candidateId = typeof candidate.id === "string" ? candidate.id : null;
+        if (!candidateId) {
+          throw new ApiError(
+            500,
+            "AGENT_NOTIFICATION_INVALID",
+            "The claimed Agent notification is invalid."
+          );
+        }
+        const payload = candidate.payload && typeof candidate.payload === "object"
+          ? candidate.payload as Record<string, unknown>
+          : {};
+        const staleDaily = candidate.kind === "daily_overdue_rent_summary"
+          && payload.localDate !== localDate;
+        if (staleDaily) {
+          await repository.acknowledgeAgentNotification(
+            candidateId,
+            actor.serviceAccountId,
+            now
+          );
+          continue;
+        }
+        claimed = candidate;
+        break;
+      }
+      if (!claimed) return success(null, requestId);
+      if (claimed.kind === "daily_overdue_rent_summary") {
+        const snapshot = await repository.rentReportSnapshot(now, timezone);
+        if (snapshot.overdue.length === 0) {
+          const claimedId = typeof claimed.id === "string" ? claimed.id : null;
+          if (!claimedId) {
+            throw new ApiError(
+              500,
+              "AGENT_NOTIFICATION_INVALID",
+              "The claimed Agent notification is invalid."
+            );
+          }
+          await repository.acknowledgeAgentNotification(
+            claimedId,
+            actor.serviceAccountId,
+            now
+          );
+          return success(null, requestId);
+        }
+        const visible = snapshot.overdue.slice(0, 20);
+        const details = visible.map((detail) =>
+          `${detail.tenant.fullName}（${detail.tenant.propertyLabel}${detail.tenant.unitLabel ? ` / ${detail.tenant.unitLabel}` : ""}）${detail.payment.paymentPeriod.slice(0, 7)} 月租金已逾期 ${detail.daysOverdue} 天`
+        );
+        const remainder = snapshot.overdue.length - visible.length;
+        return success({
+          id: claimed.id,
+          eventKey: claimed.event_key ?? claimed.eventKey,
+          kind: claimed.kind,
+          text: `今日仍有 ${snapshot.overdue.length} 份逾期租金未收到：${details.join("；")}${remainder > 0 ? `；另有 ${remainder} 份未展开` : ""}。请核对；收到后请把姓名、邮箱、月份和收款凭证发给我。`
+        }, requestId);
+      }
+      const payload = claimed.payload && typeof claimed.payload === "object"
+        ? claimed.payload as Record<string, unknown>
+        : {};
+      return success({
+        id: claimed.id,
+        eventKey: claimed.event_key ?? claimed.eventKey,
+        kind: claimed.kind,
+        text: payload.text
+      }, requestId);
+    }
+    if (resource === "agent-notifications" && id && action === "ack") {
+      routeName = "agentNotifications.ack";
+      authorize(actor, routeName);
+      const result = await idempotent(request, actor, bodyDigest, async () => ({
+        status: 200,
+        data: await getRepository().acknowledgeAgentNotification(
+          id,
+          actor!.serviceAccountId,
+          new Date().toISOString()
+        ),
+        resourceType: "agent_notification_event",
+        resourceId: id
+      }));
+      return success(result.data, requestId, result.status);
+    }
+
     if (resource === "tenant-onboardings" && !id) {
       routeName = "tenants.onboard";
       authorize(actor, routeName);
@@ -343,6 +548,7 @@ export async function POST(request: Request, context: Context) {
         await enqueueTenantUploadNotification(tenant)
           .then(() => deliverOwnerNotifications({ limit: 1 }))
           .catch(() => undefined);
+        const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
         return {
           status: 201,
           data: {
@@ -356,7 +562,8 @@ export async function POST(request: Request, context: Context) {
               configured: Boolean(current.schedule),
               isEnabled: current.schedule?.isEnabled ?? false,
               nextRunAt: current.schedule?.nextRunAt ?? null,
-              policy: "global"
+              policy: "global",
+              catchUp: reminderCatchUp
             }
           },
           resourceType: "tenant",
@@ -395,9 +602,13 @@ export async function POST(request: Request, context: Context) {
         await enqueueTenantUploadNotification(tenant)
           .then(() => deliverOwnerNotifications({ limit: 1 }))
           .catch(() => undefined);
+        const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
         return {
           status: 201,
-          data: publicTenantResult(tenant),
+          data: {
+            ...publicTenantResult(tenant),
+            reminderCatchUp
+          },
           resourceType: "tenant",
           resourceId: tenant.id,
           resourceVersion: tenant.updatedAt
@@ -552,16 +763,25 @@ export async function POST(request: Request, context: Context) {
       const intent = await repository.getConfirmation(id);
       assertAutomationScope(actor.scopes, confirmationActionScopes[intent.action]);
       assertConfirmationExecutable(intent, actor.serviceAccountId, input.digest, input.acknowledged);
-      const result = await idempotent(request, actor, bodyDigest, async () => ({
-        status: 200,
-        data: await repository.executeConfirmation(
+      const result = await idempotent(request, actor, bodyDigest, async () => {
+        const executed = await repository.executeConfirmation(
           intent,
           request.headers.get("idempotency-key")!,
           actor!
-        ),
-        resourceType: intent.targetType,
-        resourceId: intent.targetId
-      }));
+        );
+        const reminderCatchUp = intent.action === "tenant.permission.grant"
+          && intent.payload.channel === "email"
+          ? await attemptImmediateReminderCatchUp(intent.targetId)
+          : null;
+        return {
+          status: 200,
+          data: executed && typeof executed === "object" && !Array.isArray(executed)
+            ? { ...executed, ...(reminderCatchUp ? { reminderCatchUp } : {}) }
+            : { result: executed, ...(reminderCatchUp ? { reminderCatchUp } : {}) },
+          resourceType: intent.targetType,
+          resourceId: intent.targetId
+        };
+      });
       return success(result.data, requestId, result.status);
     }
     throw new ApiError(404, "ROUTE_NOT_FOUND", "The Automation API route was not found.");
@@ -637,7 +857,39 @@ export async function PUT(request: Request, context: Context) {
   try {
     const actor = await authenticate(request, requestId);
     const { segments } = await context.params;
-    const [resource, tenantId, action] = segments;
+    const [resource, tenantId, action, periodValue, nestedAction] = segments;
+    if (
+      resource === "tenants"
+      && tenantId
+      && action === "rent-payments"
+      && periodValue
+      && nestedAction === "collected"
+    ) {
+      authorize(actor, "payments.markCollected");
+      assertMutationAvailable();
+      const rawBody = await readJson(request);
+      const input = markRentCollectedSchema.parse(rawBody);
+      const period = assertPaymentPeriodAllowed(periodValue);
+      const result = await idempotent(request, actor, sha256Digest(rawBody), async () => {
+        const payment = await getRepository().markTenantRentCollected({
+          tenantId,
+          paymentPeriod: period,
+          receiptId: input.receiptId,
+          actorType: "automation",
+          actorId: actor.serviceAccountId,
+          collectedAt: input.collectedAt,
+          note: input.note
+        });
+        return {
+          status: 200,
+          data: payment,
+          resourceType: "tenant_rent_payment",
+          resourceId: payment.id,
+          resourceVersion: payment.updatedAt
+        };
+      });
+      return success(result.data, requestId, result.status);
+    }
     if (resource !== "tenants" || !tenantId || action !== "schedule") {
       throw new ApiError(404, "ROUTE_NOT_FOUND", "The Automation API route was not found.");
     }

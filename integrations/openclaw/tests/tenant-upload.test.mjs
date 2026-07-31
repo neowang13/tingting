@@ -30,6 +30,8 @@ test("single-tenant upload derives safe defaults and creates after duplicate pre
     fullName: " Jane Chen ",
     propertyLabel: " 123 Main Street ",
     unitLabel: " 1208 ",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01",
     email: " JANE@EXAMPLE.COM "
   });
   const requests = [];
@@ -73,6 +75,9 @@ test("single-tenant upload derives safe defaults and creates after duplicate pre
   assert.equal(requests[1].body.smsContactStatus, "unconfirmed");
   assert.equal(requests[1].body.timezone, "America/Vancouver");
   assert.equal(requests[1].body.isActive, true);
+  assert.equal(requests[1].body.leaseType, "month_to_month");
+  assert.equal(requests[1].body.leaseStartDate, "2026-08-01");
+  assert.equal(requests[1].body.leaseEndDate, null);
   assert.equal(result.data.action, "created");
   assert.equal(result.data.created, true);
 });
@@ -82,6 +87,9 @@ test("owner-confirmed PDF onboarding uses the atomic permission and reminder rou
     fullName: "Mei Lin",
     propertyLabel: "456 Oak Street",
     unitLabel: "305",
+    leaseType: "fixed_term",
+    leaseStartDate: "2026-08-01",
+    leaseEndDate: "2027-07-31",
     email: "MEI@EXAMPLE.COM",
     ownerConfirmation: {
       confirmedAt: "2026-07-30T20:00:00Z",
@@ -123,6 +131,9 @@ test("owner-confirmed PDF onboarding uses the atomic permission and reminder rou
   assert.equal(requests[1].body.tenant.email, "mei@example.com");
   assert.equal(requests[1].body.tenant.emailContactStatus, "unconfirmed");
   assert.equal(requests[1].body.tenant.smsContactStatus, "unconfirmed");
+  assert.equal(requests[1].body.tenant.leaseType, "fixed_term");
+  assert.equal(requests[1].body.tenant.leaseStartDate, "2026-08-01");
+  assert.equal(requests[1].body.tenant.leaseEndDate, "2027-07-31");
   assert.deepEqual(requests[1].body.ownerConfirmation, {
     confirmedAt: "2026-07-30T20:00:00Z",
     documentDigest: `sha256:${"a".repeat(64)}`
@@ -137,7 +148,9 @@ test("matching source reference returns the existing tenant without another writ
     sourceSystem: "property-manager",
     externalReference: "tenant-42",
     fullName: "Jane Chen",
-    propertyLabel: "123 Main Street"
+    propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01"
   });
   const requests = [];
   const existing = {
@@ -176,7 +189,9 @@ test("duplicate preflight follows tenant search cursors before creating", async 
     sourceSystem: "property-manager",
     externalReference: "tenant-42",
     fullName: "Jane Chen",
-    propertyLabel: "123 Main Street"
+    propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01"
   });
   const requests = [];
   const existing = {
@@ -211,7 +226,9 @@ test("matching name, property, and unit requires review when no external referen
   const directory = await tenantFile({
     fullName: "Jane Chen",
     propertyLabel: "123 Main Street",
-    unitLabel: "1208"
+    unitLabel: "1208",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01"
   });
   const existingId = "00000000-0000-4000-8000-000000000042";
   const client = {
@@ -246,6 +263,8 @@ test("upload payload never infers permission and rejects a channel without its d
   const payload = tenantUploadPayload({
     fullName: "Jane Chen",
     propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01",
     phoneE164: "+16045550123"
   });
   assert.deepEqual(payload.preferredChannels, ["sms"]);
@@ -256,6 +275,8 @@ test("upload payload never infers permission and rejects a channel without its d
     () => tenantUploadPayload({
       fullName: "Jane Chen",
       propertyLabel: "123 Main Street",
+      leaseType: "month_to_month",
+      leaseStartDate: "2026-08-01",
       preferredChannels: ["email"]
     }),
     (error) => error.code === "LOCAL_VALIDATION_ERROR"
@@ -266,6 +287,8 @@ test("tenant upload schema rejects permission fields and malformed contact data"
   const directory = await tenantFile({
     fullName: "Jane Chen",
     propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01",
     email: "not-an-email",
     emailContactStatus: "allowed"
   });

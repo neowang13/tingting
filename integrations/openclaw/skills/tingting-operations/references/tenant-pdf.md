@@ -90,8 +90,10 @@ Extract these values with page-number evidence:
 3. tenant full legal/display name;
 4. email address, if needed for the requested operation;
 5. phone number, if needed for the requested operation;
-6. move-in or lease start date, when explicit.
-7. recurring rent payment due day, when explicit.
+6. lease type;
+7. lease start date;
+8. lease end date for a fixed-term lease;
+9. recurring rent payment due day, when explicit.
 
 For BC RTB-1 forms, read the filled ordinal immediately after the printed
 `due date, e.g., 1st, 2nd, 3rd, .... 31st` prompt in section 3(a). Report it as
@@ -130,6 +132,11 @@ Mark a value `uncertain` when OCR is ambiguous, row counts differ, the owner
 target does not uniquely match, or multiple addresses/units appear. Never
 choose between unresolved conflicts without asking the owner.
 
+If lease type is absent or uncertain, ask the owner whether it is `fixed term`
+or `month to month`. A fixed-term tenant also requires an explicit end date.
+Never infer lease type merely because the source is a tenancy agreement. Do not
+create the tenant until these lease facts are supplied and confirmed.
+
 The candidate file contains allowlisted fields and evidence, not raw OCR text.
 Do not reconstruct or request the full OCR transcript.
 
@@ -147,6 +154,7 @@ Do not use an email address or phone number as evidence of contact permission.
 ## Upload boundary
 
 The PDF alone does not authorize an upload. Upload only when the owner's current
-message asks for it and the required tenant name and property are unambiguous.
+message asks for it and the required tenant name, property, lease type, and
+lease dates are unambiguous.
 Resolve an existing rental/property without guessing. Keep email and SMS
 permission statuses `unconfirmed`.

@@ -31,6 +31,12 @@ const commands = new Map([
   ["tenants onboard", { method: "POST", path: () => "/tenant-onboardings", input: true, mutation: true }],
   ["tenants update", { method: "PATCH", path: ({ id }) => `/tenants/${id}`, id: true, input: true, mutation: true }],
   ["tenants preview-permission", { method: "POST", path: ({ id }) => `/tenants/${id}/permission-previews`, id: true, input: true, mutation: true }],
+  ["payments match-tenant", { method: "POST", path: () => "/tenants/payment-match", input: true }],
+  ["payments upload-receipt", { input: true, mutation: true, receiptMutation: true }],
+  ["payments get", { tenantId: true, input: true }],
+  ["payments mark-collected", { tenantId: true, input: true, mutation: true }],
+  ["agent-notifications claim", { method: "POST", path: () => "/agent-notifications/claim" }],
+  ["agent-notifications ack", { method: "POST", path: ({ id }) => `/agent-notifications/${id}/ack`, id: true, mutation: true }],
   ["imports get", { method: "GET", path: ({ id }) => `/tenant-imports/${id}`, id: true }],
   ["imports rows", { method: "GET", path: ({ id }) => `/tenant-imports/${id}/rows`, id: true, query: true }],
   ["imports preview-commit", { method: "POST", path: ({ id }) => `/tenant-imports/${id}/commit-previews`, id: true, input: true, mutation: true }],
@@ -50,6 +56,10 @@ const schemaUrls = {
   "tenants onboard": new URL("../schemas/tenant-onboarding.schema.json", import.meta.url),
   "tenants update": new URL("../schemas/tenant-update.schema.json", import.meta.url),
   "tenants preview-permission": new URL("../schemas/permission-preview.schema.json", import.meta.url),
+  "payments match-tenant": new URL("../schemas/payment-match.schema.json", import.meta.url),
+  "payments upload-receipt": new URL("../schemas/payment-receipt.schema.json", import.meta.url),
+  "payments get": new URL("../schemas/payment-get.schema.json", import.meta.url),
+  "payments mark-collected": new URL("../schemas/payment-collected.schema.json", import.meta.url),
   "imports create": new URL("../schemas/tenant-import-request.schema.json", import.meta.url),
   "imports rows": new URL("../schemas/import-row-query.schema.json", import.meta.url),
   "imports preview-commit": new URL("../schemas/import-commit-preview.schema.json", import.meta.url),
@@ -356,6 +366,94 @@ async function readInboundPdf(fileName, environment, nowMs) {
     );
   } finally {
     await handle.close().catch(() => {});
+  }
+}
+
+function paymentMediaBasename(mediaRef) {
+  if (typeof mediaRef !== "string" || mediaRef.includes("%") || mediaRef.includes("\0")) {
+    throw documentError("RECEIPT_MEDIA_REF_INVALID", "A managed receipt attachment is required.");
+  }
+  const match = /^media:\/\/inbound\/([^/\\]+)$/u.exec(mediaRef);
+  const fileName = match?.[1];
+  const extension = fileName ? extname(fileName).toLocaleLowerCase("en-CA") : "";
+  if (
+    !fileName
+    || fileName.includes("..")
+    || basename(fileName) !== fileName
+    || ![".pdf", ".jpg", ".jpeg", ".png", ".webp"].includes(extension)
+  ) {
+    throw documentError(
+      "RECEIPT_MEDIA_REF_INVALID",
+      "The receipt must be a managed inbound PDF, JPG, PNG, or WEBP attachment."
+    );
+  }
+  return fileName;
+}
+
+async function readInboundReceipt(mediaRef, environment, nowMs = Date.now()) {
+  const fileName = paymentMediaBasename(mediaRef);
+  let root;
+  try {
+    root = await realpath(mediaRoot(environment));
+  } catch {
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The managed receipt directory is unavailable."
+    );
+  }
+  const candidate = resolve(root, fileName);
+  const fromRoot = relative(root, candidate);
+  if (fromRoot.startsWith("..") || isAbsolute(fromRoot)) {
+    throw documentError("RECEIPT_MEDIA_REF_INVALID", "The receipt is outside the managed attachment directory.");
+  }
+  let handle;
+  try {
+    handle = await open(
+      candidate,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    );
+  } catch {
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The receipt must be a non-symlink regular managed attachment."
+    );
+  }
+  try {
+    const before = await handle.stat();
+    if (!before.isFile() || before.size < 1 || before.size > maximumPdfBytes) {
+      throw documentError("RECEIPT_SIZE_INVALID", "The receipt must be a regular file no larger than 10 MB.");
+    }
+    if (
+      nowMs - before.mtimeMs > maximumPdfAgeMs
+      || before.mtimeMs - nowMs > maximumPdfFutureSkewMs
+    ) {
+      throw documentError("RECEIPT_NOT_FRESH", "The receipt is not from the current managed message.");
+    }
+    const bytes = await readBoundedHandle(handle, maximumPdfBytes);
+    const after = await handle.stat();
+    if (
+      before.size !== after.size
+      || before.mtimeMs !== after.mtimeMs
+      || bytes.length !== before.size
+    ) {
+      throw documentError("RECEIPT_SOURCE_CHANGED", "The receipt changed while it was being read.");
+    }
+    const mimeType = {
+      ".pdf": "application/pdf",
+      ".jpg": "image/jpeg",
+      ".jpeg": "image/jpeg",
+      ".png": "image/png",
+      ".webp": "image/webp"
+    }[extname(fileName).toLocaleLowerCase("en-CA")];
+    return { fileName, bytes, mimeType };
+  } catch (error) {
+    if (error?.code?.startsWith?.("RECEIPT_")) throw error;
+    throw documentError(
+      "RECEIPT_SOURCE_INVALID",
+      "The managed receipt could not be read safely."
+    );
+  } finally {
+    await handle.close();
   }
 }
 
@@ -1047,16 +1145,36 @@ function normalizedDate(value) {
   }
 
   const named = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})\b/iu.exec(value);
-  if (!named) return null;
   const monthNames = [
     "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december"
   ];
-  const year = Number(named[3]);
-  const month = monthNames.indexOf(named[1].toLocaleLowerCase("en-CA")) + 1;
-  const day = Number(named[2]);
+  const dayFirstNamed = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(\d{4})\b/iu.exec(value);
+  const dateParts = named
+    ? { year: Number(named[3]), monthName: named[1], day: Number(named[2]) }
+    : dayFirstNamed
+      ? {
+          year: Number(dayFirstNamed[3]),
+          monthName: dayFirstNamed[2],
+          day: Number(dayFirstNamed[1])
+        }
+      : null;
+  if (!dateParts) return null;
+  const year = dateParts.year;
+  const month = monthNames.indexOf(dateParts.monthName.toLocaleLowerCase("en-CA")) + 1;
+  const day = dateParts.day;
   if (!validIsoDateParts(year, month, day)) return null;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizedLeaseType(value) {
+  if (/\bmonth[\s-]*to[\s-]*month\b/iu.test(value)) return "month_to_month";
+  if (/\bfixed[\s-]*term\b/iu.test(value)) return "fixed_term";
+  return null;
+}
+
+function validLeaseType(value) {
+  return value === "month_to_month" || value === "fixed_term";
 }
 
 function normalizedRentDueDay(value) {
@@ -1551,8 +1669,8 @@ function tenantCandidatesFromOcr(ocrOutput) {
   }
   const phoneE164 = selectCandidate("phone", phoneCandidates, warnings);
 
-  const moveInDate = selectCandidate(
-    "move_in_date",
+  const leaseStartDate = selectCandidate(
+    "lease_start_date",
     labelCandidates(
       lines,
       [
@@ -1563,6 +1681,43 @@ function tenantCandidatesFromOcr(ocrOutput) {
         validate: (value) => value !== null,
         directConfidence: 0.95,
         followingConfidence: 0.86
+      }
+    ),
+    warnings
+  );
+
+  const leaseType = selectCandidate(
+    "lease_type",
+    labelCandidates(
+      lines,
+      [
+        /^(?:lease|tenancy)\s+type\s*(?:[:#\-]\s*)?(.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:A\))?\s*(.*month[\s-]*to[\s-]*month.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:C\))?\s*(.*fixed[\s-]*term.*)$/iu
+      ],
+      {
+        normalize: normalizedLeaseType,
+        validate: validLeaseType,
+        directConfidence: 0.97,
+        followingConfidence: 0.85
+      }
+    ),
+    warnings
+  );
+
+  const leaseEndDate = selectCandidate(
+    "lease_end_date",
+    labelCandidates(
+      lines,
+      [
+        /^(?:lease|tenancy|fixed[\s-]*term)\s+end(?:ing)?\s+(?:date|on)\s*(?:[:#\-]\s*)?(.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*C\)\s*.*fixed[\s-]*term\s+ending\s+on\s*(.*)$/iu
+      ],
+      {
+        normalize: normalizedDate,
+        validate: (value) => value !== null,
+        directConfidence: 0.97,
+        followingConfidence: 0.85
       }
     ),
     warnings
@@ -1596,11 +1751,18 @@ function tenantCandidatesFromOcr(ocrOutput) {
     unitLabel,
     email,
     phoneE164,
-    moveInDate,
+    leaseType,
+    leaseStartDate,
+    leaseEndDate,
     rentDueDay
   };
   if (!fullName) warnings.push("missing_full_name");
   if (!propertyLabel) warnings.push("missing_property");
+  if (!leaseType) warnings.push("missing_lease_type");
+  if (!leaseStartDate) warnings.push("missing_lease_start_date");
+  if (leaseType?.value === "fixed_term" && !leaseEndDate) {
+    warnings.push("missing_lease_end_date");
+  }
   if (fullName && fullName.confidence < 0.85) warnings.push("low_confidence_full_name");
   if (propertyLabel && propertyLabel.confidence < 0.85) warnings.push("low_confidence_property");
   const blankPageCount = ocrOutput.pages.filter(({ text }) => !text.trim()).length;
@@ -1609,6 +1771,9 @@ function tenantCandidatesFromOcr(ocrOutput) {
   const status = (
     fullName &&
     propertyLabel &&
+    leaseType &&
+    leaseStartDate &&
+    (leaseType.value !== "fixed_term" || leaseEndDate) &&
     fullName.confidence >= 0.85 &&
     propertyLabel.confidence >= 0.85
   ) ? "ready" : "review_required";
@@ -1658,7 +1823,9 @@ async function writeTenantCandidate(tenant, documentDigest, environment) {
       : {}),
     propertyLabel: tenant.propertyLabel?.value ?? null,
     unitLabel: tenant.unitLabel?.value ?? null,
-    moveInDate: tenant.moveInDate?.value ?? null,
+    leaseType: tenant.leaseType?.value ?? null,
+    leaseStartDate: tenant.leaseStartDate?.value ?? null,
+    leaseEndDate: tenant.leaseEndDate?.value ?? null,
     rentDueDay: tenant.rentDueDay?.value ?? null,
     email: tenant.email?.value ?? null,
     phoneE164: tenant.phoneE164?.value ?? null
@@ -1792,7 +1959,9 @@ async function inspectTenantDocument(options, environment, dependencies) {
       ),
       propertyLabel: publicCandidate(extraction.tenant.propertyLabel),
       unitLabel: publicCandidate(extraction.tenant.unitLabel),
-      moveInDate: publicCandidate(extraction.tenant.moveInDate),
+      leaseType: publicCandidate(extraction.tenant.leaseType),
+      leaseStartDate: publicCandidate(extraction.tenant.leaseStartDate),
+      leaseEndDate: publicCandidate(extraction.tenant.leaseEndDate),
       rentDueDay: publicCandidate(extraction.tenant.rentDueDay),
       emailMasked: publicCandidate(extraction.tenant.email, maskedEmail),
       phoneMasked: publicCandidate(extraction.tenant.phoneE164, maskedPhone)
@@ -2017,13 +2186,38 @@ export function tenantUploadPayload(input) {
     error.code = "LOCAL_VALIDATION_ERROR";
     throw error;
   }
+  const leaseType = input.leaseType;
+  const leaseStartDate = input.leaseStartDate ?? input.moveInDate ?? null;
+  const leaseEndDate = input.leaseEndDate ?? null;
+  if (!validLeaseType(leaseType)) {
+    const error = new Error("Choose fixed term or month to month before creating the tenant.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (!leaseStartDate) {
+    const error = new Error("Lease start date is required before creating the tenant.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (leaseType === "fixed_term" && !leaseEndDate) {
+    const error = new Error("Fixed-term tenants require a lease end date.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (leaseType === "month_to_month" && leaseEndDate) {
+    const error = new Error("Month-to-month tenants cannot have a lease end date.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
   return {
     sourceSystem: input.sourceSystem?.trim() || "openclaw",
     externalReference: input.externalReference?.trim() || null,
     fullName: input.fullName.trim(),
     propertyLabel: input.propertyLabel.trim(),
     unitLabel: input.unitLabel?.trim() || null,
-    moveInDate: input.moveInDate ?? null,
+    leaseType,
+    leaseStartDate,
+    leaseEndDate,
     rentDueDay: input.rentDueDay ?? 1,
     email,
     phoneE164,
@@ -2210,6 +2404,26 @@ export async function run(argv, environment = process.env, dependencies = {}) {
   if (["rentals upload-media", "imports create"].includes(commandKey)) {
     return multipartCommand(client, commandKey, options, environment);
   }
+  if (commandKey === "payments upload-receipt") {
+    const input = await readJsonInput(options.input, environment);
+    await validateWithSchema(schemaUrls[commandKey], input);
+    const receipt = await readInboundReceipt(input.mediaRef, environment);
+    const form = new FormData();
+    form.set("tenantId", input.tenantId);
+    form.set("period", input.period);
+    form.set(
+      "file",
+      new Blob([receipt.bytes], { type: receipt.mimeType }),
+      receipt.fileName
+    );
+    return client.request({
+      method: "POST",
+      path: "/payment-receipts",
+      form,
+      mutation: true,
+      idempotencyKey: options.operationId
+    });
+  }
   if (command.id) assertUuid(options.id, "--id");
   if (command.tenantId) assertUuid(options.tenantId, "--tenant-id");
   const input = command.input || command.query
@@ -2218,12 +2432,32 @@ export async function run(argv, environment = process.env, dependencies = {}) {
   if (schemaUrls[commandKey]) await validateWithSchema(schemaUrls[commandKey], input);
   if (commandKey === "tenants upload") return uploadTenant(client, input, options.operationId);
   if (commandKey === "tenants onboard") return onboardTenant(client, input, options.operationId);
+  if (commandKey === "payments get") {
+    return client.request({
+      method: "GET",
+      path: `/tenants/${options.tenantId}/rent-payments?period=${encodeURIComponent(input.period)}`
+    });
+  }
+  if (commandKey === "payments mark-collected") {
+    const { period, ...body } = input;
+    return client.request({
+      method: "PUT",
+      path: `/tenants/${options.tenantId}/rent-payments/${period}/collected`,
+      body,
+      mutation: true,
+      idempotencyKey: options.operationId
+    });
+  }
   let path = command.path(options);
   if (command.query) path += queryString(input);
   return client.request({
     method: command.method,
     path,
-    body: command.input ? input : undefined,
+    body: command.input
+      ? input
+      : commandKey.startsWith("agent-notifications ")
+        ? {}
+        : undefined,
     mutation,
     idempotencyKey: options.operationId
   });

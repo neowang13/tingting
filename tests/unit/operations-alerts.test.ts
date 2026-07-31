@@ -1,6 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetRepositoryForTests } from "../../src/data/repository";
-import { deliverOperationalAlerts } from "../../src/features/operations/alerts";
+import {
+  deliverOperationalAlerts,
+  warningsBeforeReminderRepair
+} from "../../src/features/operations/alerts";
+import type { EmailProvider } from "@/features/notifications/providers/types";
 
 describe("operational alert delivery", () => {
   const originalMode = process.env.EMAIL_PROVIDER_MODE;
@@ -43,5 +47,34 @@ describe("operational alert delivery", () => {
       failed: 0,
       skipped: 1
     });
+  });
+
+  it("explains a reconciliation gap only after repair still failed", async () => {
+    const send = vi.fn().mockResolvedValue({
+      providerMessageId: "reconciliation-email",
+      status: "queued"
+    });
+    const warning = "Daily reminder reconciliation found missing schedule events.";
+
+    await expect(deliverOperationalAlerts(
+      [warning],
+      "job-readable",
+      { send } as EmailProvider
+    )).resolves.toMatchObject({ sent: 1, failed: 0 });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      subject: "Ting Ting action needed: a rent reminder could not be repaired",
+      text: expect.stringContaining("No tenant reminder was confirmed"),
+      html: expect.stringContaining("Admin → Email activity")
+    }));
+  });
+
+  it("does not alert on a reconciliation gap before the worker gets a repair attempt", () => {
+    expect(warningsBeforeReminderRepair([
+      "Daily reminder reconciliation found missing schedule events.",
+      "Several provider attempts have failed. Review delivery history before retrying."
+    ], false)).toEqual([
+      "Several provider attempts have failed. Review delivery history before retrying."
+    ]);
   });
 });

@@ -3120,6 +3120,69 @@ a {
   }
 }
 
+.monthly-rent-card {
+  margin-top: 24px;
+}
+
+.monthly-rent-heading {
+  align-items: end;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+}
+
+.compact-field {
+  min-width: 190px;
+}
+
+.rent-status-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 20px 0;
+}
+
+.rent-status-grid > div {
+  background: #f6f4ef;
+  border: 1px solid #e4e0da;
+  border-radius: 10px;
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+}
+
+.rent-status-grid span {
+  color: #6b6f6d;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.receipt-action,
+.collected-rent-result {
+  border-top: 1px solid #e4e0da;
+  display: grid;
+  gap: 16px;
+  padding-top: 20px;
+}
+
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 720px) {
+  .monthly-rent-heading {
+    align-items: stretch;
+    display: grid;
+  }
+
+  .rent-status-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .rental-editor-header,
 .sticky-rental-actions {
   display: flex;

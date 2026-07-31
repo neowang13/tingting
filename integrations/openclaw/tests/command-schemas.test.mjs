@@ -66,7 +66,9 @@ function syntheticOcrResult() {
           "Unit: 1208",
           "Tenant email: NEO@example.com",
           "Tenant phone: (604) 555-0123",
-          "Move-in date: 2026-08-01",
+          "Lease type: fixed term",
+          "Lease start date: 2026-08-01",
+          "Lease end date: 2027-07-31",
           "Payment due date: 15th"
         ].join("\n")
       },
@@ -236,6 +238,100 @@ test("validated mutation forwards the caller-stable operation id", async () => {
     assert.equal(request.method, "POST");
     assert.equal(request.path, `/tenants/${resourceId}/permission-previews`);
     assert.equal(request.idempotencyKey, operationId);
+  });
+});
+
+test("payment commands use managed receipts and the fixed payment API paths", async () => {
+  await withDocumentDirectories(async ({ inputDirectory, mediaDirectory }) => {
+    await writeFile(join(mediaDirectory, "rent.pdf"), "%PDF-1.7 managed receipt");
+    await writeFile(join(inputDirectory, "match.json"), JSON.stringify({
+      fullName: "Demo Tenant",
+      email: "tenant@example.com",
+      period: "2026-07"
+    }));
+    await writeFile(join(inputDirectory, "receipt.json"), JSON.stringify({
+      tenantId: resourceId,
+      period: "2026-07",
+      mediaRef: "media://inbound/rent.pdf"
+    }));
+    await writeFile(join(inputDirectory, "period.json"), JSON.stringify({
+      period: "2026-07"
+    }));
+    await writeFile(join(inputDirectory, "collected.json"), JSON.stringify({
+      period: "2026-07",
+      receiptId: resourceId
+    }));
+    const requests = [];
+    const client = {
+      async request(input) {
+        requests.push(input);
+        return { success: true, data: {}, requestId: resourceId };
+      }
+    };
+    const environment = {
+      TINGTING_INPUT_DIRECTORY: inputDirectory,
+      TINGTING_MEDIA_DIRECTORY: mediaDirectory
+    };
+
+    await run(["payments", "match-tenant", "--input", "match.json"], environment, { client });
+    await run([
+      "payments", "upload-receipt",
+      "--operation-id", operationId,
+      "--input", "receipt.json"
+    ], environment, { client });
+    await run([
+      "payments", "get",
+      "--tenant-id", resourceId,
+      "--input", "period.json"
+    ], environment, { client });
+    await run([
+      "payments", "mark-collected",
+      "--tenant-id", resourceId,
+      "--operation-id", operationId,
+      "--input", "collected.json"
+    ], environment, { client });
+
+    assert.equal(requests[0].path, "/tenants/payment-match");
+    assert.equal(requests[1].path, "/payment-receipts");
+    assert.equal(requests[1].form.get("tenantId"), resourceId);
+    assert.equal(requests[1].form.get("file").name, "rent.pdf");
+    assert.equal(
+      requests[2].path,
+      `/tenants/${resourceId}/rent-payments?period=2026-07`
+    );
+    assert.equal(
+      requests[3].path,
+      `/tenants/${resourceId}/rent-payments/2026-07/collected`
+    );
+    assert.equal(requests[3].body.receiptId, resourceId);
+    assert.equal(requests[3].idempotencyKey, operationId);
+  });
+});
+
+test("missing managed receipts fail without exposing the local media path", async () => {
+  await withDocumentDirectories(async ({ inputDirectory, mediaDirectory }) => {
+    await writeFile(join(inputDirectory, "receipt.json"), JSON.stringify({
+      tenantId: resourceId,
+      period: "2026-07",
+      mediaRef: "media://inbound/missing.pdf"
+    }));
+    const client = {
+      request: async () => assert.fail("a missing receipt must not reach the API")
+    };
+
+    await assert.rejects(
+      run([
+        "payments", "upload-receipt",
+        "--operation-id", operationId,
+        "--input", "receipt.json"
+      ], {
+        TINGTING_INPUT_DIRECTORY: inputDirectory,
+        TINGTING_MEDIA_DIRECTORY: mediaDirectory
+      }, { client }),
+      (error) =>
+        error.code === "RECEIPT_SOURCE_INVALID"
+        && !error.message.includes(mediaDirectory)
+    );
   });
 });
 
@@ -440,7 +536,13 @@ test("document inspection stays local, scrubs secrets, and writes a private cand
       instruction:
         "Fields ending in Masked are partial privacy previews, not the full PDF values. Say that the complete values were read; never describe a masked preview as the PDF's complete email or phone."
     });
-    assert.equal(result.tenant.moveInDate.value, "2026-08-01");
+    assert.deepEqual(result.tenant.leaseType, {
+      value: "fixed_term",
+      page: 1,
+      confidence: 0.97
+    });
+    assert.equal(result.tenant.leaseStartDate.value, "2026-08-01");
+    assert.equal(result.tenant.leaseEndDate.value, "2027-07-31");
     assert.deepEqual(result.tenant.rentDueDay, {
       value: 15,
       page: 1,
@@ -459,7 +561,9 @@ test("document inspection stays local, scrubs secrets, and writes a private cand
       fullName: "Neo Wang",
       propertyLabel: "123 Main Street, Vancouver, BC",
       unitLabel: "1208",
-      moveInDate: "2026-08-01",
+      leaseType: "fixed_term",
+      leaseStartDate: "2026-08-01",
+      leaseEndDate: "2027-07-31",
       rentDueDay: 15,
       email: "neo@example.com",
       phoneE164: "+16045550123"
@@ -493,6 +597,8 @@ test("BC RTB row order pairs each tenant with the contact row at the same index"
     );
 
     assert.equal(result.status, "review_required");
+    assert.ok(result.warnings.includes("missing_lease_type"));
+    assert.ok(result.warnings.includes("missing_lease_start_date"));
     assert.deepEqual(result.tenant.rentDueDay, {
       value: 15,
       page: 2,

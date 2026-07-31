@@ -8,9 +8,12 @@ For a new tenant supplied in a PDF, use the correctness-confirmed
 Required facts:
 
 - full name;
-- property label.
+- property label;
+- lease type;
+- lease start date;
+- lease end date for a fixed-term lease.
 
-Optional facts include unit, move-in date, rent due day, email, E.164 phone,
+Optional facts include unit, rent due day, email, E.164 phone,
 timezone, internal notes, active state, source system, and an external
 reference.
 
@@ -41,7 +44,9 @@ Example input:
   "fullName": "Jane Chen",
   "propertyLabel": "123 Main Street",
   "unitLabel": "1208",
-  "moveInDate": "2026-08-01",
+  "leaseType": "fixed_term",
+  "leaseStartDate": "2026-08-01",
+  "leaseEndDate": "2027-07-31",
   "rentDueDay": 1,
   "email": "jane@example.com"
 }

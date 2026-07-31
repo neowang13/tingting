@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["fullName", "propertyLabel"],
+  "required": ["fullName", "propertyLabel", "leaseType", "leaseStartDate"],
   "properties": {
     "sourceSystem": {
       "type": "string",
@@ -30,6 +30,17 @@
       "maxLength": 60
     },
     "moveInDate": {
+      "type": ["string", "null"],
+      "format": "date"
+    },
+    "leaseType": {
+      "enum": ["month_to_month", "fixed_term"]
+    },
+    "leaseStartDate": {
+      "type": "string",
+      "format": "date"
+    },
+    "leaseEndDate": {
       "type": ["string", "null"],
       "format": "date"
     },

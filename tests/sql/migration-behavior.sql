@@ -113,6 +113,35 @@ begin
     raise exception 'scheduled materialization failed: %', v_run;
   end if;
 
+  update public.tenants
+  set rent_due_day = extract(day from (
+        (now() at time zone 'America/Vancouver')::date + 1
+      ))::smallint
+  where id = v_tenant_id;
+  update public.reminder_schedules
+  set next_run_at = (
+        (
+          (now() at time zone 'America/Vancouver')::date
+          + 1
+          - 3
+        )::date + time '09:00'
+      ) at time zone 'America/Vancouver'
+  where id = v_schedule_id;
+  v_run := public.materialize_due_reminders(now(), false);
+  if not exists (
+    select 1 from public.notification_events
+    where schedule_id = v_schedule_id
+      and occurrence_local_date = (
+        (now() at time zone 'America/Vancouver')::date - 2
+      )
+      and due_date = (
+        (now() at time zone 'America/Vancouver')::date + 1
+      )
+      and status = 'scheduled'
+      and render_error_code is null
+      and destination = 'behavior@example.com'
+  ) then raise exception 'new-tenant catch-up before due date failed: %', v_run; end if;
+
   update public.reminder_schedules
   set next_run_at = now() - interval '40 days'
   where id = v_schedule_id;
@@ -121,9 +150,9 @@ begin
     select 1 from public.notification_events
     where schedule_id = v_schedule_id
       and status = 'expired'
-      and render_error_code = 'occurrence_outside_grace_period'
+      and render_error_code = 'occurrence_due_date_passed'
       and destination is null
-  ) then raise exception '24-hour grace policy failed'; end if;
+  ) then raise exception 'past-due occurrence policy failed'; end if;
 
   v_batch := public.create_notification_batch(
     jsonb_build_object(
@@ -217,6 +246,128 @@ begin
   then raise exception 'published projection grants are missing'; end if;
 
   raise notice 'migration behavior suite passed';
+end
+$$;
+
+do $$
+declare
+  v_admin uuid := '00000000-0000-4000-8000-000000000001';
+  v_tenant_id uuid;
+  v_receipt jsonb;
+  v_payment jsonb;
+  v_repeat jsonb;
+  v_reopened jsonb;
+begin
+  select id into v_tenant_id
+  from public.tenants
+  where email = 'behavior@example.com';
+
+  update public.tenants
+  set move_in_date = '2026-01-01',
+      lease_type = 'month_to_month',
+      lease_end_date = null,
+      rent_due_day = 31,
+      is_active = true,
+      archived_at = null
+  where id = v_tenant_id;
+
+  if public.rent_payment_due_date('2028-02-01'::date, 31::smallint) <> '2028-02-29'::date then
+    raise exception 'leap-year rent due date was not clamped';
+  end if;
+  if public.rent_payment_due_date('2027-02-01'::date, 31::smallint) <> '2027-02-28'::date then
+    raise exception 'non-leap rent due date was not clamped';
+  end if;
+
+  perform public.materialize_tenant_rent_periods('2026-07-30');
+  if not exists (
+    select 1
+    from public.tenant_rent_payments
+    where tenant_id = v_tenant_id
+      and payment_period = '2026-07-01'
+      and due_date = '2026-07-31'
+      and status = 'due'
+  ) then
+    raise exception 'monthly rent period was not materialized';
+  end if;
+
+  v_receipt := public.register_tenant_rent_receipt(
+    v_tenant_id,
+    '2026-07-01',
+    'tests/rent/behavior-receipt.pdf',
+    'behavior-receipt.pdf',
+    'application/pdf',
+    128,
+    'sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'admin',
+    v_admin
+  );
+  v_payment := public.mark_tenant_rent_collected(
+    v_tenant_id,
+    '2026-07-01',
+    (v_receipt->>'id')::uuid,
+    'admin',
+    v_admin,
+    '2026-07-30T19:00:00Z',
+    'migration behavior test'
+  );
+  v_repeat := public.mark_tenant_rent_collected(
+    v_tenant_id,
+    '2026-07-01',
+    (v_receipt->>'id')::uuid,
+    'admin',
+    v_admin,
+    '2026-07-30T19:00:00Z',
+    null
+  );
+  if v_payment->>'status' <> 'collected'
+    or (v_repeat->>'alreadyCollected')::boolean is not true
+  then
+    raise exception 'rent collection was not atomic and idempotent';
+  end if;
+  if (
+    select count(*)
+    from public.audit_events
+    where action = 'rent.payment.collected'
+      and target_id = v_payment->>'id'
+  ) <> 1 then
+    raise exception 'repeated rent collection created duplicate audit events';
+  end if;
+
+  v_reopened := public.reopen_tenant_rent_payment(
+    v_tenant_id,
+    '2026-07-01',
+    (v_payment->>'updated_at')::timestamptz,
+    v_admin,
+    'behavior reopen'
+  );
+  begin
+    perform public.reopen_tenant_rent_payment(
+      v_tenant_id,
+      '2026-07-01',
+      (v_reopened->>'updated_at')::timestamptz,
+      v_admin,
+      'invalid second reopen'
+    );
+    raise exception 'a due rent payment was reopened';
+  exception
+    when sqlstate '22023' then null;
+  end;
+
+  if exists (
+    select 1
+    from storage.buckets
+    where id = 'tenant-rent-payment-receipts'
+      and public
+  ) then
+    raise exception 'rent receipt bucket is public';
+  end if;
+  if has_table_privilege('anon', 'public.tenant_rent_payments', 'select')
+    or has_table_privilege('authenticated', 'public.tenant_rent_payment_receipts', 'select')
+  then
+    raise exception 'rent payment data grants are too broad';
+  end if;
+
+  raise notice 'tenant rent payment behavior suite passed';
 end
 $$;
 

@@ -56,9 +56,9 @@ const statusPresentation: Record<NotificationStatus, NotificationStatusPresentat
     explanation: "The provider result is unclear. Check before sending another copy."
   },
   expired: {
-    label: "Missed schedule",
+    label: "Not sent — due date passed",
     tone: "danger",
-    explanation: "The reminder was more than 24 hours late and was not sent."
+    explanation: "The rent due date had already passed, so the normal overdue-rent follow-up is now used instead."
   },
   cancelled: {
     label: "Cancelled",

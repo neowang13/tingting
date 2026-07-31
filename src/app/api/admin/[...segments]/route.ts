@@ -13,6 +13,7 @@ import {
   reminderSettingsInputSchema,
   notificationEventFilterSchema,
   schedulePreviewSchema,
+  tenantCreateInputSchema,
   tenantListFilterSchema,
   testNotificationConfirmationSchema,
   testNotificationSchema
@@ -38,6 +39,7 @@ import {
 import {
   formatRentDueDate
 } from "@/features/reminders/due-date";
+import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 import { getAutomationRepository } from "@/data/automation-repository";
 import {
   serviceAccountCreateSchema,
@@ -86,6 +88,8 @@ export async function GET(request: Request, context: Context) {
         lifecycle: url.searchParams.get("lifecycle") || undefined,
         contact: url.searchParams.get("contact") || undefined,
         schedule: url.searchParams.get("schedule") || undefined,
+        rentStatus: url.searchParams.get("rent") || undefined,
+        leaseType: url.searchParams.get("lease") || undefined,
         limit: 500
       });
       return ok(await repository.listTenants(filters), requestId);
@@ -223,11 +227,15 @@ export async function POST(request: Request, context: Context) {
       );
     }
     if (resource === "tenants" && !id) {
-      const tenant = await repository.createTenant(body, actorId);
+      const tenant = await repository.createTenant(
+        tenantCreateInputSchema.parse(body),
+        actorId
+      );
       await enqueueTenantUploadNotification(tenant)
         .then(() => deliverOwnerNotifications({ limit: 1 }))
         .catch(() => undefined);
-      return ok(tenant, requestId, 201);
+      const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
+      return ok({ ...tenant, reminderCatchUp }, requestId, 201);
     }
     if (resource === "tenants" && id && action === "archive") {
       const payload = body as { expectedVersion?: unknown };

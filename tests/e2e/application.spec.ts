@@ -234,7 +234,8 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await page.getByLabel("Name", { exact: true }).fill("E2E Reminder Tenant");
   await page.getByLabel("Property").fill("500 Test Avenue");
   await page.getByLabel("Unit").fill("12");
-  await page.getByLabel("Move-in date").fill("2026-07-01");
+  await page.getByLabel("Lease start date").fill("2026-07-01");
+  await page.getByLabel("Lease type").selectOption("month_to_month");
   await page.locator('input[name="email"]').fill("e2e-tenant@example.com");
   await page.locator('input[name="rentDueDay"]').fill("15");
   const tenantSave = page.waitForResponse(
@@ -242,8 +243,12 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   );
   await page.getByRole("button", { name: "Save tenant" }).click();
   expect((await tenantSave).status()).toBe(201);
-  await expect(page).toHaveURL(/\/admin\/tenants\/[0-9a-f-]+\?saved=tenant$/);
-  await expect(page.getByText("Tenant saved. The next email was recalculated, but automatic sending remains paused.")).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/tenants\/[0-9a-f-]+\?saved=paused$/);
+  await expect(page.getByText("Tenant saved. The reminder is ready, but automatic sending is paused.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Monthly rent" })).toBeVisible();
+  await expect(page.getByText("Not received", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Lease start date")).toHaveValue("2026-07-01");
+  await expect(page.getByLabel("Lease type")).toHaveValue("month_to_month");
 
   await page.goto("/admin/settings");
   await expect(page.getByLabel("Business name")).toHaveValue("Ting Ting Xu Real Estate");

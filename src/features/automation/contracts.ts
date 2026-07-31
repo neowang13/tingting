@@ -18,7 +18,9 @@ export const automationScopes = [
   "schedules:read",
   "schedules:write",
   "schedules:enable",
-  "jobs:read"
+  "jobs:read",
+  "payments:read",
+  "payments:write"
 ] as const;
 
 export type AutomationScope = (typeof automationScopes)[number];

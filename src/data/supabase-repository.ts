@@ -13,6 +13,14 @@ import {
   resolveNotificationProviderModes
 } from "@/features/notifications/providers";
 import { ApiError } from "@/lib/api";
+import {
+  buildRentReportSnapshot,
+  paymentPeriod,
+  receiptStorageKey,
+  rentReportWindow,
+  validateRentReceipt,
+  RENT_RECEIPT_BUCKET
+} from "@/features/rent-payments/service";
 import type {
   DashboardSummary,
   NotificationBatch,
@@ -28,6 +36,8 @@ import type {
   SiteSection,
   Tenant,
   TenantActivitySummary,
+  TenantRentPayment,
+  TenantRentPaymentReceipt,
   TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
@@ -262,6 +272,8 @@ function mapTenant(value: unknown): Tenant {
     propertyLabel: text(row, "property_label"),
     unitLabel: nullableText(row, "unit_label"),
     moveInDate: nullableText(row, "move_in_date"),
+    leaseType: nullableText(row, "lease_type") as Tenant["leaseType"],
+    leaseEndDate: nullableText(row, "lease_end_date"),
     rentDueDay: "rent_due_day" in row ? numberValue(row, "rent_due_day") : 1,
     email: nullableText(row, "email"),
     phoneE164: nullableText(row, "phone_e164"),
@@ -287,7 +299,57 @@ function mapTenant(value: unknown): Tenant {
     tenant.lastDeliveryStatus = nullableText(row, "last_delivery_status") as Tenant["lastDeliveryStatus"];
     tenant.lastDeliveryAt = nullableText(row, "last_delivery_at");
   }
+  if (row.current_rent_payment_id) {
+    tenant.currentRentPayment = mapRentPayment({
+      id: row.current_rent_payment_id,
+      tenant_id: row.id,
+      payment_period: row.current_rent_payment_period,
+      due_date: row.current_rent_due_date,
+      status: row.current_rent_status,
+      receipt_id: row.current_rent_receipt_id,
+      collected_at: row.current_rent_collected_at,
+      collected_by_type: row.current_rent_collected_by_type,
+      collected_by_id: row.current_rent_collected_by_id,
+      note: row.current_rent_note,
+      created_at: row.current_rent_created_at,
+      updated_at: row.current_rent_updated_at
+    });
+  } else if ("current_rent_payment_id" in row) {
+    tenant.currentRentPayment = null;
+  }
   return tenant;
+}
+
+function mapRentPayment(value: unknown): TenantRentPayment {
+  const row = asRow(value);
+  return {
+    id: text(row, "id"),
+    tenantId: text(row, "tenant_id"),
+    paymentPeriod: text(row, "payment_period"),
+    dueDate: text(row, "due_date"),
+    status: text(row, "status") as TenantRentPayment["status"],
+    receiptId: nullableText(row, "receipt_id"),
+    collectedAt: nullableText(row, "collected_at"),
+    collectedByType: nullableText(row, "collected_by_type") as TenantRentPayment["collectedByType"],
+    collectedById: nullableText(row, "collected_by_id"),
+    note: nullableText(row, "note"),
+    createdAt: text(row, "created_at"),
+    updatedAt: text(row, "updated_at")
+  };
+}
+
+function mapRentReceipt(value: unknown): TenantRentPaymentReceipt {
+  const row = asRow(value);
+  return {
+    id: text(row, "id"),
+    tenantId: text(row, "tenant_id"),
+    paymentPeriod: text(row, "payment_period"),
+    originalFilename: text(row, "original_filename"),
+    mimeType: text(row, "mime_type") as TenantRentPaymentReceipt["mimeType"],
+    byteSize: numberValue(row, "byte_size"),
+    sha256Digest: text(row, "sha256_digest"),
+    createdAt: text(row, "created_at")
+  };
 }
 
 function mapOwnerNotification(value: unknown): OwnerNotificationDelivery {
@@ -668,6 +730,10 @@ export class SupabaseRepository implements DataRepository {
   }
 
   async listTenants(filters: TenantListFilters = {}) {
+    await this.materializeRentPeriods(rentReportWindow(
+      new Date().toISOString(),
+      process.env.DEFAULT_TIMEZONE ?? "America/Vancouver"
+    ).today);
     let query = this.client().from("admin_tenant_list").select("*").order("full_name");
     const search = filters.query?.trim().replace(/[%_,().]/g, "");
     if (search) {
@@ -681,6 +747,11 @@ export class SupabaseRepository implements DataRepository {
     if (filters.contact === "sms_allowed") query = query.eq("sms_contact_status", "allowed");
     if (filters.contact === "sms_blocked") query = query.neq("sms_contact_status", "allowed");
     if (filters.schedule) query = query.eq("schedule_status", filters.schedule);
+    if (filters.rentStatus) query = query.eq("current_rent_status", filters.rentStatus);
+    if (filters.leaseType === "needs_details") query = query.is("lease_type", null);
+    if (filters.leaseType && filters.leaseType !== "needs_details") {
+      query = query.eq("lease_type", filters.leaseType);
+    }
     const { data, error } = await query.limit(Math.min(Math.max(filters.limit ?? 500, 1), 500));
     if (error) databaseError(error);
     return asRows(data).map(mapTenant);
@@ -1157,6 +1228,243 @@ export class SupabaseRepository implements DataRepository {
       todayNewCount: todayCountResult.count ?? 0,
       todayNewTenants: asRows(todayRowsResult.data).map(mapTenant)
     };
+  }
+
+  async materializeRentPeriods(businessDate: string) {
+    const result = await this.rpc("materialize_tenant_rent_periods", {
+      p_business_date: businessDate
+    });
+    return Number(result ?? 0);
+  }
+
+  async getTenantRentPayment(tenantId: string, value: string) {
+    const period = paymentPeriod(value);
+    await this.materializeRentPeriods(period);
+    const { data, error } = await this.client()
+      .from("tenant_rent_payments")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .eq("payment_period", period)
+      .maybeSingle();
+    if (error) databaseError(error);
+    if (!data) {
+      throw new ApiError(
+        409,
+        "RENT_PERIOD_NOT_AVAILABLE",
+        "Complete the tenant lease details before recording rent for this month."
+      );
+    }
+    return mapRentPayment(data);
+  }
+
+  async registerTenantRentReceipt(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    originalFilename: string;
+    declaredMimeType: string;
+    bytes: Uint8Array;
+    actorType: "admin" | "automation";
+    actorId: string;
+  }) {
+    const period = paymentPeriod(input.paymentPeriod);
+    const validated = validateRentReceipt(
+      input.originalFilename,
+      input.declaredMimeType,
+      input.bytes
+    );
+    const digestBytes = await crypto.subtle.digest(
+      "SHA-256",
+      input.bytes.slice().buffer as ArrayBuffer
+    );
+    const digest = `sha256:${Array.from(new Uint8Array(digestBytes), (value) =>
+      value.toString(16).padStart(2, "0")
+    ).join("")}`;
+    const storageKey = receiptStorageKey(
+      input.tenantId,
+      period,
+      digest,
+      validated.extension
+    );
+    const { error: uploadError } = await this.client().storage
+      .from(RENT_RECEIPT_BUCKET)
+      .upload(storageKey, input.bytes, {
+        contentType: validated.mimeType,
+        upsert: false
+      });
+    const alreadyStored = uploadError?.message.toLocaleLowerCase().includes("already exists");
+    if (uploadError && !alreadyStored) {
+      throw new ApiError(502, "RECEIPT_UPLOAD_FAILED", "The receipt could not be saved.");
+    }
+    try {
+      const result = await this.rpc("register_tenant_rent_receipt", {
+        p_tenant_id: input.tenantId,
+        p_payment_period: period,
+        p_storage_key: storageKey,
+        p_original_filename: validated.originalFilename,
+        p_mime_type: validated.mimeType,
+        p_byte_size: validated.byteSize,
+        p_sha256_digest: digest,
+        p_actor_type: input.actorType,
+        p_actor_id: input.actorId
+      });
+      return mapRentReceipt(result);
+    } catch (error) {
+      if (!alreadyStored) {
+        await this.client().storage.from(RENT_RECEIPT_BUCKET).remove([storageKey]);
+      }
+      throw error;
+    }
+  }
+
+  async markTenantRentCollected(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    receiptId: string;
+    actorType: "admin" | "automation";
+    actorId: string;
+    collectedAt?: string | null;
+    note?: string | null;
+  }) {
+    const result = asRow(await this.rpc("mark_tenant_rent_collected", {
+      p_tenant_id: input.tenantId,
+      p_payment_period: paymentPeriod(input.paymentPeriod),
+      p_receipt_id: input.receiptId,
+      p_actor_type: input.actorType,
+      p_actor_id: input.actorId,
+      p_collected_at: input.collectedAt ?? new Date().toISOString(),
+      p_note: input.note ?? null
+    }));
+    return {
+      ...mapRentPayment(result),
+      alreadyCollected: Boolean(result.alreadyCollected)
+    };
+  }
+
+  async reopenTenantRentPayment(input: {
+    tenantId: string;
+    paymentPeriod: string;
+    expectedVersion: string;
+    actorId: string;
+    reason?: string | null;
+  }) {
+    return mapRentPayment(await this.rpc("reopen_tenant_rent_payment", {
+      p_tenant_id: input.tenantId,
+      p_payment_period: paymentPeriod(input.paymentPeriod),
+      p_expected_updated_at: input.expectedVersion,
+      p_actor_id: input.actorId,
+      p_reason: input.reason ?? null
+    }));
+  }
+
+  async tenantRentReceiptUrl(receiptId: string, actorId: string) {
+    const { data, error } = await this.client()
+      .from("tenant_rent_payment_receipts")
+      .select("id,tenant_id,payment_period,storage_key")
+      .eq("id", receiptId)
+      .single();
+    if (error) databaseError(error);
+    const row = asRow(data);
+    const storageKey = text(row, "storage_key");
+    const { data: signed, error: signedError } = await this.client().storage
+      .from(RENT_RECEIPT_BUCKET)
+      .createSignedUrl(storageKey, 5 * 60);
+    if (signedError || !signed?.signedUrl) {
+      throw new ApiError(502, "RECEIPT_LINK_FAILED", "A secure receipt link could not be created.");
+    }
+    const { error: auditError } = await this.client().from("audit_events").insert({
+      actor_user_id: actorId,
+      action: "rent.receipt.viewed",
+      target_type: "tenant_rent_payment_receipt",
+      target_id: receiptId,
+      metadata: {
+        tenantId: text(row, "tenant_id"),
+        paymentPeriod: text(row, "payment_period")
+      }
+    });
+    if (auditError) databaseError(auditError);
+    return signed.signedUrl;
+  }
+
+  async rentReportSnapshot(instant: string, timezone: string) {
+    const window = rentReportWindow(instant, timezone);
+    for (const date of [
+      window.weekStart,
+      window.weekEnd,
+      window.nextWeekStart,
+      window.nextWeekEnd
+    ]) {
+      await this.materializeRentPeriods(date);
+    }
+    const [tenantResult, paymentResult] = await Promise.all([
+      this.client().from("tenants").select("*").limit(1000),
+      this.client().from("tenant_rent_payments").select("*").limit(5000)
+    ]);
+    if (tenantResult.error) databaseError(tenantResult.error);
+    if (paymentResult.error) databaseError(paymentResult.error);
+    return buildRentReportSnapshot({
+      tenants: asRows(tenantResult.data).map(mapTenant),
+      payments: asRows(paymentResult.data).map(mapRentPayment),
+      instant,
+      timezone
+    });
+  }
+
+  async findTenantsForPayment(fullName: string, email: string) {
+    const normalizedName = fullName.trim().toLocaleLowerCase("en-CA");
+    const { data, error } = await this.client()
+      .from("tenants")
+      .select("*")
+      .eq("email", email.trim().toLocaleLowerCase("en-CA"))
+      .limit(10);
+    if (error) databaseError(error);
+    return asRows(data)
+      .map(mapTenant)
+      .filter((tenant) =>
+        tenant.fullName.trim().toLocaleLowerCase("en-CA") === normalizedName
+      );
+  }
+
+  async enqueueAgentNotification(input: {
+    eventKey: string;
+    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
+    payload: Record<string, unknown>;
+    availableAt: string;
+  }) {
+    const { data, error } = await this.client()
+      .from("agent_notification_events")
+      .upsert({
+        event_key: input.eventKey,
+        kind: input.kind,
+        payload: input.payload,
+        available_at: input.availableAt
+      }, { onConflict: "event_key", ignoreDuplicates: true })
+      .select("id")
+      .maybeSingle();
+    if (error) databaseError(error);
+    if (data) return text(asRow(data), "id");
+    const { data: existing, error: existingError } = await this.client()
+      .from("agent_notification_events")
+      .select("id")
+      .eq("event_key", input.eventKey)
+      .single();
+    if (existingError) databaseError(existingError);
+    return text(asRow(existing), "id");
+  }
+
+  async claimAgentNotification(serviceAccountId: string, now: string) {
+    const result = await this.rpc("claim_agent_notification", {
+      p_service_account_id: serviceAccountId,
+      p_now: now
+    });
+    return result === null ? null : asRow(result);
+  }
+
+  async acknowledgeAgentNotification(eventId: string, serviceAccountId: string, now: string) {
+    return asRow(await this.rpc("ack_agent_notification", {
+      p_event_id: eventId,
+      p_service_account_id: serviceAccountId,
+      p_now: now
+    }));
   }
 
   async runDailyMaintenance() {

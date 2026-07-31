@@ -79,6 +79,33 @@ async function uploadTestMedia(page: Page, runId: string) {
   }, runId) as Promise<ApiResult<{ id: string }>>;
 }
 
+async function uploadTestRentReceipt(page: Page, tenantId: string, period: string, runId: string) {
+  return page.evaluate(async ({ targetTenantId, targetPeriod, marker }) => {
+    const form = new FormData();
+    form.set("tenantId", targetTenantId);
+    form.set("period", targetPeriod);
+    form.set(
+      "file",
+      new File(
+        [new TextEncoder().encode("%PDF-1.7 synthetic local E2E rent receipt")],
+        `${marker}-rent.pdf`,
+        { type: "application/pdf" }
+      )
+    );
+    const response = await fetch("/api/admin/rent-payments", {
+      method: "POST",
+      body: form,
+      credentials: "same-origin"
+    });
+    return { status: response.status, body: await response.json() };
+  }, { targetTenantId: tenantId, targetPeriod: period, marker: runId }) as Promise<ApiResult<{
+    id: string;
+    status: string;
+    receiptId: string;
+    updatedAt: string;
+  }>>;
+}
+
 function expectSuccess<T>(result: ApiResult<T>): T {
   expect(result.status, JSON.stringify(result.body)).toBeLessThan(300);
   expect(result.body.success, JSON.stringify(result.body)).toBe(true);
@@ -289,6 +316,8 @@ test("production Cookie authentication covers critical Supabase writes", async (
     propertyLabel: "100 Test Only Street",
     unitLabel: "T-1",
     moveInDate: "2026-07-01",
+    leaseType: "month_to_month",
+    leaseEndDate: null,
     email: "tenant-e2e@example.test",
     phoneE164: "+16045550199",
     preferredChannels: ["email", "sms"],
@@ -338,6 +367,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
   const projectedTenants = expectSuccess<Array<{
     id: string;
     moveInDate: string | null;
+    leaseType: string | null;
     scheduleStatus: string;
     nextRunAt: string | null;
     lastDeliveryStatus: string | null;
@@ -349,10 +379,48 @@ test("production Cookie authentication covers critical Supabase writes", async (
     expect.objectContaining({
       id: tenant.id,
       moveInDate: "2026-07-01",
+      leaseType: "month_to_month",
       scheduleStatus: "disabled",
       nextRunAt: null
     })
   ]);
+
+  const collectedRent = expectSuccess(await uploadTestRentReceipt(
+    page,
+    tenant.id,
+    "2026-07",
+    runId
+  ));
+  expect(collectedRent).toMatchObject({
+    status: "collected",
+    receiptId: expect.any(String)
+  });
+  const storedRent = expectSuccess<{
+    status: string;
+    receiptId: string;
+    updatedAt: string;
+  }>(await adminApi(
+    page,
+    `/api/admin/rent-payments?tenantId=${tenant.id}&period=2026-07`
+  ));
+  expect(storedRent).toMatchObject({
+    status: "collected",
+    receiptId: collectedRent.receiptId
+  });
+  const receiptLink = expectSuccess<{ url: string; expiresInSeconds: number }>(
+    await adminApi(page, `/api/admin/rent-payment-receipts/${collectedRent.receiptId}`)
+  );
+  expect(receiptLink.url).toContain("/storage/v1/object/sign/tenant-rent-payment-receipts/");
+  expect(receiptLink.expiresInSeconds).toBe(300);
+  const reopenedRent = expectSuccess<{ status: string; receiptId: string | null }>(
+    await adminApi(page, "/api/admin/rent-payments", "PATCH", {
+      tenantId: tenant.id,
+      period: "2026-07",
+      expectedVersion: storedRent.updatedAt,
+      reason: "Synthetic E2E correction"
+    })
+  );
+  expect(reopenedRent).toMatchObject({ status: "due", receiptId: null });
 
   const currentSettings = expectSuccess<{ businessName: string; updatedAt: string }>(
     await adminApi(page, "/api/admin/settings/reminders")
@@ -528,6 +596,9 @@ test("production Cookie authentication covers critical Supabase writes", async (
       "section.rolled_back",
       "rental.v2.saved",
       "tenant.created",
+      "rent.receipt.registered",
+      "rent.payment.collected",
+      "rent.payment.reopened",
       "notification.batch_created",
       "notification.batch_confirmed",
       "auth.login_succeeded",
@@ -541,6 +612,9 @@ test("production Cookie authentication covers critical Supabase writes", async (
     "section.rolled_back",
     "rental.v2.saved",
     "tenant.created",
+    "rent.receipt.registered",
+    "rent.payment.collected",
+    "rent.payment.reopened",
     "notification.batch_created",
     "notification.batch_confirmed",
     "auth.login_succeeded",

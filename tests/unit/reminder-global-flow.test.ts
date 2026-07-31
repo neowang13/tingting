@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { store } from "@/data/store";
+import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 
 const tenantPayload = {
   fullName: "Alex Cross-Month",
@@ -31,6 +32,9 @@ describe("memory global reminder policy", () => {
   });
 
   afterEach(() => {
+    delete process.env.REMINDERS_FORCE_PAUSED;
+    delete process.env.EMAIL_PROVIDER_MODE;
+    delete process.env.DATA_BACKEND;
     vi.useRealTimers();
   });
 
@@ -45,6 +49,35 @@ describe("memory global reminder policy", () => {
       channels: ["email"],
       isEnabled: true,
       nextRunAt: "2026-07-29T16:00:00Z"
+    });
+  });
+
+  it("immediately sends a newly eligible reminder even when its planned time was over 24 hours ago", async () => {
+    vi.setSystemTime(new Date("2026-07-31T08:30:00Z"));
+    process.env.DATA_BACKEND = "memory";
+    process.env.REMINDERS_FORCE_PAUSED = "false";
+    process.env.EMAIL_PROVIDER_MODE = "mock";
+    const settings = store.getPause();
+    store.setPause(false, settings.updatedAt);
+
+    const tenant = store.createTenant({
+      ...tenantPayload,
+      leaseType: "fixed_term",
+      leaseEndDate: "2027-07-31"
+    });
+    expect(store.getTenant(tenant.id).schedule?.nextRunAt).toBe("2026-07-29T16:00:00Z");
+
+    await expect(attemptImmediateReminderCatchUp(tenant.id)).resolves.toEqual({
+      attempted: true,
+      status: "processed",
+      scheduledFor: "2026-07-29T16:00:00Z"
+    });
+    expect(
+      store.listEvents().find((event) => event.tenantId === tenant.id)
+    ).toMatchObject({
+      status: "queued",
+      scheduledFor: "2026-07-29T16:00:00Z",
+      lastErrorCode: null
     });
   });
 
