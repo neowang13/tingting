@@ -58,7 +58,7 @@ services:
       - key: EMAIL_FROM
         sync: false
       - key: CONTACT_TO_EMAIL
-        sync: false
+        value: tingtingtech@outlook.com
       - key: ALERT_TO_EMAIL
         sync: false
       - key: RESEND_WEBHOOK_SECRET
