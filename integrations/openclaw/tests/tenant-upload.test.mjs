@@ -271,6 +271,16 @@ test("upload payload never infers permission and rejects a channel without its d
   assert.equal(payload.emailContactStatus, "unconfirmed");
   assert.equal(payload.smsContactStatus, "unconfirmed");
 
+  const emptyPreferencePayload = tenantUploadPayload({
+    fullName: "Jane Chen",
+    propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01",
+    email: "jane@example.com",
+    preferredChannels: []
+  });
+  assert.deepEqual(emptyPreferencePayload.preferredChannels, ["email"]);
+
   assert.throws(
     () => tenantUploadPayload({
       fullName: "Jane Chen",

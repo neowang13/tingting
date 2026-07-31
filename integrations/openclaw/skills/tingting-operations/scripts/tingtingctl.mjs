@@ -2172,10 +2172,14 @@ export function tenantUploadPayload(input) {
   const phoneE164 = typeof input.phoneE164 === "string" && input.phoneE164.trim()
     ? input.phoneE164.trim()
     : null;
-  const preferredChannels = input.preferredChannels ?? [
+  const derivedPreferredChannels = [
     ...(email ? ["email"] : []),
     ...(phoneE164 ? ["sms"] : [])
   ];
+  const preferredChannels = Array.isArray(input.preferredChannels) &&
+      input.preferredChannels.length > 0
+    ? input.preferredChannels
+    : derivedPreferredChannels;
   if (preferredChannels.includes("email") && !email) {
     const error = new Error("preferredChannels includes email but no email address was supplied.");
     error.code = "LOCAL_VALIDATION_ERROR";
