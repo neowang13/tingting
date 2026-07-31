@@ -10,16 +10,13 @@ import {
   CircleParking,
   ClipboardCheck,
   House,
-  Mail,
   MapPin,
   PawPrint,
-  Phone,
   Ruler,
   ShieldCheck,
   Sofa,
   Warehouse
 } from "lucide-react";
-import { ContactForm } from "@/components/public/contact-form";
 import { ContactModalProvider, ContactTrigger } from "@/components/public/contact-modal";
 import { RentalCard } from "@/components/public/rental-card";
 import { RentalGallery } from "@/components/public/rental-gallery";
@@ -62,15 +59,6 @@ export function RentalDetailPage({
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean);
-  const contactName = rental.contact?.mode === "custom" && rental.contact.name
-    ? rental.contact.name
-    : "Ting Ting Xu";
-  const contactPhone = rental.contact?.mode === "custom" && rental.contact.phone
-    ? rental.contact.phone
-    : sections.contact.publicPhone;
-  const contactEmail = rental.contact?.mode === "custom" && rental.contact.email
-    ? rental.contact.email
-    : sections.contact.publicEmail;
   const availability = rental.availableOn
     ? formatRentalAvailability(rental.availableOn)
     : rental.availabilityStatus
@@ -265,29 +253,6 @@ export function RentalDetailPage({
               )}
             </section>
 
-            <section className="rental-contact-panel" aria-labelledby="rental-contact-heading">
-              <div className="rental-agent-card">
-                <span className="rental-agent-mark" aria-hidden>TX</span>
-                <div>
-                  <h2>{contactName}</h2>
-                  <p>Have questions or want to book a private viewing? I’m here to help.</p>
-                  {contactPhone && <a href={`tel:${contactPhone.replace(/[^\d+]/g, "")}`}><Phone aria-hidden />{contactPhone}</a>}
-                  {contactEmail && <a href={`mailto:${contactEmail}`}><Mail aria-hidden />{contactEmail}</a>}
-                </div>
-              </div>
-              <div className="rental-contact-form-wrap">
-                <h2 id="rental-contact-heading">Interested in this home?</h2>
-                <ContactForm
-                  idPrefix="rental-inquiry"
-                  labels={sections.contact.fieldLabels}
-                  options={sections.contact.preferredContactOptions}
-                  submitLabel={sections.contact.submitLabel}
-                  successMessage={sections.contact.successMessage}
-                  errorMessage={sections.contact.errorMessage}
-                  defaultMessage={`I'm interested in ${rental.title} at ${rental.addressLine}.`}
-                />
-              </div>
-            </section>
           </div>
 
           {similarRentals.length > 0 && (
@@ -301,7 +266,9 @@ export function RentalDetailPage({
                   <Link className="text-link" href="/rentals">View all rentals →</Link>
                 </div>
                 <div className="rental-grid rental-similar-grid">
-                  {similarRentals.map((candidate) => <RentalCard rental={candidate} key={candidate.id} />)}
+                  {similarRentals.map((candidate) => (
+                    <RentalCard rental={candidate} imageLoading="eager" key={candidate.id} />
+                  ))}
                 </div>
               </div>
             </section>

@@ -9,7 +9,13 @@ import {
 } from "@/features/content/public-rental-detail";
 import type { RentalListing } from "@/lib/contracts";
 
-export function RentalCard({ rental }: { rental: RentalListing }) {
+export function RentalCard({
+  rental,
+  imageLoading = "lazy"
+}: {
+  rental: RentalListing;
+  imageLoading?: "eager" | "lazy";
+}) {
   return (
     <article className="rental-card">
       <div className="rental-media">
@@ -18,6 +24,7 @@ export function RentalCard({ rental }: { rental: RentalListing }) {
             src={rental.coverImageUrl}
             alt={`${rental.title} in ${rental.city}`}
             fill
+            loading={imageLoading}
             sizes="(max-width: 700px) 100vw, (max-width: 1050px) 50vw, 25vw"
           />
         ) : (
