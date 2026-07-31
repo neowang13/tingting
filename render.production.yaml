@@ -1,7 +1,6 @@
 services:
-  # Paid production blueprint. The free demo uses render.yaml instead.
-  # This file does not deploy by itself and outbound providers remain disabled
-  # until an owner explicitly changes the mode.
+  # Paid production blueprint. The current free web deployment uses
+  # render.yaml with the same application feature flags.
   - type: web
     name: tingting-real-estate
     runtime: node
@@ -21,21 +20,19 @@ services:
       - key: DEFAULT_TIMEZONE
         value: America/Vancouver
       - key: REMINDERS_FORCE_PAUSED
-        value: "true"
-      # Keep each outbound channel disabled until its provider has been
-      # provisioned and an authorized production dry run has passed.
+        value: "false"
       - key: EMAIL_PROVIDER_MODE
-        value: disabled
+        value: live
       - key: SMS_PROVIDER_MODE
         value: disabled
       - key: AUTOMATION_API_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTOMATION_MUTATIONS_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTOMATION_CONFIRMATIONS_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTOMATION_TENANT_IMPORT_ENABLED
-        value: "false"
+        value: "true"
       - key: AUTOMATION_IMPORT_BUCKET
         value: automation-imports
       - key: SUPABASE_STORAGE_PUBLIC_BUCKET
