@@ -66,7 +66,9 @@ function syntheticOcrResult() {
           "Unit: 1208",
           "Tenant email: NEO@example.com",
           "Tenant phone: (604) 555-0123",
-          "Move-in date: 2026-08-01",
+          "Lease type: fixed term",
+          "Lease start date: 2026-08-01",
+          "Lease end date: 2027-07-31",
           "Payment due date: 15th"
         ].join("\n")
       },
@@ -534,7 +536,13 @@ test("document inspection stays local, scrubs secrets, and writes a private cand
       instruction:
         "Fields ending in Masked are partial privacy previews, not the full PDF values. Say that the complete values were read; never describe a masked preview as the PDF's complete email or phone."
     });
-    assert.equal(result.tenant.moveInDate.value, "2026-08-01");
+    assert.deepEqual(result.tenant.leaseType, {
+      value: "fixed_term",
+      page: 1,
+      confidence: 0.97
+    });
+    assert.equal(result.tenant.leaseStartDate.value, "2026-08-01");
+    assert.equal(result.tenant.leaseEndDate.value, "2027-07-31");
     assert.deepEqual(result.tenant.rentDueDay, {
       value: 15,
       page: 1,
@@ -553,7 +561,9 @@ test("document inspection stays local, scrubs secrets, and writes a private cand
       fullName: "Neo Wang",
       propertyLabel: "123 Main Street, Vancouver, BC",
       unitLabel: "1208",
-      moveInDate: "2026-08-01",
+      leaseType: "fixed_term",
+      leaseStartDate: "2026-08-01",
+      leaseEndDate: "2027-07-31",
       rentDueDay: 15,
       email: "neo@example.com",
       phoneE164: "+16045550123"
@@ -587,6 +597,8 @@ test("BC RTB row order pairs each tenant with the contact row at the same index"
     );
 
     assert.equal(result.status, "review_required");
+    assert.ok(result.warnings.includes("missing_lease_type"));
+    assert.ok(result.warnings.includes("missing_lease_start_date"));
     assert.deepEqual(result.tenant.rentDueDay, {
       value: 15,
       page: 2,

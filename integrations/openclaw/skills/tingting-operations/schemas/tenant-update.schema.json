@@ -27,6 +27,18 @@
           "type": ["string", "null"],
           "format": "date"
         },
+        "leaseType": {
+          "type": ["string", "null"],
+          "enum": ["month_to_month", "fixed_term", null]
+        },
+        "leaseStartDate": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
+        "leaseEndDate": {
+          "type": ["string", "null"],
+          "format": "date"
+        },
         "rentDueDay": {
           "type": "integer",
           "minimum": 1,

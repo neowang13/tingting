@@ -432,7 +432,7 @@ export default async function AdminPage({ params, searchParams }: Props) {
                         : tenant.currentRentPayment?.status === "collected"
                           ? `Collected · ${tenant.currentRentPayment.collectedAt ? new Date(tenant.currentRentPayment.collectedAt).toLocaleDateString("en-CA", { timeZone: tenantTimezone, month: "short", day: "numeric" }) : "receipt recorded"}`
                           : tenant.currentRentPayment
-                            ? `Due · ${formatMoveInDate(tenant.currentRentPayment.dueDate)}`
+                            ? `Not received · due ${formatMoveInDate(tenant.currentRentPayment.dueDate)}`
                             : "Complete lease details"}
                     </td>
                     <td>{maskEmail(tenant.email)}</td>
@@ -627,16 +627,24 @@ function leaseExpiryTone(
 function tenantSaveNotice(value: string) {
   const notices: Record<string, { message: string; tone: "success" | "error" }> = {
     tenant: {
-      message: "Tenant saved. The next email was recalculated, but automatic sending remains paused.",
+      message: "Tenant saved.",
       tone: "success"
     },
     paused: {
-      message: "Tenant and reminder plan saved. Automatic sending is currently paused.",
+      message: "Tenant saved. The reminder is ready, but automatic sending is paused.",
       tone: "success"
     },
     active: {
       message: "Tenant saved. The automatic rent reminder is active.",
       tone: "success"
+    },
+    "catch-up": {
+      message: "Tenant saved. The missed rent reminder was sent immediately.",
+      tone: "success"
+    },
+    retry: {
+      message: "Tenant saved, but the immediate reminder could not be sent. The scheduled worker will retry it.",
+      tone: "error"
     },
     "not-live": {
       message: "Tenant and reminder plan saved. Email delivery is not live yet.",

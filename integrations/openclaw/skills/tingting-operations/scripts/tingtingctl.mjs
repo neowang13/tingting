@@ -1145,16 +1145,36 @@ function normalizedDate(value) {
   }
 
   const named = /\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,)?\s+(\d{4})\b/iu.exec(value);
-  if (!named) return null;
   const monthNames = [
     "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december"
   ];
-  const year = Number(named[3]);
-  const month = monthNames.indexOf(named[1].toLocaleLowerCase("en-CA")) + 1;
-  const day = Number(named[2]);
+  const dayFirstNamed = /\b(\d{1,2})(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)(?:,)?\s+(\d{4})\b/iu.exec(value);
+  const dateParts = named
+    ? { year: Number(named[3]), monthName: named[1], day: Number(named[2]) }
+    : dayFirstNamed
+      ? {
+          year: Number(dayFirstNamed[3]),
+          monthName: dayFirstNamed[2],
+          day: Number(dayFirstNamed[1])
+        }
+      : null;
+  if (!dateParts) return null;
+  const year = dateParts.year;
+  const month = monthNames.indexOf(dateParts.monthName.toLocaleLowerCase("en-CA")) + 1;
+  const day = dateParts.day;
   if (!validIsoDateParts(year, month, day)) return null;
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function normalizedLeaseType(value) {
+  if (/\bmonth[\s-]*to[\s-]*month\b/iu.test(value)) return "month_to_month";
+  if (/\bfixed[\s-]*term\b/iu.test(value)) return "fixed_term";
+  return null;
+}
+
+function validLeaseType(value) {
+  return value === "month_to_month" || value === "fixed_term";
 }
 
 function normalizedRentDueDay(value) {
@@ -1649,8 +1669,8 @@ function tenantCandidatesFromOcr(ocrOutput) {
   }
   const phoneE164 = selectCandidate("phone", phoneCandidates, warnings);
 
-  const moveInDate = selectCandidate(
-    "move_in_date",
+  const leaseStartDate = selectCandidate(
+    "lease_start_date",
     labelCandidates(
       lines,
       [
@@ -1661,6 +1681,43 @@ function tenantCandidatesFromOcr(ocrOutput) {
         validate: (value) => value !== null,
         directConfidence: 0.95,
         followingConfidence: 0.86
+      }
+    ),
+    warnings
+  );
+
+  const leaseType = selectCandidate(
+    "lease_type",
+    labelCandidates(
+      lines,
+      [
+        /^(?:lease|tenancy)\s+type\s*(?:[:#\-]\s*)?(.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:A\))?\s*(.*month[\s-]*to[\s-]*month.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:C\))?\s*(.*fixed[\s-]*term.*)$/iu
+      ],
+      {
+        normalize: normalizedLeaseType,
+        validate: validLeaseType,
+        directConfidence: 0.97,
+        followingConfidence: 0.85
+      }
+    ),
+    warnings
+  );
+
+  const leaseEndDate = selectCandidate(
+    "lease_end_date",
+    labelCandidates(
+      lines,
+      [
+        /^(?:lease|tenancy|fixed[\s-]*term)\s+end(?:ing)?\s+(?:date|on)\s*(?:[:#\-]\s*)?(.*)$/iu,
+        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*C\)\s*.*fixed[\s-]*term\s+ending\s+on\s*(.*)$/iu
+      ],
+      {
+        normalize: normalizedDate,
+        validate: (value) => value !== null,
+        directConfidence: 0.97,
+        followingConfidence: 0.85
       }
     ),
     warnings
@@ -1694,11 +1751,18 @@ function tenantCandidatesFromOcr(ocrOutput) {
     unitLabel,
     email,
     phoneE164,
-    moveInDate,
+    leaseType,
+    leaseStartDate,
+    leaseEndDate,
     rentDueDay
   };
   if (!fullName) warnings.push("missing_full_name");
   if (!propertyLabel) warnings.push("missing_property");
+  if (!leaseType) warnings.push("missing_lease_type");
+  if (!leaseStartDate) warnings.push("missing_lease_start_date");
+  if (leaseType?.value === "fixed_term" && !leaseEndDate) {
+    warnings.push("missing_lease_end_date");
+  }
   if (fullName && fullName.confidence < 0.85) warnings.push("low_confidence_full_name");
   if (propertyLabel && propertyLabel.confidence < 0.85) warnings.push("low_confidence_property");
   const blankPageCount = ocrOutput.pages.filter(({ text }) => !text.trim()).length;
@@ -1707,6 +1771,9 @@ function tenantCandidatesFromOcr(ocrOutput) {
   const status = (
     fullName &&
     propertyLabel &&
+    leaseType &&
+    leaseStartDate &&
+    (leaseType.value !== "fixed_term" || leaseEndDate) &&
     fullName.confidence >= 0.85 &&
     propertyLabel.confidence >= 0.85
   ) ? "ready" : "review_required";
@@ -1756,7 +1823,9 @@ async function writeTenantCandidate(tenant, documentDigest, environment) {
       : {}),
     propertyLabel: tenant.propertyLabel?.value ?? null,
     unitLabel: tenant.unitLabel?.value ?? null,
-    moveInDate: tenant.moveInDate?.value ?? null,
+    leaseType: tenant.leaseType?.value ?? null,
+    leaseStartDate: tenant.leaseStartDate?.value ?? null,
+    leaseEndDate: tenant.leaseEndDate?.value ?? null,
     rentDueDay: tenant.rentDueDay?.value ?? null,
     email: tenant.email?.value ?? null,
     phoneE164: tenant.phoneE164?.value ?? null
@@ -1890,7 +1959,9 @@ async function inspectTenantDocument(options, environment, dependencies) {
       ),
       propertyLabel: publicCandidate(extraction.tenant.propertyLabel),
       unitLabel: publicCandidate(extraction.tenant.unitLabel),
-      moveInDate: publicCandidate(extraction.tenant.moveInDate),
+      leaseType: publicCandidate(extraction.tenant.leaseType),
+      leaseStartDate: publicCandidate(extraction.tenant.leaseStartDate),
+      leaseEndDate: publicCandidate(extraction.tenant.leaseEndDate),
       rentDueDay: publicCandidate(extraction.tenant.rentDueDay),
       emailMasked: publicCandidate(extraction.tenant.email, maskedEmail),
       phoneMasked: publicCandidate(extraction.tenant.phoneE164, maskedPhone)
@@ -2115,13 +2186,38 @@ export function tenantUploadPayload(input) {
     error.code = "LOCAL_VALIDATION_ERROR";
     throw error;
   }
+  const leaseType = input.leaseType;
+  const leaseStartDate = input.leaseStartDate ?? input.moveInDate ?? null;
+  const leaseEndDate = input.leaseEndDate ?? null;
+  if (!validLeaseType(leaseType)) {
+    const error = new Error("Choose fixed term or month to month before creating the tenant.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (!leaseStartDate) {
+    const error = new Error("Lease start date is required before creating the tenant.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (leaseType === "fixed_term" && !leaseEndDate) {
+    const error = new Error("Fixed-term tenants require a lease end date.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  if (leaseType === "month_to_month" && leaseEndDate) {
+    const error = new Error("Month-to-month tenants cannot have a lease end date.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
   return {
     sourceSystem: input.sourceSystem?.trim() || "openclaw",
     externalReference: input.externalReference?.trim() || null,
     fullName: input.fullName.trim(),
     propertyLabel: input.propertyLabel.trim(),
     unitLabel: input.unitLabel?.trim() || null,
-    moveInDate: input.moveInDate ?? null,
+    leaseType,
+    leaseStartDate,
+    leaseEndDate,
     rentDueDay: input.rentDueDay ?? 1,
     email,
     phoneE164,

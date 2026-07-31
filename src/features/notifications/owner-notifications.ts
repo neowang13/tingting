@@ -73,7 +73,13 @@ function tenantUploadMessage(tenant: Tenant, timezone: string) {
     ["姓名", tenant.fullName],
     ["房源", tenant.propertyLabel],
     ["单元", tenant.unitLabel],
-    ["入住日期", tenant.moveInDate],
+    ["租约类型", tenant.leaseType === "fixed_term"
+      ? "Fixed contract"
+      : tenant.leaseType === "month_to_month"
+        ? "Month to month"
+        : "Needs lease details"],
+    ["租约开始日", tenant.moveInDate],
+    ["租约结束日", tenant.leaseEndDate],
     ["每月租金日", `${tenant.rentDueDay} 日`],
     ["Email", tenant.email],
     ["电话", tenant.phoneE164],

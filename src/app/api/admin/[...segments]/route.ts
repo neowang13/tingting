@@ -39,6 +39,7 @@ import {
 import {
   formatRentDueDate
 } from "@/features/reminders/due-date";
+import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 import { getAutomationRepository } from "@/data/automation-repository";
 import {
   serviceAccountCreateSchema,
@@ -233,7 +234,8 @@ export async function POST(request: Request, context: Context) {
       await enqueueTenantUploadNotification(tenant)
         .then(() => deliverOwnerNotifications({ limit: 1 }))
         .catch(() => undefined);
-      return ok(tenant, requestId, 201);
+      const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
+      return ok({ ...tenant, reminderCatchUp }, requestId, 201);
     }
     if (resource === "tenants" && id && action === "archive") {
       const payload = body as { expectedVersion?: unknown };

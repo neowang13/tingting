@@ -243,8 +243,12 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   );
   await page.getByRole("button", { name: "Save tenant" }).click();
   expect((await tenantSave).status()).toBe(201);
-  await expect(page).toHaveURL(/\/admin\/tenants\/[0-9a-f-]+\?saved=tenant$/);
-  await expect(page.getByText("Tenant saved. The next email was recalculated, but automatic sending remains paused.")).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/tenants\/[0-9a-f-]+\?saved=paused$/);
+  await expect(page.getByText("Tenant saved. The reminder is ready, but automatic sending is paused.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Monthly rent" })).toBeVisible();
+  await expect(page.getByText("Not received", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Lease start date")).toHaveValue("2026-07-01");
+  await expect(page.getByLabel("Lease type")).toHaveValue("month_to_month");
 
   await page.goto("/admin/settings");
   await expect(page.getByLabel("Business name")).toHaveValue("Ting Ting Xu Real Estate");

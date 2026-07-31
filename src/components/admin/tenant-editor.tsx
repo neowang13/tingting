@@ -25,6 +25,14 @@ interface NextRunPreview {
   error: string | null;
 }
 
+interface SavedTenantResult extends Tenant {
+  reminderCatchUp?: {
+    attempted: boolean;
+    status: "not_needed" | "processed" | "paused" | "failed";
+    scheduledFor: string | null;
+  };
+}
+
 export function TenantEditor({
   initial,
   sourceMarker,
@@ -160,16 +168,35 @@ export function TenantEditor({
       if (!response.ok || !result.success) {
         throw new Error(readableSaveError(result));
       }
-      const saved = result.data as Tenant;
+      const saved = result.data as SavedTenantResult;
       setTenant(saved);
       setMessageTone("success");
-      setMessage(
-        reminderSystem.paused || reminderSystem.forcePaused
-          ? "Tenant saved. The next email was recalculated, but automatic sending remains paused."
-          : "Tenant saved. The global reminder settings will be used for future emails."
-      );
-      if (!tenant) router.replace(`/admin/tenants/${saved.id}?saved=tenant`);
-      else router.refresh();
+      if (saved.reminderCatchUp?.status === "processed") {
+        setMessage("Tenant saved. The missed rent reminder was sent immediately.");
+      } else if (saved.reminderCatchUp?.status === "failed") {
+        setMessageTone("error");
+        setMessage("Tenant saved, but the immediate reminder could not be sent. The scheduled worker will retry it.");
+      } else if (
+        saved.reminderCatchUp?.status === "paused"
+        || reminderSystem.paused
+        || reminderSystem.forcePaused
+      ) {
+        setMessage("Tenant saved. The reminder is ready, but automatic sending is paused.");
+      } else {
+        setMessage("Tenant saved. The global reminder settings will be used for future emails.");
+      }
+      if (!tenant) {
+        const savedNotice = saved.reminderCatchUp?.status === "processed"
+          ? "catch-up"
+          : saved.reminderCatchUp?.status === "failed"
+            ? "retry"
+            : saved.reminderCatchUp?.status === "paused"
+              || reminderSystem.paused
+              || reminderSystem.forcePaused
+              ? "paused"
+              : "active";
+        router.replace(`/admin/tenants/${saved.id}?saved=${savedNotice}`);
+      } else router.refresh();
     } catch (error) {
       setMessageTone("error");
       setMessage(error instanceof Error ? error.message : "The tenant could not be saved.");
@@ -212,6 +239,14 @@ export function TenantEditor({
       <div className="prototype-step-tabs" aria-label="Tenant editor">
         <span className="active">Tenant details</span>
       </div>
+
+      {tenant && (
+        <MonthlyRentCard
+          tenant={tenant}
+          leaseType={tenant.leaseType}
+          archived={Boolean(tenant.archivedAt)}
+        />
+      )}
 
       <form className="admin-form tenant-prototype-form" onSubmit={saveTenant}>
         {sourceMarker?.sourceSystem && (
@@ -358,13 +393,6 @@ export function TenantEditor({
         </section>
 
         {message && <div className={`save-result ${messageTone}`} aria-live="polite"><span>{message}</span></div>}
-        {tenant && (
-          <MonthlyRentCard
-            tenant={tenant}
-            leaseType={leaseType || null}
-            archived={Boolean(tenant.archivedAt)}
-          />
-        )}
         {tenant && !tenant.archivedAt && (
           <button className="button danger-outline prototype-archive-action" disabled={busy} type="button" onClick={() => void archiveTenant()}>
             Archive tenant
@@ -537,7 +565,7 @@ function MonthlyRentCard({
       <div className="monthly-rent-heading">
         <div>
           <h2 id="monthly-rent-heading">Monthly rent</h2>
-          <p>Every collected month requires a private receipt.</p>
+          <p>Choose a month to see whether this tenant has paid. Every collected month requires a private receipt.</p>
         </div>
         <label className="field compact-field">
           <span>Rent month</span>
@@ -558,7 +586,7 @@ function MonthlyRentCard({
             <div>
               <span>Status</span>
               <strong className={`prototype-status ${visiblePayment.status === "collected" ? "success" : "waiting"}`}>
-                {visiblePayment.status === "collected" ? "Collected" : "Due"}
+                {visiblePayment.status === "collected" ? "Paid · receipt recorded" : "Not received"}
               </strong>
             </div>
           </div>

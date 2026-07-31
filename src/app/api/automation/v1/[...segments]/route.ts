@@ -40,6 +40,7 @@ import {
 } from "@/features/rent-payments/service";
 import { Temporal } from "@js-temporal/polyfill";
 import { nextOccurrence } from "@/features/reminders/scheduler";
+import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 import {
   deliverOwnerNotifications,
   enqueueTenantUploadNotification
@@ -547,6 +548,7 @@ export async function POST(request: Request, context: Context) {
         await enqueueTenantUploadNotification(tenant)
           .then(() => deliverOwnerNotifications({ limit: 1 }))
           .catch(() => undefined);
+        const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
         return {
           status: 201,
           data: {
@@ -560,7 +562,8 @@ export async function POST(request: Request, context: Context) {
               configured: Boolean(current.schedule),
               isEnabled: current.schedule?.isEnabled ?? false,
               nextRunAt: current.schedule?.nextRunAt ?? null,
-              policy: "global"
+              policy: "global",
+              catchUp: reminderCatchUp
             }
           },
           resourceType: "tenant",
@@ -599,9 +602,13 @@ export async function POST(request: Request, context: Context) {
         await enqueueTenantUploadNotification(tenant)
           .then(() => deliverOwnerNotifications({ limit: 1 }))
           .catch(() => undefined);
+        const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
         return {
           status: 201,
-          data: publicTenantResult(tenant),
+          data: {
+            ...publicTenantResult(tenant),
+            reminderCatchUp
+          },
           resourceType: "tenant",
           resourceId: tenant.id,
           resourceVersion: tenant.updatedAt
@@ -756,16 +763,25 @@ export async function POST(request: Request, context: Context) {
       const intent = await repository.getConfirmation(id);
       assertAutomationScope(actor.scopes, confirmationActionScopes[intent.action]);
       assertConfirmationExecutable(intent, actor.serviceAccountId, input.digest, input.acknowledged);
-      const result = await idempotent(request, actor, bodyDigest, async () => ({
-        status: 200,
-        data: await repository.executeConfirmation(
+      const result = await idempotent(request, actor, bodyDigest, async () => {
+        const executed = await repository.executeConfirmation(
           intent,
           request.headers.get("idempotency-key")!,
           actor!
-        ),
-        resourceType: intent.targetType,
-        resourceId: intent.targetId
-      }));
+        );
+        const reminderCatchUp = intent.action === "tenant.permission.grant"
+          && intent.payload.channel === "email"
+          ? await attemptImmediateReminderCatchUp(intent.targetId)
+          : null;
+        return {
+          status: 200,
+          data: executed && typeof executed === "object" && !Array.isArray(executed)
+            ? { ...executed, ...(reminderCatchUp ? { reminderCatchUp } : {}) }
+            : { result: executed, ...(reminderCatchUp ? { reminderCatchUp } : {}) },
+          resourceType: intent.targetType,
+          resourceId: intent.targetId
+        };
+      });
       return success(result.data, requestId, result.status);
     }
     throw new ApiError(404, "ROUTE_NOT_FOUND", "The Automation API route was not found.");

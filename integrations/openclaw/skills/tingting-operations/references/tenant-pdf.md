@@ -132,6 +132,11 @@ Mark a value `uncertain` when OCR is ambiguous, row counts differ, the owner
 target does not uniquely match, or multiple addresses/units appear. Never
 choose between unresolved conflicts without asking the owner.
 
+If lease type is absent or uncertain, ask the owner whether it is `fixed term`
+or `month to month`. A fixed-term tenant also requires an explicit end date.
+Never infer lease type merely because the source is a tenancy agreement. Do not
+create the tenant until these lease facts are supplied and confirmed.
+
 The candidate file contains allowlisted fields and evidence, not raw OCR text.
 Do not reconstruct or request the full OCR transcript.
 

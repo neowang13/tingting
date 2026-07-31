@@ -1065,7 +1065,10 @@ export const store = {
         afterInstant: new Date(Date.parse(plannedFor) - 1).toISOString()
       });
       const occurrenceDate = occurrence.sendLocalDate;
-      const expired = now.getTime() - Date.parse(schedule.nextRunAt ?? startedAt) > 24 * 60 * 60_000;
+      const localToday = now.toLocaleDateString("en-CA", {
+        timeZone: state().reminderTimezone
+      });
+      const expired = occurrence.dueDate < localToday;
       for (const channel of ["email"] as const) {
         const occurrenceKey = `scheduled:${schedule.id}:${occurrenceDate}:${channel}`;
         if (state().events.some((event) => event.occurrenceKey === occurrenceKey)) continue;
@@ -1095,7 +1098,7 @@ export const store = {
           providerMessageId: null,
           providerStatus: null,
           attemptCount: 0,
-          lastErrorCode: expired ? "OCCURRENCE_EXPIRED" : eligible ? null : "CHANNEL_NOT_ELIGIBLE",
+          lastErrorCode: expired ? "OCCURRENCE_DUE_DATE_PASSED" : eligible ? null : "CHANNEL_NOT_ELIGIBLE",
           createdAt: startedAt,
           updatedAt: startedAt
         };

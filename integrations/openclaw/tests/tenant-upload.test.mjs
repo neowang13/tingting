@@ -75,6 +75,9 @@ test("single-tenant upload derives safe defaults and creates after duplicate pre
   assert.equal(requests[1].body.smsContactStatus, "unconfirmed");
   assert.equal(requests[1].body.timezone, "America/Vancouver");
   assert.equal(requests[1].body.isActive, true);
+  assert.equal(requests[1].body.leaseType, "month_to_month");
+  assert.equal(requests[1].body.leaseStartDate, "2026-08-01");
+  assert.equal(requests[1].body.leaseEndDate, null);
   assert.equal(result.data.action, "created");
   assert.equal(result.data.created, true);
 });
@@ -128,6 +131,9 @@ test("owner-confirmed PDF onboarding uses the atomic permission and reminder rou
   assert.equal(requests[1].body.tenant.email, "mei@example.com");
   assert.equal(requests[1].body.tenant.emailContactStatus, "unconfirmed");
   assert.equal(requests[1].body.tenant.smsContactStatus, "unconfirmed");
+  assert.equal(requests[1].body.tenant.leaseType, "fixed_term");
+  assert.equal(requests[1].body.tenant.leaseStartDate, "2026-08-01");
+  assert.equal(requests[1].body.tenant.leaseEndDate, "2027-07-31");
   assert.deepEqual(requests[1].body.ownerConfirmation, {
     confirmedAt: "2026-07-30T20:00:00Z",
     documentDigest: `sha256:${"a".repeat(64)}`
@@ -257,6 +263,8 @@ test("upload payload never infers permission and rejects a channel without its d
   const payload = tenantUploadPayload({
     fullName: "Jane Chen",
     propertyLabel: "123 Main Street",
+    leaseType: "month_to_month",
+    leaseStartDate: "2026-08-01",
     phoneE164: "+16045550123"
   });
   assert.deepEqual(payload.preferredChannels, ["sms"]);
@@ -267,6 +275,8 @@ test("upload payload never infers permission and rejects a channel without its d
     () => tenantUploadPayload({
       fullName: "Jane Chen",
       propertyLabel: "123 Main Street",
+      leaseType: "month_to_month",
+      leaseStartDate: "2026-08-01",
       preferredChannels: ["email"]
     }),
     (error) => error.code === "LOCAL_VALIDATION_ERROR"

@@ -113,6 +113,35 @@ begin
     raise exception 'scheduled materialization failed: %', v_run;
   end if;
 
+  update public.tenants
+  set rent_due_day = extract(day from (
+        (now() at time zone 'America/Vancouver')::date + 1
+      ))::smallint
+  where id = v_tenant_id;
+  update public.reminder_schedules
+  set next_run_at = (
+        (
+          (now() at time zone 'America/Vancouver')::date
+          + 1
+          - 3
+        )::date + time '09:00'
+      ) at time zone 'America/Vancouver'
+  where id = v_schedule_id;
+  v_run := public.materialize_due_reminders(now(), false);
+  if not exists (
+    select 1 from public.notification_events
+    where schedule_id = v_schedule_id
+      and occurrence_local_date = (
+        (now() at time zone 'America/Vancouver')::date - 2
+      )
+      and due_date = (
+        (now() at time zone 'America/Vancouver')::date + 1
+      )
+      and status = 'scheduled'
+      and render_error_code is null
+      and destination = 'behavior@example.com'
+  ) then raise exception 'new-tenant catch-up before due date failed: %', v_run; end if;
+
   update public.reminder_schedules
   set next_run_at = now() - interval '40 days'
   where id = v_schedule_id;
@@ -121,9 +150,9 @@ begin
     select 1 from public.notification_events
     where schedule_id = v_schedule_id
       and status = 'expired'
-      and render_error_code = 'occurrence_outside_grace_period'
+      and render_error_code = 'occurrence_due_date_passed'
       and destination is null
-  ) then raise exception '24-hour grace policy failed'; end if;
+  ) then raise exception 'past-due occurrence policy failed'; end if;
 
   v_batch := public.create_notification_batch(
     jsonb_build_object(

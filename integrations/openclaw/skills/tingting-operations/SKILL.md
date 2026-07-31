@@ -225,11 +225,20 @@ workspace import directory rather than reading it from the workspace root.
 Never read any other generated or inbound file.
 
 For a request to add a new tenant, always stop after inspection and present the
-extracted name, property, unit, move-in date, rent due day, and masked contact
-previews with page evidence. State the bundled effects: after the owner confirms
-the facts are correct, the tenant will be created, Email contact permission
-will become `allowed`, and the global reminder plan will be configured
-automatically. Wait for a new owner message that clearly confirms the facts.
+extracted name, property, unit, lease type, lease start date, fixed-term end
+date when applicable, rent due day, and masked contact previews with page
+evidence. State the bundled effects: after the owner confirms the facts are
+correct, the tenant will be created, Email contact permission will become
+`allowed`, and the global reminder plan will be configured automatically.
+Always wait for a new owner message that clearly confirms the facts.
+
+Never create a tenant without a resolved lease type and start date. If
+`leaseType` is missing or uncertain, ask exactly whether the tenancy is
+`fixed term` or `month to month`. For `fixed term`, also require the lease end
+date. For `month to month`, keep the end date empty. Missing lease facts are not
+defaults and must not be inferred from the rent due day, document filename, or
+the presence of an agreement. Do not run `tenants upload` or `tenants onboard`
+until the owner supplies and confirms every required lease fact.
 
 After that new confirmation, read only the exact `candidateFile` returned by
 the earlier inspection, write a tenant-onboarding request containing the
@@ -246,9 +255,10 @@ permission and reminder status. If the owner corrects any field, show the
 corrected masked preview and wait for a new correctness confirmation before
 onboarding.
 
-When inspection returns `unitLabel` or `rentDueDay`, report each value with its
-page evidence and carry both values into tenant onboarding or upload. Do not
-omit an explicit unit, and do not replace an explicit PDF due day with the
+When inspection returns `unitLabel`, `leaseType`, `leaseStartDate`,
+`leaseEndDate`, or `rentDueDay`, report each value with its page evidence and
+carry every value into tenant onboarding or upload. Do not omit an explicit
+unit or lease value, and do not replace an explicit PDF due day with the
 command's day-1 fallback.
 
 For a read-only inspection, say for example: `完整联系方式已读取；以下仅为脱敏预览：
