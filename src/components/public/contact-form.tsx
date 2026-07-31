@@ -4,6 +4,7 @@ import { Send } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 interface Props {
+  idPrefix?: string;
   labels: {
     name: string;
     email: string;
@@ -15,9 +16,18 @@ interface Props {
   submitLabel: string;
   successMessage: string;
   errorMessage: string;
+  defaultMessage?: string;
 }
 
-export function ContactForm({ labels, options, submitLabel, successMessage, errorMessage }: Props) {
+export function ContactForm({
+  idPrefix = "contact",
+  labels,
+  options,
+  submitLabel,
+  successMessage,
+  errorMessage,
+  defaultMessage
+}: Props) {
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -64,20 +74,20 @@ export function ContactForm({ labels, options, submitLabel, successMessage, erro
     <form className="contact-form" onSubmit={submit} noValidate>
       <div className="contact-form-grid">
         <div className="field">
-          <label htmlFor="contact-name">{labels.name} *</label>
-          <input id="contact-name" name="name" required autoComplete="name" />
+          <label htmlFor={`${idPrefix}-name`}>{labels.name} *</label>
+          <input id={`${idPrefix}-name`} name="name" required autoComplete="name" />
         </div>
         <div className="field">
-          <label htmlFor="contact-email">{labels.email}</label>
-          <input id="contact-email" name="email" type="email" autoComplete="email" />
+          <label htmlFor={`${idPrefix}-email`}>{labels.email}</label>
+          <input id={`${idPrefix}-email`} name="email" type="email" autoComplete="email" />
         </div>
         <div className="field">
-          <label htmlFor="contact-phone">{labels.phone}</label>
-          <input id="contact-phone" name="phone" type="tel" autoComplete="tel" />
+          <label htmlFor={`${idPrefix}-phone`}>{labels.phone}</label>
+          <input id={`${idPrefix}-phone`} name="phone" type="tel" autoComplete="tel" />
         </div>
         <div className="field">
-          <label htmlFor="preferred-contact">{labels.preferredContact}</label>
-          <select id="preferred-contact" name="preferredContact" defaultValue={options[0].key}>
+          <label htmlFor={`${idPrefix}-preferred-contact`}>{labels.preferredContact}</label>
+          <select id={`${idPrefix}-preferred-contact`} name="preferredContact" defaultValue={options[0].key}>
             {options.map((option) => (
               <option key={option.key} value={option.key}>{option.label}</option>
             ))}
@@ -85,12 +95,12 @@ export function ContactForm({ labels, options, submitLabel, successMessage, erro
         </div>
       </div>
       <div className="field">
-        <label htmlFor="contact-message">{labels.message} *</label>
-        <textarea id="contact-message" name="message" rows={5} required />
+        <label htmlFor={`${idPrefix}-message`}>{labels.message} *</label>
+        <textarea id={`${idPrefix}-message`} name="message" rows={5} required defaultValue={defaultMessage} />
       </div>
       <div className="honeypot" aria-hidden="true">
-        <label htmlFor="contact-website">Website</label>
-        <input id="contact-website" name="website" tabIndex={-1} autoComplete="off" />
+        <label htmlFor={`${idPrefix}-website`}>Website</label>
+        <input id={`${idPrefix}-website`} name="website" tabIndex={-1} autoComplete="off" />
       </div>
       <button className="button contact-submit" disabled={busy} type="submit">
         {busy ? "Sending…" : submitLabel}

@@ -60,6 +60,7 @@ export function ContactModalProvider({
           <h2 id="contact-dialog-title">{contact.heading}</h2>
           <p>{contact.body}</p>
           <ContactForm
+            idPrefix="contact-modal"
             labels={contact.fieldLabels}
             options={contact.preferredContactOptions}
             submitLabel={contact.submitLabel}
