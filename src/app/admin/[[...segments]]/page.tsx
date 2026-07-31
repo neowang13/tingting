@@ -606,9 +606,9 @@ const contentGroups: Array<{
   },
   {
     title: "Homepage",
-    description: "Five sections shown to visitors on tingtingproperties.example.",
+    description: "Four sections shown to visitors on tingtingproperties.example.",
     action: "Edit page",
-    keys: ["hero", "rental_search", "property_services", "featured_rentals", "about"]
+    keys: ["hero", "property_services", "featured_rentals", "about"]
   },
   {
     title: "Service pages",

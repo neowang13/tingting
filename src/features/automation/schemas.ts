@@ -54,6 +54,25 @@ export const automationTenantInputSchema = z
     }
   });
 
+export const tenantPdfOnboardingSchema = z
+  .object({
+    tenant: automationTenantInputSchema,
+    ownerConfirmation: z.object({
+      confirmedAt: z.iso.datetime({ offset: true }),
+      documentDigest: digestSchema
+    }).strict()
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (!value.tenant.email) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["tenant", "email"],
+        message: "PDF onboarding requires an email address."
+      });
+    }
+  });
+
 export const disabledScheduleInputSchema = scheduleInputSchema.extend({
   isEnabled: z.literal(false)
 }).strict();

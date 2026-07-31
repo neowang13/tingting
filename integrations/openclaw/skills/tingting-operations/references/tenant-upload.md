@@ -2,6 +2,8 @@
 
 Use `tenants upload` when the owner provides one tenant in a message or a small
 structured note. Use the import workflow for CSV/XLSX files or multiple rows.
+For a new tenant supplied in a PDF, use the correctness-confirmed
+`tenants onboard` workflow in `SKILL.md` instead.
 
 Required facts:
 
@@ -53,3 +55,28 @@ tingtingctl tenants upload --operation-id <uuid> --input tenant.json
 
 The result reports `action=created` or `action=existing` and contains only
 masked contact destinations.
+
+## Owner-confirmed PDF onboarding
+
+After `documents inspect-tenant` and a new owner message confirming the
+displayed facts are correct, write the complete candidate fields and:
+
+```json
+{
+  "ownerConfirmation": {
+    "confirmedAt": "2026-07-30T20:00:00Z",
+    "documentDigest": "sha256:<64 lowercase hex characters>"
+  }
+}
+```
+
+Run:
+
+```text
+tingtingctl tenants onboard --operation-id <uuid> --input tenant.json
+```
+
+This dedicated command requires an email. It creates the tenant, records the
+owner confirmation as the Email permission source, sets Email permission to
+`allowed`, leaves SMS permission `unconfirmed`, and returns the global reminder
+schedule status. Do not use it without the new correctness confirmation.

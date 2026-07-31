@@ -12,13 +12,13 @@ export const sectionAdminCopy: Record<SectionKey, {
   },
   hero: {
     title: "Homepage introduction",
-    description: "The first headline, supporting text, image, and rental search button.",
+    description: "The first headline, supporting text, image, and rentals button.",
     publicLocation: "Top of the homepage"
   },
   rental_search: {
     title: "Rental search form",
-    description: "Labels and placeholder text used by visitors to search rental listings.",
-    publicLocation: "Homepage and rental search"
+    description: "Legacy labels retained for compatibility with earlier website versions.",
+    publicLocation: "Not currently shown on the public website"
   },
   property_services: {
     title: "Property services",

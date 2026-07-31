@@ -29,6 +29,7 @@ import {
   rentalUpdateSchema,
   requestIdSchema,
   scheduleSaveSchema,
+  tenantPdfOnboardingSchema,
   tenantPatchSchema
 } from "@/features/automation/schemas";
 import { nextOccurrence } from "@/features/reminders/scheduler";
@@ -326,6 +327,45 @@ export async function POST(request: Request, context: Context) {
     const rawBody = await readJson(request);
     const bodyDigest = sha256Digest(rawBody);
 
+    if (resource === "tenant-onboardings" && !id) {
+      routeName = "tenants.onboard";
+      authorize(actor, routeName);
+      assertAutomationScope(actor.scopes, "permissions:grant");
+      assertMutationAvailable();
+      const input = tenantPdfOnboardingSchema.parse(rawBody);
+      const result = await idempotent(request, actor, bodyDigest, async () => {
+        const tenant = await repository.onboardTenantFromPdf(
+          input.tenant,
+          input.ownerConfirmation,
+          actor!
+        );
+        const current = await getRepository().getTenant(tenant.id);
+        await enqueueTenantUploadNotification(tenant)
+          .then(() => deliverOwnerNotifications({ limit: 1 }))
+          .catch(() => undefined);
+        return {
+          status: 201,
+          data: {
+            tenant: publicTenantResult(tenant),
+            emailPermission: {
+              status: tenant.emailContactStatus,
+              source: tenant.emailContactStatusSource,
+              recordedAt: tenant.contactPermissionUpdatedAt
+            },
+            reminder: {
+              configured: Boolean(current.schedule),
+              isEnabled: current.schedule?.isEnabled ?? false,
+              nextRunAt: current.schedule?.nextRunAt ?? null,
+              policy: "global"
+            }
+          },
+          resourceType: "tenant",
+          resourceId: tenant.id,
+          resourceVersion: tenant.updatedAt
+        };
+      });
+      return success(result.data, requestId, result.status);
+    }
     if (resource === "rentals" && !id) {
       routeName = "rentals.create";
       authorize(actor, routeName);

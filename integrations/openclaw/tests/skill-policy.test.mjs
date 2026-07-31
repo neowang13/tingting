@@ -77,6 +77,15 @@ test("Skill defines safe single-tenant upload and permission defaults", async ()
   assert.match(skill, /never sends email or SMS/i);
 });
 
+test("Skill bundles confirmed PDF onboarding permission and reminder setup", async () => {
+  const skill = await readFile(skillUrl, "utf8");
+  assert.match(skill, /wait for a new owner message that clearly confirms the facts/i);
+  assert.match(skill, /tingtingctl tenants onboard/);
+  assert.match(skill, /Email contact status `allowed`/);
+  assert.match(skill, /global reminder plan will be configured\s+automatically/i);
+  assert.match(skill, /Do not call `tenants upload`, `tenants preview-permission`, or\s+`confirmations execute`/i);
+});
+
 test("Skill forbids retired per-tenant reminder mutations", async () => {
   const skill = await readFile(skillUrl, "utf8");
   assert.match(skill, /Do not call `schedules save-disabled` or `schedules preview-status`/);

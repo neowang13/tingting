@@ -727,7 +727,8 @@ export class AutomationRepository implements IdempotencyStore {
     id: string | null,
     payload: unknown,
     expectedVersion: string | null,
-    actor: AutomationActor
+    actor: AutomationActor,
+    options: { allowNewEmailPermission?: boolean } = {}
   ) {
     const input = automationTenantInputSchema.parse(payload);
     const current = id ? (await getRepository().getTenant(id)).tenant : null;
@@ -738,7 +739,11 @@ export class AutomationRepository implements IdempotencyStore {
     ) {
       throw new ApiError(403, "CONFIRMATION_REQUIRED", "Permission grants require an evidence-bound confirmation.");
     }
-    if (!current && (input.emailContactStatus === "allowed" || input.smsContactStatus === "allowed")) {
+    if (
+      !current &&
+      (input.emailContactStatus === "allowed" || input.smsContactStatus === "allowed") &&
+      !options.allowNewEmailPermission
+    ) {
       throw new ApiError(403, "CONFIRMATION_REQUIRED", "Automation-created tenants default to unconfirmed contact permission.");
     }
     const safeInput = {
@@ -787,6 +792,53 @@ export class AutomationRepository implements IdempotencyStore {
     const savedTenant = (await this.allAutomationTenants()).find((tenant) => tenant.id === savedId);
     if (!savedTenant) dbError({ message: "The saved tenant could not be reloaded." });
     return savedTenant;
+  }
+
+  async onboardTenantFromPdf(
+    payload: unknown,
+    confirmation: { confirmedAt: string; documentDigest: string },
+    actor: AutomationActor
+  ) {
+    const input = automationTenantInputSchema.parse(payload);
+    if (!input.email) {
+      throw new ApiError(
+        422,
+        "EMAIL_REQUIRED",
+        "PDF tenant onboarding requires an email address."
+      );
+    }
+    const tenant = await this.saveTenant(
+      null,
+      {
+        ...input,
+        preferredChannels: Array.from(new Set([...input.preferredChannels, "email"])),
+        emailContactStatus: "allowed",
+        emailContactStatusReason: "Owner confirmed the extracted tenant details.",
+        emailContactStatusSource: "owner_confirmed_pdf_onboarding",
+        smsContactStatus: "unconfirmed",
+        smsContactStatusReason: null,
+        smsContactStatusSource: null,
+        contactPermissionNote: `PDF onboarding confirmation ${confirmation.documentDigest}`,
+        contactPermissionUpdatedAt: confirmation.confirmedAt
+      },
+      null,
+      actor,
+      { allowNewEmailPermission: true }
+    );
+    await this.writeAudit(
+      actor,
+      actor.delegatedAdminUserId,
+      "automation.tenant.onboarded_from_pdf",
+      "tenant",
+      tenant.id,
+      {
+        emailPermissionGranted: true,
+        reminderPolicyApplied: true,
+        confirmationRecordedAt: confirmation.confirmedAt,
+        documentDigest: confirmation.documentDigest
+      }
+    );
+    return tenant;
   }
 
   async patchTenant(

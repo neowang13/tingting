@@ -16,7 +16,6 @@ import {
   Wrench
 } from "lucide-react";
 import { ContactForm } from "@/components/public/contact-form";
-import { RentalSearch } from "@/components/public/rental-search";
 import { ServiceDetails } from "@/components/public/service-details";
 import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
@@ -44,7 +43,7 @@ function formatDate(value: string) {
 }
 
 export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
-  const { header, hero, rental_search: search, property_services: services } = sections;
+  const { header, hero, property_services: services } = sections;
   const { featured_rentals: featured, about, contact, footer } = sections;
   const heroImage = mediaUrls[hero.background.mediaAssetId] ?? resolveSeededPublicMedia(hero.background.mediaAssetId);
   const portraitImage = mediaUrls[about.portrait.mediaAssetId] ?? resolveSeededPublicMedia(about.portrait.mediaAssetId);
@@ -75,12 +74,6 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
               {hero.primaryCta.label}
               <ArrowRight size={18} aria-hidden />
             </Link>
-          </div>
-        </section>
-
-        <section className="rental-search-section" aria-label={search.submitLabel}>
-          <div className="container">
-            <RentalSearch content={search} />
           </div>
         </section>
 

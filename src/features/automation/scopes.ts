@@ -12,6 +12,7 @@ export type AutomationRouteName =
   | "tenants.list"
   | "tenants.get"
   | "tenants.create"
+  | "tenants.onboard"
   | "tenants.update"
   | "tenants.permissionPreview"
   | "imports.create"
@@ -35,6 +36,7 @@ export const routeScopes: Record<AutomationRouteName, AutomationScope | null> = 
   "tenants.list": "tenants:read",
   "tenants.get": "tenants:read",
   "tenants.create": "tenants:write",
+  "tenants.onboard": "tenants:write",
   "tenants.update": "tenants:write",
   "tenants.permissionPreview": "permissions:grant",
   "imports.create": "tenants:import",
@@ -64,4 +66,3 @@ export function assertAutomationScope(scopes: AutomationScope[], required: Autom
     throw new ApiError(403, "AUTOMATION_SCOPE_REQUIRED", `The ${required} scope is required.`);
   }
 }
-

@@ -7,7 +7,7 @@ import {
 
 describe("automation scope map", () => {
   it("declares one exact scope or explicit token-only access for every route", () => {
-    expect(Object.keys(routeScopes)).toHaveLength(21);
+    expect(Object.keys(routeScopes)).toHaveLength(22);
     for (const value of Object.values(routeScopes)) {
       expect(value === null || value.includes(":")).toBe(true);
     }

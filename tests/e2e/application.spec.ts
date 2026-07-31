@@ -22,7 +22,7 @@ function pngBuffer(width = 800, height = 600) {
   return buffer;
 }
 
-test("public search, rental detail, validation, responsive layout, and accessibility", async ({ page }) => {
+test("public homepage, rental search, rental detail, validation, responsive layout, and accessibility", async ({ page }) => {
   const consoleErrors: string[] = [];
   const failedResponses: string[] = [];
   page.on("console", (message) => {
@@ -34,6 +34,8 @@ test("public search, rental detail, validation, responsive layout, and accessibi
 
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1, name: "Find Your Perfect Rental" })).toBeVisible();
+  await expect(page.getByRole("search")).toHaveCount(0);
+  await expect(page.getByLabel("Location", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
   await expect(page.locator(".service-card").first()).toContainText("Rental Management");
   const tingTingPortrait = page.getByAltText("Real estate professional Ting Ting Xu");
@@ -94,10 +96,11 @@ test("public search, rental detail, validation, responsive layout, and accessibi
   await expect(page.getByRole("navigation", { name: "Mobile navigation" })).toBeVisible();
   await page.getByRole("button", { name: "Close navigation" }).click();
 
+  await page.goto("/rentals");
   await page.getByLabel("Location", { exact: true }).fill("Downtown");
-  await page.getByLabel("Beds", { exact: true }).selectOption("1");
-  await page.getByRole("button", { name: "Search Rentals", exact: true }).click();
-  await expect(page).toHaveURL(/\/rentals\?location=Downtown&beds=1$/);
+  await page.getByLabel("Beds", { exact: true }).fill("1");
+  await page.getByRole("button", { name: "Apply filters", exact: true }).click();
+  await expect(page).toHaveURL(/\/rentals\?location=Downtown.*&beds=1(?:&|$)/);
   await expect(page.getByRole("heading", { name: "Bright Downtown One Bedroom" })).toBeVisible();
   await page.getByRole("link", { name: "View rental →" }).click();
   await expect(page).toHaveURL(/\/rentals\/howe-street-one-bedroom$/);

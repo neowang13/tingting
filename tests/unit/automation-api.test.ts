@@ -131,6 +131,109 @@ describe("Automation API route", () => {
     expect(JSON.stringify(payload)).not.toContain("jane@example.com");
   });
 
+  it("atomically onboards an owner-confirmed PDF tenant with email permission and reminders", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "PDF tenant onboarding writer",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:read", "tenants:write", "permissions:grant"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/tenant-onboardings",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          tenant: {
+            sourceSystem: "openclaw",
+            externalReference: "pdf-lease-2026-0043",
+            fullName: "Mei Lin",
+            propertyLabel: "456 Oak Street",
+            unitLabel: "305",
+            moveInDate: "2026-08-01",
+            rentDueDay: 1,
+            email: "mei@example.com",
+            phoneE164: "+16045550123",
+            preferredChannels: ["email", "sms"]
+          },
+          ownerConfirmation: {
+            confirmedAt: "2026-07-30T20:00:00Z",
+            documentDigest: `sha256:${"a".repeat(64)}`
+          }
+        })
+      }
+    ), context(["tenant-onboardings"]));
+    const payload = await response.json();
+    const saved = store.getTenant(payload.data.tenant.id);
+
+    expect(response.status, JSON.stringify(payload)).toBe(201);
+    expect(payload.data).toMatchObject({
+      tenant: {
+        fullName: "Mei Lin",
+        emailMasked: "m***@example.com",
+        emailContactStatus: "allowed",
+        smsContactStatus: "unconfirmed"
+      },
+      emailPermission: {
+        status: "allowed",
+        source: "owner_confirmed_pdf_onboarding",
+        recordedAt: "2026-07-30T20:00:00Z"
+      },
+      reminder: {
+        configured: true,
+        isEnabled: true,
+        policy: "global"
+      }
+    });
+    expect(saved.tenant.emailContactStatus).toBe("allowed");
+    expect(saved.tenant.smsContactStatus).toBe("unconfirmed");
+    expect(saved.schedule?.isEnabled).toBe(true);
+    expect(saved.schedule?.nextRunAt).toBeTruthy();
+    expect(JSON.stringify(payload)).not.toContain("mei@example.com");
+    expect(JSON.stringify(payload)).not.toContain("+16045550123");
+  });
+
+  it("requires permission scope for owner-confirmed PDF onboarding", async () => {
+    const repository = getAutomationRepository();
+    const credential = await repository.createServiceAccount({
+      name: "PDF tenant writer without permission scope",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["tenants:read", "tenants:write"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/tenant-onboardings",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json",
+          "idempotency-key": crypto.randomUUID()
+        },
+        body: JSON.stringify({
+          tenant: {
+            fullName: "Mei Lin",
+            propertyLabel: "456 Oak Street",
+            email: "mei@example.com",
+            preferredChannels: ["email"]
+          },
+          ownerConfirmation: {
+            confirmedAt: "2026-07-30T20:00:00Z",
+            documentDigest: `sha256:${"b".repeat(64)}`
+          }
+        })
+      }
+    ), context(["tenant-onboardings"]));
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe("AUTOMATION_SCOPE_REQUIRED");
+  });
+
   it("updates existing tenant fields without exposing stored contact data", async () => {
     const repository = getAutomationRepository();
     const credential = await repository.createServiceAccount({

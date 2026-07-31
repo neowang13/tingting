@@ -98,6 +98,13 @@ The command validates and defaults the payload, searches for duplicates, and
 creates the tenant with email/SMS permission set to `unconfirmed`. The service
 account needs both `tenants:read` and `tenants:write`.
 
+For a managed PDF, OpenClaw first inspects and shows the extracted facts. After
+the owner confirms those facts in a new message, `tenants onboard` calls the
+atomic `/tenant-onboardings` route. That route creates the tenant, records Email
+permission as `allowed`, leaves SMS `unconfirmed`, and applies the global
+reminder schedule in the same operation. It requires `tenants:read`,
+`tenants:write`, and `permissions:grant`.
+
 ## Update one tenant
 
 Place a field-level request matching

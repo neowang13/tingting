@@ -34,7 +34,7 @@ const content: Record<SiteSection["key"], unknown> = {
     heading: "Find Your Perfect Rental",
     body: "Vancouver rental expertise with local knowledge, fast response and personalized service.",
     background: { mediaAssetId: mediaHero, alt: "Vancouver skyline viewed from a modern home" },
-    primaryCta: { label: "Search Rentals", href: "/#rentals" }
+    primaryCta: { label: "View Rentals", href: "/#rentals" }
   },
   rental_search: {
     locationLabel: "Location",

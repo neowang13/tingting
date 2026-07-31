@@ -7,8 +7,9 @@ their save and status-preview endpoints return `GLOBAL_REMINDER_POLICY`.
 `Automatic email off` is a derived eligibility result, not a separate tenant
 toggle. It is expected when the tenant is inactive, has no email destination,
 the email permission is not `allowed`, or the global email template is not
-active. After an email is stored and an evidence-bound permission grant is
-confirmed, the tenant schedule is recalculated and enabled automatically.
+active. After an email is stored and permission is confirmed—either by the
+standard evidence-bound grant or owner-confirmed PDF onboarding—the tenant
+schedule is recalculated and enabled automatically.
 
 OpenClaw may:
 

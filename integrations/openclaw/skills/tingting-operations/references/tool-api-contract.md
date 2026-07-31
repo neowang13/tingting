@@ -43,6 +43,7 @@ except for an exact current shell-safe managed PDF reference passed with
 | `tenants get` | `GET /tenants/{id}` | `tenants:read` | masked tenant and reminder status |
 | `documents update-tenant` | local OCR → `GET/PATCH /tenants/{id}` | `tenants:read`, `tenants:write` | atomic row-matched contact update |
 | `tenants upload` | preflight `GET /tenants`, then `POST /tenants` | `tenants:read`, `tenants:write` | created/existing/review-required |
+| `tenants onboard` | preflight `GET /tenants`, then `POST /tenant-onboardings` | `tenants:read`, `tenants:write`, `permissions:grant` | owner-confirmed PDF create + Email permission + derived reminder |
 | `tenants update` | `PATCH /tenants/{id}` | `tenants:write` | field-level update with masked result |
 | `tenants preview-permission` | `POST /tenants/{id}/permission-previews` | `permissions:grant` | confirmation intent |
 | `imports create` | `POST /tenant-imports` | `tenants:import` | preview job/batch |
@@ -58,11 +59,17 @@ the field-level edit path and never accepts contact permission status fields.
 Changing an email address or phone number resets that channel to `unconfirmed`;
 granting `allowed` remains a separate evidence-bound confirmation.
 
+`tenants onboard` is restricted to a new tenant extracted from a managed PDF.
+It requires a new owner correctness confirmation, PDF digest, confirmation
+timestamp, and email address. The API forces Email `allowed`, SMS
+`unconfirmed`, and returns the derived global reminder status atomically.
+
 Exact high-use syntax:
 
 ```text
 tingtingctl documents inspect-tenant --media-path media://inbound/<managed-name>.pdf
 tingtingctl documents update-tenant --id <tenant-uuid> --operation-id <uuid> --media-path media://inbound/<managed-name>.pdf
+tingtingctl tenants onboard --operation-id <uuid> --input <request.json>
 tingtingctl tenants get --id <tenant-uuid>
 tingtingctl tenants update --id <tenant-uuid> --operation-id <uuid> --input <request.json>
 ```

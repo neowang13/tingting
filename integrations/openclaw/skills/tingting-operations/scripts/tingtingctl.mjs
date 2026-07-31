@@ -28,6 +28,7 @@ const commands = new Map([
   ["tenants search", { method: "GET", path: () => "/tenants", query: true }],
   ["tenants get", { method: "GET", path: ({ id }) => `/tenants/${id}`, id: true }],
   ["tenants upload", { method: "POST", path: () => "/tenants", input: true, mutation: true }],
+  ["tenants onboard", { method: "POST", path: () => "/tenant-onboardings", input: true, mutation: true }],
   ["tenants update", { method: "PATCH", path: ({ id }) => `/tenants/${id}`, id: true, input: true, mutation: true }],
   ["tenants preview-permission", { method: "POST", path: ({ id }) => `/tenants/${id}/permission-previews`, id: true, input: true, mutation: true }],
   ["imports get", { method: "GET", path: ({ id }) => `/tenant-imports/${id}`, id: true }],
@@ -46,6 +47,7 @@ const schemaUrls = {
   "rentals preview-status": new URL("../schemas/rental-status-preview.schema.json", import.meta.url),
   "tenants search": new URL("../schemas/tenant-search-query.schema.json", import.meta.url),
   "tenants upload": new URL("../schemas/tenant-upload.schema.json", import.meta.url),
+  "tenants onboard": new URL("../schemas/tenant-onboarding.schema.json", import.meta.url),
   "tenants update": new URL("../schemas/tenant-update.schema.json", import.meta.url),
   "tenants preview-permission": new URL("../schemas/permission-preview.schema.json", import.meta.url),
   "imports create": new URL("../schemas/tenant-import-request.schema.json", import.meta.url),
@@ -2042,6 +2044,19 @@ function exactTenantIdentityMatch(tenant, input) {
 
 async function uploadTenant(client, rawInput, operationId) {
   const payload = tenantUploadPayload(rawInput);
+  return createTenantAfterPreflight(client, payload, operationId, {
+    path: "/tenants",
+    body: payload,
+    action: "created"
+  });
+}
+
+async function createTenantAfterPreflight(
+  client,
+  payload,
+  operationId,
+  { path, body, action }
+) {
   const query = payload.externalReference
     ? { q: payload.externalReference, limit: 100 }
     : { q: payload.fullName, limit: 100 };
@@ -2089,19 +2104,38 @@ async function uploadTenant(client, rawInput, operationId) {
   }
   const created = await client.request({
     method: "POST",
-    path: "/tenants",
-    body: payload,
+    path,
+    body,
     mutation: true,
     idempotencyKey: operationId
   });
   return {
     ...created,
     data: {
-      action: "created",
+      action,
       created: true,
-      tenant: created.data
+      ...(created.data?.tenant
+        ? created.data
+        : { tenant: created.data })
     }
   };
+}
+
+async function onboardTenant(client, rawInput, operationId) {
+  const payload = tenantUploadPayload(rawInput);
+  if (!payload.email) {
+    const error = new Error("PDF tenant onboarding requires an email address.");
+    error.code = "LOCAL_VALIDATION_ERROR";
+    throw error;
+  }
+  return createTenantAfterPreflight(client, payload, operationId, {
+    path: "/tenant-onboardings",
+    body: {
+      tenant: payload,
+      ownerConfirmation: rawInput.ownerConfirmation
+    },
+    action: "onboarded"
+  });
 }
 
 function sha256(bytes) {
@@ -2183,6 +2217,7 @@ export async function run(argv, environment = process.env, dependencies = {}) {
     : undefined;
   if (schemaUrls[commandKey]) await validateWithSchema(schemaUrls[commandKey], input);
   if (commandKey === "tenants upload") return uploadTenant(client, input, options.operationId);
+  if (commandKey === "tenants onboard") return onboardTenant(client, input, options.operationId);
   let path = command.path(options);
   if (command.query) path += queryString(input);
   return client.request({

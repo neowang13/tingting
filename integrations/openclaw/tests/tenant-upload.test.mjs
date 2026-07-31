@@ -77,6 +77,61 @@ test("single-tenant upload derives safe defaults and creates after duplicate pre
   assert.equal(result.data.created, true);
 });
 
+test("owner-confirmed PDF onboarding uses the atomic permission and reminder route", async () => {
+  const directory = await tenantFile({
+    fullName: "Mei Lin",
+    propertyLabel: "456 Oak Street",
+    unitLabel: "305",
+    email: "MEI@EXAMPLE.COM",
+    ownerConfirmation: {
+      confirmedAt: "2026-07-30T20:00:00Z",
+      documentDigest: `sha256:${"a".repeat(64)}`
+    }
+  });
+  const requests = [];
+  const client = {
+    async request(request) {
+      requests.push(request);
+      if (request.method === "GET") {
+        return { success: true, data: { items: [] } };
+      }
+      return {
+        success: true,
+        data: {
+          tenant: {
+            id: "00000000-0000-4000-8000-000000000043",
+            emailMasked: "m•••@example.com",
+            emailContactStatus: "allowed"
+          },
+          emailPermission: { status: "allowed" },
+          reminder: { configured: true, isEnabled: true }
+        }
+      };
+    }
+  };
+
+  const result = await run(
+    ["tenants", "onboard", "--operation-id", operationId, "--input", "tenant.json"],
+    { TINGTING_INPUT_DIRECTORY: directory },
+    { client }
+  );
+
+  assert.equal(requests.length, 2);
+  assert.equal(requests[1].method, "POST");
+  assert.equal(requests[1].path, "/tenant-onboardings");
+  assert.equal(requests[1].idempotencyKey, operationId);
+  assert.equal(requests[1].body.tenant.email, "mei@example.com");
+  assert.equal(requests[1].body.tenant.emailContactStatus, "unconfirmed");
+  assert.equal(requests[1].body.tenant.smsContactStatus, "unconfirmed");
+  assert.deepEqual(requests[1].body.ownerConfirmation, {
+    confirmedAt: "2026-07-30T20:00:00Z",
+    documentDigest: `sha256:${"a".repeat(64)}`
+  });
+  assert.equal(result.data.action, "onboarded");
+  assert.equal(result.data.tenant.emailContactStatus, "allowed");
+  assert.equal(result.data.reminder.isEnabled, true);
+});
+
 test("matching source reference returns the existing tenant without another write", async () => {
   const directory = await tenantFile({
     sourceSystem: "property-manager",
