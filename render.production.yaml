@@ -59,6 +59,8 @@ services:
         value: tingtingtech@outlook.com
       - key: ALERT_TO_EMAIL
         sync: false
+      - key: OPERATIONAL_ALERTS_ENABLED
+        value: "false"
       - key: OWNER_NOTIFICATION_TO_EMAIL
         sync: false
       - key: OWNER_DAILY_OVERDUE_TIME

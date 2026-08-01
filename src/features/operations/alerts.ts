@@ -79,6 +79,10 @@ export async function deliverOperationalAlerts(
 ): Promise<OperationalAlertDeliverySummary> {
   const uniqueWarnings = [...new Set(warnings)];
   const summary = { considered: uniqueWarnings.length, sent: 0, failed: 0, skipped: 0 };
+  if (process.env.OPERATIONAL_ALERTS_ENABLED !== "true") {
+    summary.skipped = uniqueWarnings.length;
+    return summary;
+  }
   const recipient = process.env.ALERT_TO_EMAIL;
   const mode = resolveEmailProviderMode();
   if (!recipient || mode === "disabled") {

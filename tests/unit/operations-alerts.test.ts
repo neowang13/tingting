@@ -9,18 +9,39 @@ import type { EmailProvider } from "@/features/notifications/providers/types";
 describe("operational alert delivery", () => {
   const originalMode = process.env.EMAIL_PROVIDER_MODE;
   const originalRecipient = process.env.ALERT_TO_EMAIL;
+  const originalOperationalAlertsEnabled = process.env.OPERATIONAL_ALERTS_ENABLED;
 
   beforeEach(() => {
     resetRepositoryForTests();
     process.env.DATA_BACKEND = "memory";
     process.env.EMAIL_PROVIDER_MODE = "mock";
     process.env.ALERT_TO_EMAIL = "admin@example.com";
+    process.env.OPERATIONAL_ALERTS_ENABLED = "true";
   });
 
   afterEach(() => {
     process.env.EMAIL_PROVIDER_MODE = originalMode;
     process.env.ALERT_TO_EMAIL = originalRecipient;
+    process.env.OPERATIONAL_ALERTS_ENABLED = originalOperationalAlertsEnabled;
     resetRepositoryForTests();
+  });
+
+  it("keeps operational alert email disabled unless explicitly enabled", async () => {
+    process.env.OPERATIONAL_ALERTS_ENABLED = "false";
+    const send = vi.fn();
+
+    await expect(deliverOperationalAlerts(
+      ["Operational warning"],
+      "job-disabled",
+      { send } as EmailProvider
+    )).resolves.toEqual({
+      considered: 1,
+      sent: 0,
+      failed: 0,
+      skipped: 1
+    });
+
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("sends one safe mock alert per warning bucket", async () => {

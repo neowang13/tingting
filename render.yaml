@@ -61,5 +61,7 @@ services:
         value: tingtingtech@outlook.com
       - key: ALERT_TO_EMAIL
         sync: false
+      - key: OPERATIONAL_ALERTS_ENABLED
+        value: "false"
       - key: RESEND_WEBHOOK_SECRET
         sync: false
