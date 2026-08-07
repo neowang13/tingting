@@ -307,7 +307,7 @@ export async function POST(request: Request, context: Context) {
         due_date: formatRentDueDate(occurrence.dueDate),
         business_name: settings.businessName,
         business_phone: "604-872-6896",
-        business_email: "info@tingtingxu.ca"
+        business_email: "info@silverkey.ca"
       };
       const subject = template.subjectTemplate ? renderTemplate(template.subjectTemplate, context) : null;
       const renderedBody = renderTemplate(template.bodyTemplate, context);

@@ -1226,7 +1226,7 @@ function templateContext(tenant: Tenant, dueDate: string): TemplateContext {
     due_date: dueDate,
     business_name: state().businessName,
     business_phone: "604-872-6896",
-    business_email: "info@tingtingxu.ca"
+    business_email: "info@silverkey.ca"
   };
 }
 

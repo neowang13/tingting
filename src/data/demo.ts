@@ -104,7 +104,7 @@ const content: Record<SiteSection["key"], unknown> = {
     heading: "How can we help?",
     body: "Send a message about a rental, property service, or real-estate question.",
     publicPhone: "604-872-6896",
-    publicEmail: "info@tingtingxu.ca",
+    publicEmail: "info@silverkey.ca",
     fieldLabels: {
       name: "Name",
       email: "Email",
@@ -126,7 +126,7 @@ const content: Record<SiteSection["key"], unknown> = {
     brandSubtitle: "REAL ESTATE",
     summary: "Greater Vancouver rental and property support.",
     phone: "604-872-6896",
-    email: "info@tingtingxu.ca",
+    email: "info@silverkey.ca",
     officeLines: ["RE/MAX City Realty", "Vancouver, BC"],
     socialLinks: {
       instagram: "https://www.instagram.com/",

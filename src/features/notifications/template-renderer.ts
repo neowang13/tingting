@@ -63,5 +63,5 @@ export const sampleTemplateContext: TemplateContext = {
   due_date: "August 1, 2026",
   business_name: "Ting Ting Xu Real Estate",
   business_phone: "604-872-6896",
-  business_email: "info@tingtingxu.ca"
+  business_email: "info@silverkey.ca"
 };

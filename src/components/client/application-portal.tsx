@@ -10,6 +10,7 @@ import {
   type ApplicationDraft,
   type ApplicationDraftSection
 } from "@/features/applications/schemas";
+import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 
 const steps: ReadonlyArray<{ label: string; section?: ApplicationDraftSection }> = [
   { label: "Personal details", section: "personal" },
@@ -276,5 +277,5 @@ function DisclosureNotice() {
 }
 
 function ApplicationHelp() {
-  return <section className="client-panel application-help"><h2>Correction, withdrawal, or privacy request</h2><p>Email <a href="mailto:tingtingtech@outlook.com">tingtingtech@outlook.com</a> with the application reference only. Do not email identity documents or application content.</p></section>;
+  return <section className="client-panel application-help"><h2>Correction, withdrawal, or privacy request</h2><p>Email <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`}>{PUBLIC_CONTACT_EMAIL}</a> with the application reference only. Do not email identity documents or application content.</p></section>;
 }

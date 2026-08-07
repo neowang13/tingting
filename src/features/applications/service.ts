@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api";
 import type { AdminIdentity } from "@/lib/auth";
+import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 import {
   APPLICATION_FORM_VERSION,
   APPLICATION_MAX_FILE_BYTES,
@@ -467,7 +468,7 @@ export async function applicationReceipt(identity: ClientIdentity, id: string) {
   if (!application.submittedAt || !application.consentedAt) {
     throw new ApiError(409, "APPLICATION_NOT_SUBMITTED", "A receipt is available after submission.");
   }
-  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n")}\n\nCorrection, withdrawal, access, or deletion review: tingtingtech@outlook.com\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
+  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n")}\n\nCorrection, withdrawal, access, or deletion review: ${PUBLIC_CONTACT_EMAIL}\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
   return Buffer.from(text, "utf8");
 }
 
