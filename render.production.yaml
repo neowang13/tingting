@@ -58,13 +58,13 @@ services:
       - key: EMAIL_FROM
         value: Ting Ting Xu <notifications@silverkey.ca>
       - key: CONTACT_TO_EMAIL
-        value: tingtingtech@outlook.com
+        value: info@silverkey.ca
       - key: ALERT_TO_EMAIL
-        sync: false
+        value: info@silverkey.ca
       - key: OPERATIONAL_ALERTS_ENABLED
         value: "false"
       - key: OWNER_NOTIFICATION_TO_EMAIL
-        sync: false
+        value: info@silverkey.ca
       - key: OWNER_DAILY_OVERDUE_TIME
         value: "09:00"
       - key: OWNER_WEEKLY_SUMMARY_DAY

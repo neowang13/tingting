@@ -1,8 +1,9 @@
 import type { ApplicationDraft } from "@/features/applications/schemas";
+import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 
 export const APPLICATION_FORM_KEY = "residential-rental-application";
 export const APPLICATION_FORM_VERSION = "2026-07-31.1";
-export const APPLICATION_TERMS_VERSION = "2026-07-31.1";
+export const APPLICATION_TERMS_VERSION = "2026-08-06.1";
 export const APPLICATION_UPLOAD_BUCKET = "client-applications";
 export const APPLICATION_MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const APPLICATION_RETENTION_MONTHS = 12;
@@ -50,7 +51,7 @@ Access is limited to authorized applicant and staff accounts. Submitted records 
 retained only for the approved operational/legal period, normally 12 months after
 submission unless a decision, dispute, legal duty, or authorized retention hold requires
 otherwise, then securely deleted or de-identified. To request access, correction,
-withdrawal, or deletion review, contact tingtingtech@outlook.com. Withdrawal may not
+withdrawal, or deletion review, contact ${PUBLIC_CONTACT_EMAIL}. Withdrawal may not
 require deletion where retention is legally required.
 
 Version ${APPLICATION_TERMS_VERSION}. Draft for final legal/privacy review before
