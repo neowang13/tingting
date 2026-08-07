@@ -62,7 +62,7 @@ export function MobileNavigation({ items, contactCta }: Props) {
               {item.label}
             </Link>
           ))}
-          <Link href="/client/login" onClick={close}>Client Login</Link>
+          <Link href="/client/applications" onClick={close}>My applications</Link>
           <Link className="button" href={contactCta.href} onClick={close}>
             {contactCta.label}
           </Link>

@@ -1,22 +1,22 @@
 export const rentalManagementService = {
   key: "rental_management",
   title: "Rental Management",
-  summary: "Residential and commercial rental-management support, with scope and next steps tailored to the property.",
-  ctaLabel: "Explore Rental Management"
+  summary: "Tenant placement, rent collection, inspections, and day-to-day coordination.",
+  ctaLabel: "Rental management"
 } as const;
 
 export const tradeServicesService = {
   key: "trade_services",
   title: "Trade Services",
-  summary: "Assessment and coordination for approved property projects, with qualified trades engaged where required.",
-  ctaLabel: "Explore Trade Services"
+  summary: "Project assessment and coordination with qualified trades.",
+  ctaLabel: "Trade services"
 } as const;
 
 export const propertyCareService = {
   key: "property_care",
-  title: "Property Care: Handyman + Maintenance",
-  summary: "One-time fixes and ongoing upkeep, with clear scope and trade referrals where required.",
-  ctaLabel: "Explore Property Care"
+  title: "Property Management",
+  summary: "Repairs and ongoing upkeep, clearly scoped from the start.",
+  ctaLabel: "Property management"
 } as const;
 
 const legacyServiceKeys = ["renovation", "handyman", "maintenance", "strata"];
@@ -39,7 +39,8 @@ export const propertyServiceKeys = [
  * Schema v1 contained four fixed services, schema v2 added rental management,
  * and schema v3 removed unused modal copy. Schema v4 replaces Renovation with
  * compliance-scoped Trade Services. Schema v6 merges Handyman and Property
- * Maintenance into Property Care. Keep historical drafts and revisions
+ * Maintenance into Property Care. Schema v7 refreshes the public card copy.
+ * Keep historical drafts and revisions
  * readable while normalizing them to the current homepage-card shape.
  */
 export function upgradePropertyServicesContent(value: unknown): unknown {

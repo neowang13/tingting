@@ -79,6 +79,13 @@ describe("client-only redirect paths", () => {
   it("preserves a local client path, query, and fragment", () => {
     expect(sanitizeClientNextPath("/client/applications?property=home#form"))
       .toBe("/client/applications?property=home#form");
+    expect(sanitizeClientNextPath("/client/apply/howe-street-one-bedroom"))
+      .toBe("/client/apply/howe-street-one-bedroom");
+  });
+
+  it("returns generic client sign-ins to the public homepage", () => {
+    expect(sanitizeClientNextPath(undefined)).toBe("/");
+    expect(sanitizeClientNextPath(null)).toBe("/");
   });
 
   it.each([
@@ -90,7 +97,7 @@ describe("client-only redirect paths", () => {
     "/client/%2e%2e/admin",
     "/client-login"
   ])("rejects unsafe or non-client redirect %s", (candidate) => {
-    expect(sanitizeClientNextPath(candidate)).toBe("/client/applications");
+    expect(sanitizeClientNextPath(candidate)).toBe("/");
   });
 });
 

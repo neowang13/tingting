@@ -1,15 +1,15 @@
 import { expect, test } from "@playwright/test";
 
-test("Property Care is canonical across homepage, detail, redirects, metadata, sitemap, and Admin", async ({ page }) => {
+test("Property Management card leads to the canonical Property Care page", async ({ page }) => {
   await page.goto("/");
   const combinedCards = page.getByRole("article").filter({
-    has: page.getByRole("heading", { level: 3, name: "Property Care: Handyman + Maintenance" })
+    has: page.getByRole("heading", { level: 3, name: "Property Management" })
   });
   await expect(combinedCards).toHaveCount(1);
   await expect(combinedCards).toContainText(
-    "One-time fixes and ongoing upkeep, with clear scope and trade referrals where required."
+    "Repairs and ongoing upkeep, clearly scoped from the start."
   );
-  await combinedCards.getByRole("link", { name: "Explore Property Care" }).click();
+  await combinedCards.getByRole("link", { name: "Property management" }).click();
   await expect(page).toHaveURL(/\/services\/property-care$/);
   await expect(page.getByRole("heading", { level: 1, name: "One-Time Fixes and Ongoing Property Upkeep." })).toBeVisible();
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute("href", /\/services\/property-care$/);

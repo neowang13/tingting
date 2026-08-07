@@ -38,10 +38,10 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   await expect(page.getByLabel("Location", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
   await expect(page.getByText(
-    "Residential and commercial rental-management support, with scope and next steps tailored to the property."
+    "Tenant placement, rent collection, inspections, and day-to-day coordination."
   )).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Trade Services" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Property Care: Handyman + Maintenance" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { level: 3, name: "Property Management" })).toHaveCount(1);
   await expect(page.getByRole("heading", { level: 3, name: "Handyman Services" })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Property Maintenance" })).toHaveCount(0);
   await expect(page.locator(".service-card").first()).toContainText("Rental Management");
@@ -136,6 +136,9 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   await page.getByRole("link", { name: "View rental →" }).click();
   await expect(page).toHaveURL(/\/rentals\/howe-street-one-bedroom$/);
   await expect(page.getByRole("button", { name: "Book a viewing" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Apply online" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save listing" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Ask Ting Ting" })).toHaveCount(0);
 
   await page.goto("/#contact");
   await page.getByRole("button", { name: "Send Message" }).click();

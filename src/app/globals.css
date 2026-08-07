@@ -353,22 +353,26 @@ a {
   background: #fff;
 }
 
+.services-section > .container {
+  width: min(1380px, calc(100% - 48px));
+}
+
 .service-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.125rem;
 }
 
 .service-card {
   display: flex;
-  min-height: 310px;
+  min-height: 252px;
   flex-direction: column;
-  align-items: center;
-  padding: 1.55rem 1.3rem;
+  align-items: flex-start;
+  padding: 1.5rem;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
   background: #fff;
-  text-align: center;
+  text-align: left;
   transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
@@ -379,15 +383,16 @@ a {
 }
 
 .service-card h3 {
-  margin: 1rem 0 0.5rem;
-  font-size: 1.05rem;
+  margin: 1.1rem 0 0.55rem;
+  font-size: 1.12rem;
+  line-height: 1.25;
 }
 
 .service-card p {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
-  line-height: 1.7;
+  font-size: 0.94rem;
+  line-height: 1.55;
 }
 
 .icon-badge {
@@ -415,10 +420,16 @@ a {
   cursor: pointer;
 }
 
+.service-card .service-link {
+  width: 100%;
+  justify-content: space-between;
+  padding-top: 1.15rem;
+}
+
 .section-action {
   display: flex;
   justify-content: center;
-  margin-top: 1.4rem;
+  margin-top: 1.75rem;
 }
 
 .service-dialog {
@@ -1524,6 +1535,30 @@ a {
 .showing-reschedule {
   margin-top: 0.4rem !important;
   font-size: 0.8rem;
+}
+
+.showing-needs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+}
+
+.showing-needs label {
+  width: 100%;
+  min-height: 50px;
+  justify-content: flex-start;
+  border: 1px solid #9acfac;
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  color: #174a2a;
+  background: #f7fcf8;
+  font-weight: 750;
+}
+
+.showing-needs input {
+  flex: 0 0 auto;
+  accent-color: var(--green);
 }
 
 /* Existing admin application styles */
@@ -2706,7 +2741,7 @@ a {
   }
 
   .service-card {
-    min-height: 270px;
+    min-height: 230px;
   }
 
   .rental-grid {
@@ -3097,7 +3132,7 @@ a {
   }
 
   .service-card {
-    min-height: 260px;
+    min-height: 0;
   }
 
   .section-topline {
@@ -6402,35 +6437,37 @@ a {
 }
 
 .rental-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  min-height: 76px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
+  padding: 20px 0 18px;
   border-bottom: 1px solid var(--line);
 }
 
-.rental-primary-actions > p {
+.rental-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.rental-action-row > p {
   margin: 0;
   font-size: 0.8rem;
 }
 
-.rental-primary-actions > div {
+.rental-action-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
 }
 
 .rental-primary-actions .button {
-  min-width: 148px;
-  min-height: 42px;
+  min-width: 168px;
+  min-height: 48px;
   font-size: 0.8rem;
 }
 
 .rental-apply-button { display: inline-flex; align-items: center; gap: 7px; }
 .rental-apply-button svg { width: 16px; }
-.rental-application-note { width: 100%; margin: -8px 0 15px !important; color: var(--muted); font-size: .75rem !important; }
+.rental-application-note { margin: 12px 0 0; color: var(--muted); font-size: .75rem; line-height: 1.5; }
 
 .rental-save-button svg {
   width: 16px;
@@ -6440,11 +6477,6 @@ a {
   color: var(--green-dark);
   border-color: #a9cfb5;
   background: var(--green-soft);
-}
-
-.rental-contact-button {
-  color: var(--green-dark) !important;
-  border-color: #77bd8c !important;
 }
 
 .rental-about {
@@ -6792,7 +6824,7 @@ a {
   }
 
   .rental-listing-heading,
-  .rental-primary-actions {
+  .rental-action-row {
     align-items: flex-start;
     flex-direction: column;
   }
@@ -6823,7 +6855,7 @@ a {
     padding: 18px 0;
   }
 
-  .rental-primary-actions > div {
+  .rental-action-buttons {
     width: 100%;
   }
 
@@ -6887,12 +6919,16 @@ a {
     font-size: 1.5rem;
   }
 
-  .rental-primary-actions > div {
+  .rental-action-buttons {
     display: grid;
   }
 
   .rental-primary-actions .button {
     width: 100%;
+  }
+
+  .showing-needs {
+    grid-template-columns: 1fr;
   }
 
   .rental-quick-facts > div {

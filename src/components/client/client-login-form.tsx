@@ -5,7 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import { getClientAuthBrowserClient } from "@/lib/client-auth-browser";
 import { clientEmailConfirmationRedirect } from "@/lib/client-signup";
 
-export function ClientLoginForm({ authMode, nextPath = "/client/applications" }: { authMode: "local" | "supabase"; nextPath?: string }) {
+export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local" | "supabase"; nextPath?: string }) {
   const router = useRouter();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;

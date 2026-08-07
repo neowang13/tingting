@@ -8,6 +8,7 @@ import { isDemoMode } from "@/lib/auth";
 import { LOCAL_CLIENT_SESSION_COOKIE, verifyLocalClientSession } from "@/lib/local-client-auth";
 import { readCookieValue } from "@/lib/local-admin-auth";
 import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
+import { sanitizeClientNextPath } from "@/lib/client-signup";
 
 async function resolveSupabaseClient(): Promise<ClientIdentity> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -58,18 +59,26 @@ export async function requireClientRequest(request: Request): Promise<ClientIden
   return resolveSupabaseClient();
 }
 
-export async function requireClientPage(): Promise<ClientIdentity> {
+function clientLoginDestination(options?: { nextPath?: string; propertySlug?: string }) {
+  if (!options?.nextPath) return "/client/login";
+  const params = new URLSearchParams({ next: sanitizeClientNextPath(options.nextPath) });
+  if (options.propertySlug) params.set("property", options.propertySlug.slice(0, 200));
+  return `/client/login?${params.toString()}`;
+}
+
+export async function requireClientPage(options?: { nextPath?: string; propertySlug?: string }): Promise<ClientIdentity> {
+  const loginDestination = clientLoginDestination(options);
   try {
     if (isDemoMode()) {
       const cookieStore = await cookies();
       const identity = verifyLocalClientSession(cookieStore.get(LOCAL_CLIENT_SESSION_COOKIE)?.value);
-      if (!identity) redirect("/client/login");
+      if (!identity) redirect(loginDestination);
       return identity;
     }
     return await resolveSupabaseClient();
   } catch (error) {
     if (error && typeof error === "object" && "digest" in error) throw error;
-    redirect("/client/login");
+    redirect(loginDestination);
   }
 }
 

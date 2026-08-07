@@ -54,7 +54,7 @@ const content: Record<SiteSection["key"], unknown> = {
   property_services: {
     eyebrow: "PROPERTY SERVICES",
     heading: "Practical care for every part of your property.",
-    body: "Reliable support for everyday repairs, planned improvements, and ongoing property care—all coordinated through one convenient point of contact.",
+    body: "Reliable support for repairs, projects, ongoing care, and rental management across Greater Vancouver.",
     services: [
       structuredClone(rentalManagementService),
       structuredClone(tradeServicesService),
@@ -62,8 +62,8 @@ const content: Record<SiteSection["key"], unknown> = {
       {
         key: "strata",
         title: "Strata Services",
-        summary: "Practical support and coordination for strata-related property needs.",
-        ctaLabel: "View Strata Services",
+        summary: "Repairs, access, moves, and service coordination for strata properties.",
+        ctaLabel: "Strata services",
         detail: {
           eyebrow: "STRATA SERVICES",
           heading: "Responsive support for strata property needs.",
@@ -158,7 +158,7 @@ const sectionNames: Record<SiteSection["key"], string> = {
 export const demoSections: SiteSection[] = Object.entries(content).map(([key, value]) => ({
   key: key as SiteSection["key"],
   displayName: sectionNames[key as SiteSection["key"]],
-  schemaVersion: key === "property_services" ? 6
+  schemaVersion: key === "property_services" ? 7
     : key === "service_trade_services" || key === "service_rental_management" || key === "service_property_care" ? 2
       : 1,
   draftContent: structuredClone(key === "property_services" ? upgradePropertyServicesContent(value) : value),

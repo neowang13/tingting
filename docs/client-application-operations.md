@@ -12,9 +12,13 @@ type, intended landlord/recipient, applicant rights, and retention exceptions.
   least 11 characters. Supabase email confirmation is required before first sign-in.
 - Registration metadata can create only an active `client_profiles` row. It never
   creates `admin_profiles`, assigns an application/property, or grants Admin access.
-- Staff assign one versioned form and one versioned consent to an application.
-  `scripts/provision-supabase.ts` refuses its optional initial assignment unless both
-  source versions are approved.
+- After sign-in, a Client may start an application only from a published rental.
+  The service-role-only database function atomically creates or reuses one active
+  application per Client/rental and attaches only the approved canonical form and
+  approved active consent. Draft saves, uploads, and final submission recheck this
+  approval and fail closed if either source is pending or approval is withdrawn.
+  `scripts/provision-supabase.ts` still supports an optional staff-provisioned initial
+  assignment and refuses it unless both source versions are approved.
 - Every client read is owner-scoped in the server query and RLS policy. All mutations
   are same-origin server routes. Service-role credentials and private storage paths
   never reach the browser.
@@ -24,12 +28,14 @@ type, intended landlord/recipient, applicant rights, and retention exceptions.
 
 ## Applicant workflow
 
-1. Applicant registers, confirms the email link, and signs in. Staff can see the
-   registered account under `/admin/clients`; the new account initially has no
-   application or tenant assignment.
-2. Staff assigns the correct property, form, and consent versions when applicable.
-3. Applicant signs in at `/client/login`, opens `/client/applications`, and completes
-   the assigned eight-step online application: personal details, household/tenancy,
+1. Applicant registers, confirms the email link, and signs in. A generic sign-in
+   returns to the public homepage. Staff can see the registered account under
+   `/admin/clients`; the new account initially has no application or tenant assignment.
+2. Applicant browses a published rental detail page. `Book a viewing` remains
+   available on the listing; `Apply online` asks the Client to sign in when necessary,
+   confirms the selected rental, then creates or reuses only that Client's application.
+3. Applicant opens the resulting private application (or `/client/applications`) and
+   completes the eight-step online application: personal details, household/tenancy,
    housing history, employment/income, references, emergency contact, documents, and
    review/submit. Each explicit save is server-validated, owner-scoped, and audited.
 4. Applicant uploads requested PDF/JPEG/PNG supporting files, maximum 10 MB each and
