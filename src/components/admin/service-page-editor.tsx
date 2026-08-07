@@ -6,6 +6,7 @@ import { MediaLibrary } from "@/components/admin/media-library";
 import { sectionAdminCopy } from "@/features/content/admin-copy";
 import {
   serviceIconKeys,
+  type RentalManagementType,
   type ServiceMediaReference,
   type ServicePageCard,
   type ServicePageContent
@@ -18,18 +19,51 @@ import type {
   SiteSection
 } from "@/lib/contracts";
 
-type EditorTab = "hero" | "services" | "highlight" | "story" | "gallery" | "cta";
+type EditorTab = "hero" | "management" | "services" | "highlight" | "story" | "gallery" | "cta";
 type Path = Array<string | number>;
 type JsonObject = Record<string, unknown>;
 
 const editorTabs: Array<{ id: EditorTab; label: string }> = [
   { id: "hero", label: "Hero" },
+  { id: "management", label: "Management types" },
   { id: "services", label: "Core services" },
   { id: "highlight", label: "Highlight" },
   { id: "story", label: "Why choose us" },
   { id: "gallery", label: "Gallery" },
   { id: "cta", label: "Final call to action" }
 ];
+
+function ManagementTypeEditor({
+  managementType,
+  index,
+  onChange
+}: {
+  managementType: RentalManagementType;
+  index: number;
+  onChange: (path: Path, value: unknown) => void;
+}) {
+  const path: Path = ["managementTypes", index];
+  return (
+    <fieldset className="service-card-editor rental-management-editor">
+      <legend>{managementType.title}</legend>
+      <Field label="Title" value={managementType.title} maxLength={80} onChange={(value) => onChange([...path, "title"], value)} />
+      <Field label="Summary" value={managementType.summary} maxLength={500} multiline onChange={(value) => onChange([...path, "summary"], value)} />
+      {managementType.tasks.map((task, taskIndex) => (
+        <Field
+          label={`Management task ${taskIndex + 1}`}
+          value={task}
+          maxLength={500}
+          multiline
+          onChange={(value) => onChange([...path, "tasks", taskIndex], value)}
+          key={taskIndex}
+        />
+      ))}
+      <Field label="Intake facts" value={managementType.intake} maxLength={500} multiline onChange={(value) => onChange([...path, "intake"], value)} />
+      <Field label="Framework and exclusions" value={managementType.framework} maxLength={500} multiline onChange={(value) => onChange([...path, "framework"], value)} />
+      <Field label="Escalation path" value={managementType.escalation} maxLength={500} multiline onChange={(value) => onChange([...path, "escalation"], value)} />
+    </fieldset>
+  );
+}
 
 function updateAtPath(value: unknown, path: Path, nextValue: unknown): unknown {
   if (path.length === 0) return nextValue;
@@ -216,6 +250,9 @@ export function ServicePageEditor({
   const [message, setMessage] = useState("No unsaved changes");
   const [busy, setBusy] = useState(false);
   const [media, setMedia] = useState(initialMedia);
+  const visibleEditorTabs = editorTabs.filter(
+    (tab) => tab.id !== "management" || section.key === "service_rental_management"
+  );
   const validation = useMemo(() => {
     try {
       validateSection(section.key, draft);
@@ -363,7 +400,7 @@ export function ServicePageEditor({
 
       <div className="service-editor-grid">
         <nav className="service-editor-nav" aria-label="Service page sections">
-          {editorTabs.map((tab) => (
+          {visibleEditorTabs.map((tab) => (
             <button
               className={activeTab === tab.id ? "active" : ""}
               type="button"
@@ -399,6 +436,29 @@ export function ServicePageEditor({
                     <option value="right center">Right</option>
                   </select>
                 </label>
+              </div>
+            </>
+          )}
+
+          {activeTab === "management" && draft.managementTypes && (
+            <>
+              <h2>Residential and commercial management</h2>
+              <p className="service-editor-panel-intro">
+                Keep the tasks, intake facts, governing framework, exclusions, and escalation path specific to each property context.
+              </p>
+              <div className="service-editor-form service-editor-section-fields">
+                <Field label="Small heading" value={draft.managementTypesEyebrow ?? ""} maxLength={80} onChange={(value) => change(["managementTypesEyebrow"], value)} />
+                <Field label="Section heading" value={draft.managementTypesTitle ?? ""} maxLength={120} onChange={(value) => change(["managementTypesTitle"], value)} />
+              </div>
+              <div className="service-card-editor-grid rental-management-editor-grid">
+                {draft.managementTypes.map((managementType, index) => (
+                  <ManagementTypeEditor
+                    managementType={managementType}
+                    index={index}
+                    onChange={change}
+                    key={`${index}-${managementType.title}`}
+                  />
+                ))}
               </div>
             </>
           )}

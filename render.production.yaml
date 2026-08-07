@@ -26,19 +26,21 @@ services:
       - key: SMS_PROVIDER_MODE
         value: disabled
       - key: AUTOMATION_API_ENABLED
-        value: "true"
+        value: "false"
       - key: AUTOMATION_MUTATIONS_ENABLED
-        value: "true"
+        value: "false"
       - key: AUTOMATION_CONFIRMATIONS_ENABLED
-        value: "true"
+        value: "false"
       - key: AUTOMATION_TENANT_IMPORT_ENABLED
-        value: "true"
+        value: "false"
       - key: AUTOMATION_IMPORT_BUCKET
         value: automation-imports
       - key: SUPABASE_STORAGE_PUBLIC_BUCKET
         value: site-media
       - key: SUPABASE_STORAGE_DRAFT_BUCKET
         value: site-media-drafts
+      - key: APPLICATION_UPLOAD_BUCKET
+        value: client-applications
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -50,11 +52,11 @@ services:
       - key: AUTOMATION_TOKEN_PEPPER
         sync: false
       - key: APP_BASE_URL
-        sync: false
+        value: https://silverkey.ca
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_FROM
-        sync: false
+        value: Ting Ting Xu <notifications@silverkey.ca>
       - key: CONTACT_TO_EMAIL
         value: tingtingtech@outlook.com
       - key: ALERT_TO_EMAIL
@@ -94,6 +96,6 @@ services:
       # Enter the exact same public HTTPS URL and Cron secret used by the web
       # service. The command never prints the secret or response body.
       - key: APP_BASE_URL
-        sync: false
+        value: https://silverkey.ca
       - key: REMINDER_CRON_SECRET
         sync: false

@@ -1,7 +1,8 @@
 "use client";
 
-import { Send } from "lucide-react";
+import { Mail, MessageCircle, Phone, Send } from "lucide-react";
 import { FormEvent, useState } from "react";
+import { buildContactActionUris } from "@/features/contact/follow-up";
 
 interface Props {
   idPrefix?: string;
@@ -16,6 +17,8 @@ interface Props {
   submitLabel: string;
   successMessage: string;
   errorMessage: string;
+  publicEmail: string;
+  publicPhone: string;
   defaultMessage?: string;
 }
 
@@ -26,10 +29,13 @@ export function ContactForm({
   submitLabel,
   successMessage,
   errorMessage,
+  publicEmail,
+  publicPhone,
   defaultMessage
 }: Props) {
   const [status, setStatus] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const publicActions = buildContactActionUris({ email: publicEmail, phone: publicPhone });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -107,9 +113,22 @@ export function ContactForm({
         <Send size={16} aria-hidden />
       </button>
       {status && (
-        <p className={`form-status ${status.type}`} role={status.type === "error" ? "alert" : "status"}>
-          {status.message}
-        </p>
+        <div className={`form-status ${status.type}`} role={status.type === "error" ? "alert" : "status"}>
+          <p>{status.message}</p>
+          {status.type === "success" && (
+            <div className="contact-success-actions" aria-label="Contact Ting Ting directly">
+              {publicActions.email && (
+                <a href={publicActions.email}><Mail size={16} aria-hidden />Email Ting Ting</a>
+              )}
+              {publicActions.call && (
+                <a href={publicActions.call}><Phone size={16} aria-hidden />Call Ting Ting</a>
+              )}
+              {publicActions.text && (
+                <a href={publicActions.text}><MessageCircle size={16} aria-hidden />Text Ting Ting</a>
+              )}
+            </div>
+          )}
+        </div>
       )}
     </form>
   );

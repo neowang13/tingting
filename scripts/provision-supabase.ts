@@ -9,6 +9,10 @@ const adminUserId = process.env.ADMIN_USER_ID;
 const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || "Ting Ting Xu";
 const draftBucket = process.env.SUPABASE_STORAGE_DRAFT_BUCKET || "site-media-drafts";
 const publicBucket = process.env.SUPABASE_STORAGE_PUBLIC_BUCKET || "site-media";
+const applicationBucket = process.env.APPLICATION_UPLOAD_BUCKET || "client-applications";
+const clientUserId = process.env.CLIENT_USER_ID;
+const clientDisplayName = process.env.CLIENT_DISPLAY_NAME || "Rental Applicant";
+const clientRentalSlug = process.env.CLIENT_APPLICATION_RENTAL_SLUG;
 
 if (!url || !serviceRoleKey || !adminUserId) {
   throw new Error(
@@ -24,7 +28,11 @@ function fail(error: { message: string } | null, context: string) {
   if (error) throw new Error(`${context}: ${error.message}`);
 }
 
-async function ensureBucket(id: string, isPublic: boolean) {
+async function ensureBucket(
+  id: string,
+  isPublic: boolean,
+  options: { fileSizeLimit?: number; allowedMimeTypes?: string[] } = {}
+) {
   const { data, error } = await supabase.storage.getBucket(id);
   if (data) return;
   if (error && !error.message.toLowerCase().includes("not found")) {
@@ -32,8 +40,8 @@ async function ensureBucket(id: string, isPublic: boolean) {
   }
   const created = await supabase.storage.createBucket(id, {
     public: isPublic,
-    fileSizeLimit: 8 * 1024 * 1024,
-    allowedMimeTypes: ["image/jpeg", "image/png", "image/webp", "image/avif"]
+    fileSizeLimit: options.fileSizeLimit ?? 8 * 1024 * 1024,
+    allowedMimeTypes: options.allowedMimeTypes ?? ["image/jpeg", "image/png", "image/webp", "image/avif"]
   });
   fail(created.error, `Create bucket ${id}`);
 }
@@ -132,8 +140,49 @@ export async function provisionSupabase() {
 
   await ensureBucket(draftBucket, false);
   await ensureBucket(publicBucket, true);
+  await ensureBucket(applicationBucket, false, {
+    fileSizeLimit: 10 * 1024 * 1024,
+    allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png"]
+  });
 
-  console.log("Supabase provisioning complete. Reminders and templates remain disabled.");
+  if (clientUserId) {
+    const clientProfile = await supabase.from("client_profiles").upsert(
+      { user_id: clientUserId, display_name: clientDisplayName, is_active: true },
+      { onConflict: "user_id" }
+    );
+    fail(clientProfile.error, "Provision client profile");
+
+    if (clientRentalSlug) {
+      const [rental, form, terms] = await Promise.all([
+        supabase.from("rental_listings").select("id,title,address_line,city").eq("slug", clientRentalSlug).maybeSingle(),
+        supabase.from("application_form_versions").select("id,legal_review_status").eq("form_key", "residential-rental-application").eq("is_active", true).maybeSingle(),
+        supabase.from("application_terms_versions").select("id,legal_review_status").eq("is_active", true).maybeSingle()
+      ]);
+      fail(rental.error, "Read client application rental");
+      fail(form.error, "Read active application form");
+      fail(terms.error, "Read active application terms");
+      if (!rental.data || !form.data || !terms.data) throw new Error("Client application assignment source is missing.");
+      if (form.data.legal_review_status !== "approved" || terms.data.legal_review_status !== "approved") {
+        throw new Error("Client application form and terms require legal/privacy approval before assignment.");
+      }
+      const existing = await supabase.from("client_applications").select("id")
+        .eq("owner_user_id", clientUserId).eq("rental_listing_id", rental.data.id).is("deleted_at", null).maybeSingle();
+      fail(existing.error, "Read existing client application assignment");
+      if (!existing.data) {
+        const assignment = await supabase.from("client_applications").insert({
+          owner_user_id: clientUserId,
+          rental_listing_id: rental.data.id,
+          property_title: rental.data.title,
+          property_address: `${rental.data.address_line}, ${rental.data.city}`,
+          form_version_id: form.data.id,
+          terms_version_id: terms.data.id
+        });
+        fail(assignment.error, "Create client application assignment");
+      }
+    }
+  }
+
+  console.log("Supabase provisioning complete. Reminders and templates remain disabled; application assignment requires approved legal/privacy versions.");
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

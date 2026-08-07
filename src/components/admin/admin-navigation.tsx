@@ -14,7 +14,8 @@ const navigationGroups = [
     label: "Website",
     links: [
       { label: "Website content", href: "/admin/content", exact: false },
-      { label: "Rental listings", href: "/admin/rentals", exact: false }
+      { label: "Rental listings", href: "/admin/rentals", exact: false },
+      { label: "Client applications", href: "/admin/applications", exact: false }
     ]
   },
   {
@@ -28,8 +29,7 @@ const navigationGroups = [
   {
     label: "System",
     links: [
-      { label: "Reminder settings", href: "/admin/settings", exact: false },
-      { label: "Automation & imports", href: "/admin/automation", exact: false }
+      { label: "Reminder settings", href: "/admin/settings", exact: false }
     ]
   }
 ] as const;

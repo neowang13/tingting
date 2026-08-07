@@ -49,12 +49,24 @@ export interface ServicePageCard {
   image?: ServiceMediaReference;
 }
 
+export interface RentalManagementType {
+  title: string;
+  summary: string;
+  tasks: [string, string, string];
+  intake: string;
+  framework: string;
+  escalation: string;
+}
+
 export interface ServicePageContent {
   eyebrow: string;
   title: string;
   description: string;
   heroImage: ServiceMediaReference;
   heroPosition: string;
+  managementTypesEyebrow?: string;
+  managementTypesTitle?: string;
+  managementTypes?: [RentalManagementType, RentalManagementType];
   servicesEyebrow: string;
   servicesTitle: string;
   services: ServicePageCard[];
@@ -79,31 +91,6 @@ export interface ServicePageDefinition {
   content: ServicePageContent;
 }
 
-export const minorPlumbingRepairService: ServicePageCard = {
-  title: "Minor Plumbing Repairs",
-  body: "Help with faucets, drains, fixtures, caulking, and minor leaks. Specialized plumbing work is handled by qualified trades.",
-  icon: "droplets"
-};
-
-export function upgradeHandymanServiceContent(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const content = value as Record<string, unknown>;
-  if (!Array.isArray(content.services)) return value;
-
-  const alreadyIncluded = content.services.some((service) =>
-    service &&
-    typeof service === "object" &&
-    !Array.isArray(service) &&
-    (service as Record<string, unknown>).title === minorPlumbingRepairService.title
-  );
-  if (alreadyIncluded || content.services.length !== 4) return value;
-
-  return {
-    ...content,
-    services: [...content.services, structuredClone(minorPlumbingRepairService)]
-  };
-}
-
 const mediaIds = {
   kitchen: "11000000-0000-4000-8000-000000000001",
   living: "11000000-0000-4000-8000-000000000002",
@@ -125,173 +112,339 @@ function image(mediaAssetId: string, alt: string): ServiceMediaReference {
   return { mediaAssetId, alt };
 }
 
+const propertyCareContent: ServicePageContent = {
+  eyebrow: "PROPERTY CARE · HANDYMAN + MAINTENANCE",
+  title: "One-Time Fixes and Ongoing Property Upkeep.",
+  description:
+    "Property-care requests are reviewed before scheduling so the scope, provider, approvals, and next step are clear. Specialized or regulated work is referred to or coordinated with an appropriately qualified provider where required.",
+  heroImage: image(mediaIds.tools, "Tools and supplies prepared for a property-care assessment"),
+  heroPosition: "center 58%",
+  servicesEyebrow: "ONE-TIME AND ONGOING PROPERTY CARE",
+  servicesTitle: "Two kinds of support, one clear request path.",
+  services: [
+    {
+      title: "One-Time Fixes · Mounting & Assembly",
+      body: "Requests for furniture assembly, shelving, mirrors, artwork, and similar non-regulated installations can be assessed for an appropriate service provider.",
+      icon: "panel"
+    },
+    {
+      title: "One-Time Fixes · Walls, Doors & Hardware",
+      body: "Drywall touch-ups, minor paint repairs, door adjustments, handles, hinges, and cabinet hardware can be scoped before scheduling.",
+      icon: "door"
+    },
+    {
+      title: "One-Time Fixes · Minor Fixture Support",
+      body: "Minor caulking, sealing, fixture, faucet, or drain requests are assessed first; regulated plumbing or electrical work is directed to a qualified trade.",
+      icon: "droplets"
+    },
+    {
+      title: "Ongoing Upkeep · Cleaning & Exterior Care",
+      body: "One-time or recurring cleaning and exterior-care requests can be coordinated after access, surfaces, safety limits, and approvals are confirmed.",
+      icon: "sparkles"
+    },
+    {
+      title: "Ongoing Upkeep · Lawn & Seasonal Tasks",
+      body: "Lawn care, pruning, leaf or gutter clearing, weather preparation, and seasonal clean-up are considered according to the property and season.",
+      icon: "flower"
+    },
+    {
+      title: "Ongoing Upkeep · Preventive Property Checks",
+      body: "Agreed visual checks can identify concerns for owner review; inspections, diagnosis, and regulated work remain with the appropriate qualified professional.",
+      icon: "clipboard"
+    }
+  ],
+  highlightTitle: "Scope and responsibility are confirmed first.",
+  highlightBody:
+    "Availability, geography, provider relationship, estimate, payment, insurance, warranties, safety rules, strata or owner approvals, and emergency limitations must be confirmed for each request.",
+  storyEyebrow: "HOW PROPERTY CARE IS COORDINATED",
+  storyTitle: "The Right Provider for the Approved Scope.",
+  storyBody:
+    "We help review the request and coordinate an appropriate next step. Each service provider remains responsible for its own work, qualifications, insurance, quote, payment terms, safety practices, and warranties unless a written agreement states otherwise. This service is not an emergency-response line.",
+  storyImage: image(mediaIds.house, "Home exterior reviewed for ongoing property-care needs"),
+  benefits: [
+    { title: "Request Review", body: "Photos, timing, access, property context, and the requested outcome help define the next step.", icon: "search" },
+    { title: "Written Scope", body: "Included work, exclusions, provider, estimate, approvals, and follow-up path can be confirmed before scheduling.", icon: "file-chart" },
+    { title: "Qualified-Provider Boundary", body: "Specialized or regulated work is referred to or coordinated with an appropriately qualified provider.", icon: "hard-hat" },
+    { title: "Approval Awareness", body: "Owner, strata, municipal, and other required permissions remain part of the request assessment.", icon: "shield" }
+  ],
+  galleryEyebrow: "PROPERTY-CARE REQUESTS",
+  galleryTitle: "Examples of requests we can assess.",
+  gallery: [
+    { title: "Mounting & Assembly", body: "One-time household installation and assembly requests.", icon: "panel", image: image(mediaIds.living, "Living room representing mounting and assembly requests") },
+    { title: "Doors, Walls & Fixtures", body: "Minor repair requests reviewed for safe scope and provider needs.", icon: "door", image: image(mediaIds.furniture, "Interior door and hardware representing minor repair requests") },
+    { title: "Exterior & Seasonal Care", body: "Property-specific outdoor and seasonal upkeep requests.", icon: "flower", image: image(mediaIds.garden, "Garden representing seasonal property-care requests") },
+    { title: "Preventive Checks", body: "Documented visual checks with concerns escalated for appropriate follow-up.", icon: "clipboard", image: image(mediaIds.house, "Home exterior representing preventive property checks") }
+  ],
+  ctaTitle: "Discuss a Property-Care Request",
+  ctaBody: "Describe the property, requested work, timing, access, and known approvals so the scope and appropriate next step can be confirmed."
+};
+
+export function upgradePropertyCareContent(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const content = value as Record<string, unknown>;
+  if (content.eyebrow === propertyCareContent.eyebrow && Array.isArray(content.services)) return value;
+  if (!Array.isArray(content.services) || ![4, 5].includes(content.services.length)) return value;
+
+  const upgraded = structuredClone(propertyCareContent);
+  preserveMediaId(upgraded.heroImage, content.heroImage);
+  preserveMediaId(upgraded.storyImage, content.storyImage);
+  if (typeof content.heroPosition === "string") upgraded.heroPosition = content.heroPosition;
+  if (Array.isArray(content.gallery)) {
+    const legacyGallery = content.gallery as unknown[];
+    upgraded.gallery.forEach((item, index) => {
+      if (!item.image) return;
+      const prior = legacyGallery[index];
+      if (prior && typeof prior === "object" && !Array.isArray(prior)) {
+        preserveMediaId(item.image, (prior as Record<string, unknown>).image);
+      }
+    });
+  }
+  return upgraded;
+}
+
+const tradeServicesContent: ServicePageContent = {
+  eyebrow: "TRADE SERVICES",
+  title: "A Clear First Step for Property Projects.",
+  description:
+    "Tell us what your property needs. We’ll assess the request, confirm the available scope, and explain whether the next step is coordination or a referral to an appropriate qualified trade.",
+  heroImage: image(mediaIds.kitchen, "Kitchen used as an example of a property project"),
+  heroPosition: "center 54%",
+  servicesEyebrow: "HOW REQUESTS ARE ASSESSED",
+  servicesTitle: "Clear scope before work begins.",
+  services: [
+    {
+      title: "Project Assessment",
+      body: "Review the request, property context, photos, timing, and any strata requirements before recommending a next step.",
+      icon: "clipboard",
+      image: image(mediaIds.kitchen, "Property project assessment for a kitchen")
+    },
+    {
+      title: "Trade Referrals",
+      body: "Connect you with an appropriate qualified trade when specialized or regulated work is required.",
+      icon: "hard-hat",
+      image: image(mediaIds.bathroom, "Bathroom fixtures reviewed for a trade-services request")
+    },
+    {
+      title: "Scheduling Coordination",
+      body: "Help align approved work, access, and communication among the property contact and service provider.",
+      icon: "calendar",
+      image: image(mediaIds.condo, "Condominium access considered during project coordination")
+    },
+    {
+      title: "Scope & Quote Review",
+      body: "Clarify who will define the work, provide the quote, collect payment, and address follow-up before work begins.",
+      icon: "file-chart",
+      image: image(mediaIds.living, "Living space reviewed while defining project scope")
+    }
+  ],
+  highlightTitle: "Scope comes before scheduling.",
+  highlightBody:
+    "Each request is assessed individually. Availability, service area, provider, permits, insurance, pricing, payment, warranties, and approvals must be confirmed for the specific project.",
+  storyEyebrow: "TING TING’S ROLE",
+  storyTitle: "Coordination With Clear Boundaries.",
+  storyBody:
+    "We help identify the next practical step and, when appropriate, coordinate communication with the service provider. The provider remains responsible for its own quote, trade work, licensing, insurance, permits, warranties, and workmanship unless a written agreement states otherwise.",
+  storyImage: image(mediaIds.living, "Property interior reviewed for trade-services coordination"),
+  benefits: [
+    { title: "Request Review", body: "The property, timing, access, and requested outcome are reviewed before a next step is suggested.", icon: "search" },
+    { title: "Written Next Steps", body: "The proposed provider, responsibilities, approvals, and contact path can be confirmed before scheduling.", icon: "message" },
+    { title: "Qualified-Trade Boundary", body: "Specialized or regulated work is directed to an appropriately qualified provider.", icon: "hard-hat" },
+    { title: "Approval Awareness", body: "Owner, strata, municipal, and other required approvals remain part of the project assessment.", icon: "shield" }
+  ],
+  galleryEyebrow: "PROJECT REQUESTS",
+  galleryTitle: "Examples we can assess.",
+  gallery: [
+    {
+      title: "Interior Projects",
+      body: "Requests involving kitchens, bathrooms, finishes, fixtures, or room updates.",
+      icon: "panel",
+      image: image(mediaIds.kitchen, "Kitchen representing an interior project request")
+    },
+    {
+      title: "Building Systems",
+      body: "Electrical, plumbing, HVAC, and other regulated work requiring an appropriate qualified provider.",
+      icon: "wrench",
+      image: image(mediaIds.bathroom, "Plumbing fixtures representing a building-systems request")
+    },
+    {
+      title: "Exterior & Common Property",
+      body: "Requests that may need owner, strata, municipal, or other approval before coordination.",
+      icon: "building",
+      image: image(mediaIds.condo, "Condominium exterior representing an approval-dependent request")
+    }
+  ],
+  ctaTitle: "Request a Trade-Services Assessment",
+  ctaBody: "Describe the property, requested work, timing, and known approvals so we can confirm an appropriate next step."
+};
+
+function preserveMediaId(target: ServiceMediaReference, value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const mediaAssetId = (value as Record<string, unknown>).mediaAssetId;
+  if (typeof mediaAssetId === "string") target.mediaAssetId = mediaAssetId;
+}
+
+/**
+ * Reset compliance-sensitive Renovation copy while retaining administrator-
+ * selected media and focal position during the section-key migration.
+ */
+export function migrateRenovationServiceContent(value: unknown): ServicePageContent {
+  const migrated = structuredClone(tradeServicesContent);
+  if (!value || typeof value !== "object" || Array.isArray(value)) return migrated;
+
+  const legacy = value as Record<string, unknown>;
+  preserveMediaId(migrated.heroImage, legacy.heroImage);
+  preserveMediaId(migrated.storyImage, legacy.storyImage);
+  if (typeof legacy.heroPosition === "string") migrated.heroPosition = legacy.heroPosition;
+
+  const legacyServices = legacy.services;
+  if (Array.isArray(legacyServices)) {
+    migrated.services.forEach((service, index) => {
+      if (!service.image) return;
+      const legacyService = legacyServices[index];
+      if (legacyService && typeof legacyService === "object" && !Array.isArray(legacyService)) {
+        preserveMediaId(service.image, (legacyService as Record<string, unknown>).image);
+      }
+    });
+  }
+  const legacyGallery = legacy.gallery;
+  if (Array.isArray(legacyGallery)) {
+    migrated.gallery.forEach((item, index) => {
+      if (!item.image) return;
+      const legacyItem = legacyGallery[index];
+      if (legacyItem && typeof legacyItem === "object" && !Array.isArray(legacyItem)) {
+        preserveMediaId(item.image, (legacyItem as Record<string, unknown>).image);
+      }
+    });
+  }
+
+  return migrated;
+}
+
+export function upgradeTradeServicesContent(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const content = value as Record<string, unknown>;
+  const hasLegacyIdentity = content.eyebrow === "RENOVATION SERVICES" ||
+    (typeof content.title === "string" && /renovat/i.test(content.title));
+  return hasLegacyIdentity ? migrateRenovationServiceContent(value) : value;
+}
+
+export const rentalManagementContent: ServicePageContent = {
+  eyebrow: "RESIDENTIAL & COMMERCIAL RENTAL MANAGEMENT",
+  title: "Rental Management for Homes and Commercial Properties.",
+  description:
+    "Residential and commercial rental-management support in Greater Vancouver, with responsibilities, authority, fees, and next steps confirmed for each property before service begins.",
+  heroImage: image(mediaIds.rental, "Rental property represented by a modern building exterior"),
+  heroPosition: "center 56%",
+  managementTypesEyebrow: "TWO RENTAL CONTEXTS",
+  managementTypesTitle: "Different properties require different management plans.",
+  managementTypes: [
+    {
+      title: "Residential Rental Management",
+      summary:
+        "Support for homes and residential tenancies is scoped to the property, the owner’s authority, and applicable brokerage requirements before any work begins.",
+      tasks: [
+        "Coordinate approved marketing, enquiries, showings, application information, and tenancy documentation.",
+        "Track rent administration, scheduled condition inspections, notices, records, and owner reporting within the agreed scope.",
+        "Receive tenant requests and coordinate approved access, maintenance, and qualified providers when specialized work is required."
+      ],
+      intake:
+        "Property type and location, occupancy and tenancy status, rent and deposit records, strata rules, known repairs, service authority, and owner priorities.",
+      framework:
+        "Work must follow the BC Residential Tenancy Act and regulations, brokerage policies, the management agreement, and lawful owner instructions. Legal advice and unapproved work are excluded.",
+      escalation:
+        "Life-safety emergencies go to emergency services or the appropriate utility. Disputes, legal questions, regulated work, and costs beyond approved authority are escalated to the owner or an appropriate professional."
+    },
+    {
+      title: "Commercial Rental Management",
+      summary:
+        "Support for offices, retail, and other approved commercial spaces is built around the negotiated lease and a written property-specific scope.",
+      tasks: [
+        "Coordinate approved leasing enquiries, showings, applicant information, possession details, renewals, and lease-administration milestones.",
+        "Track base rent, additional-rent or operating-cost information, records, and owner reporting as defined by the lease and management agreement.",
+        "Coordinate tenant access, service requests, vendors, and owner-approved maintenance while recording responsibilities under the lease."
+      ],
+      intake:
+        "Property and permitted use, lease status and key dates, rent and operating-cost terms, access rules, insurance requirements, service contracts, authority limits, and owner priorities.",
+      framework:
+        "Commercial work follows the negotiated lease, applicable laws, brokerage policies, and written owner authority; residential-tenancy rules do not govern commercial leases. Legal, tax, and accounting advice are excluded.",
+      escalation:
+        "Defaults, disputes, environmental or life-safety issues, regulated work, and decisions outside approved authority are referred to the owner and the appropriate legal, accounting, emergency, or qualified service professional."
+    }
+  ],
+  servicesEyebrow: "SHARED MANAGEMENT SUPPORT",
+  servicesTitle: "A documented plan for day-to-day coordination.",
+  services: [
+    { title: "Leasing & Onboarding", body: "Coordinate approved marketing, enquiries, documentation, access, and move-in or possession steps for the property type.", icon: "users" },
+    { title: "Rent Administration & Reporting", body: "Track agreed rent information, records, follow-up, and owner reports without making unapproved financial or legal decisions.", icon: "file-chart" },
+    { title: "Property Checks & Maintenance", body: "Coordinate agreed inspections, service requests, access, and qualified providers within documented authority limits.", icon: "wrench" },
+    { title: "Communication & Escalation", body: "Keep owners and occupants informed, document material issues, and escalate emergencies, disputes, and out-of-scope decisions.", icon: "message" }
+  ],
+  highlightTitle: "Scope is confirmed before management begins.",
+  highlightBody:
+    "Property type, geography, fees, availability, money handling, repair authority, reporting, and the responsible service entity must be approved in writing for each engagement.",
+  storyEyebrow: "HOW THE SERVICE IS DEFINED",
+  storyTitle: "Clear Authority. Documented Responsibilities.",
+  storyBody:
+    "The owner, brokerage, and service provider confirm who may act, what is included, how records and funds are handled, and when approval or specialist help is required. No page can replace the property-specific management agreement or lease.",
+  storyImage: image(mediaIds.city, "Greater Vancouver skyline with residential and commercial buildings"),
+  benefits: [
+    { title: "Property-Specific Intake", body: "Start with the property, lease or tenancy, current records, risks, and owner priorities.", icon: "clipboard" },
+    { title: "Written Scope", body: "Document included work, exclusions, fees, authority limits, availability, and reporting expectations.", icon: "file-chart" },
+    { title: "Approval Controls", body: "Refer costs, notices, disputes, regulated work, and other material decisions to the appropriate approver.", icon: "shield" },
+    { title: "Recorded Communication", body: "Maintain practical updates and records for owners, occupants, providers, and approved professionals.", icon: "message" }
+  ],
+  galleryEyebrow: "MANAGEMENT WORKFLOWS",
+  galleryTitle: "Examples of property-specific coordination.",
+  gallery: [
+    { title: "Residential Leasing", body: "Approved enquiries, showing access, applicant information, and tenancy documentation.", icon: "users", image: image(mediaIds.office, "Office setting for a residential leasing consultation") },
+    { title: "Commercial Lease Administration", body: "Key dates, possession details, rent terms, records, and lease-specific owner approvals.", icon: "building", image: image(mediaIds.paperwork, "Commercial lease administration documents") },
+    { title: "Property Access & Maintenance", body: "Documented access, requests, authority limits, and qualified-provider coordination.", icon: "wrench", image: image(mediaIds.tools, "Maintenance tools used for rental property coordination") },
+    { title: "Reporting & Escalation", body: "Owner updates, supporting records, open decisions, and referrals for out-of-scope issues.", icon: "file-chart", image: image(mediaIds.paperwork, "Rental property reports and supporting records") }
+  ],
+  ctaTitle: "Discuss Your Residential or Commercial Rental",
+  ctaBody:
+    "Tell us about the property, current tenancy or lease, timing, and support needed so the appropriate scope and next step can be confirmed."
+};
+
+/**
+ * Add the residential/commercial contract to historical CMS content while
+ * retaining administrator-selected media and focal position. Revisions remain
+ * readable because they pass through the same upgrade before validation.
+ */
+export function upgradeRentalManagementContent(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const content = value as Record<string, unknown>;
+  if (Array.isArray(content.managementTypes)) return value;
+
+  const upgraded = structuredClone(rentalManagementContent);
+  preserveMediaId(upgraded.heroImage, content.heroImage);
+  preserveMediaId(upgraded.storyImage, content.storyImage);
+  if (typeof content.heroPosition === "string") upgraded.heroPosition = content.heroPosition;
+  if (Array.isArray(content.gallery)) {
+    upgraded.gallery.forEach((item, index) => {
+      if (!item.image) return;
+      const legacyItem = content.gallery as unknown[];
+      const prior = legacyItem[index];
+      if (prior && typeof prior === "object" && !Array.isArray(prior)) {
+        preserveMediaId(item.image, (prior as Record<string, unknown>).image);
+      }
+    });
+  }
+  return upgraded;
+}
+
 export const servicePageDefinitions: readonly ServicePageDefinition[] = [
   {
-    sectionKey: "service_renovation",
-    slug: "renovation",
-    displayName: "Renovation",
-    content: {
-      eyebrow: "RENOVATION SERVICES",
-      title: "Renovations Designed Around Your Home.",
-      description:
-        "Whether you’re updating a single room or planning a complete home transformation, we coordinate every stage—from planning and design to construction and finishing.",
-      heroImage: image(mediaIds.kitchen, "Modern renovated kitchen and living area"),
-      heroPosition: "center 54%",
-      servicesEyebrow: "RENOVATION SERVICES",
-      servicesTitle: "Thoughtful upgrades for every room.",
-      services: [
-        {
-          title: "Kitchen Renovation",
-          body: "Functional layouts, cabinetry, counters, lighting, and finishes.",
-          icon: "panel",
-          image: image(mediaIds.kitchen, "Modern kitchen renovation")
-        },
-        {
-          title: "Bathroom Renovation",
-          body: "Comfortable, modern spaces with practical layouts and quality finishes.",
-          icon: "bath",
-          image: image(mediaIds.bathroom, "Bright modern bathroom")
-        },
-        {
-          title: "Condo Renovation",
-          body: "Efficient updates planned around strata requirements and condo living.",
-          icon: "building",
-          image: image(mediaIds.condo, "Updated contemporary condominium")
-        },
-        {
-          title: "Full Home Renovation",
-          body: "Coordinated design, construction, and finishing for an entire home.",
-          icon: "house",
-          image: image(mediaIds.living, "Warm renovated living room")
-        }
-      ],
-      highlightTitle: "Planning a renovation?",
-      highlightBody: "Tell us what you want to change and we’ll help define a clear, practical next step.",
-      storyEyebrow: "WHY RENOVATE WITH US",
-      storyTitle: "More Than Just Renovation.",
-      storyBody:
-        "A successful renovation is about more than choosing finishes. It’s about creating a home that works better for your lifestyle today while adding long-term value for tomorrow.",
-      storyImage: image(mediaIds.living, "Warm, newly renovated living room"),
-      benefits: [
-        { title: "Personalized Planning", body: "Every project begins with your goals, budget, and timeline.", icon: "clipboard" },
-        { title: "Trusted Professionals", body: "Experienced contractors and skilled trades across Metro Vancouver.", icon: "hard-hat" },
-        { title: "Clear Communication", body: "Transparent updates and coordinated scheduling at every stage.", icon: "message" },
-        { title: "Quality That Lasts", body: "Materials and workmanship selected for everyday living.", icon: "shield" }
-      ],
-      galleryEyebrow: "FEATURED SPACES",
-      galleryTitle: "Renovation inspiration.",
-      gallery: [
-        {
-          title: "Kitchen",
-          body: "Warm, functional gathering spaces.",
-          icon: "panel",
-          image: image(mediaIds.kitchen, "Open modern kitchen")
-        },
-        {
-          title: "Bathroom",
-          body: "Calm finishes and practical storage.",
-          icon: "bath",
-          image: image(mediaIds.bathroom, "Calm modern bathroom")
-        },
-        {
-          title: "Living Room",
-          body: "Comfortable rooms designed for real life.",
-          icon: "armchair",
-          image: image(mediaIds.living, "Comfortable renovated living room")
-        }
-      ],
-      ctaTitle: "Ready to Transform Your Home?",
-      ctaBody: "We’re here to help you plan your next project with confidence."
-    }
+    sectionKey: "service_trade_services",
+    slug: "trade-services",
+    displayName: "Trade Services",
+    content: tradeServicesContent
   },
   {
-    sectionKey: "service_handyman",
-    slug: "handyman-service",
-    displayName: "Handyman service",
-    content: {
-      eyebrow: "HANDYMAN SERVICES",
-      title: "Reliable Help for the Small Jobs Around Your Home.",
-      description:
-        "From minor repairs and installations to everyday fixes, we help keep your home safe, functional, and well maintained.",
-      heroImage: image(mediaIds.tools, "Handyman tools ready for household repairs"),
-      heroPosition: "center 58%",
-      servicesEyebrow: "WHAT WE CAN HELP WITH",
-      servicesTitle: "Handyman services may include.",
-      services: [
-        { title: "Mounting & Shelving", body: "Secure installation for TVs, artwork, mirrors, shelving, and storage.", icon: "panel" },
-        { title: "Drywall & Paint Repairs", body: "Patching holes, repairing wall damage, and completing clean paint touch-ups.", icon: "paint" },
-        { title: "Furniture Assembly", body: "Beds, tables, cabinets, shelves, and other furniture assembled carefully.", icon: "armchair" },
-        { title: "Fixtures, Doors & Hardware", body: "Install or adjust lights, faucets, handles, locks, hinges, and cabinet hardware.", icon: "wrench" },
-        structuredClone(minorPlumbingRepairService)
-      ],
-      highlightTitle: "Simple, convenient service.",
-      highlightBody: "Share what needs attention, add a few photos if possible, and we’ll provide a clear next step.",
-      storyEyebrow: "WHY CHOOSE US",
-      storyTitle: "Practical Help You Can Count On.",
-      storyBody:
-        "We handle the small jobs that make a big difference in daily life, with reliable service and respect for your home and time.",
-      storyImage: image(mediaIds.tools, "Handyman tools arranged on a kitchen counter"),
-      benefits: [
-        { title: "Experienced & Reliable", body: "Practical help from skilled, dependable professionals.", icon: "hard-hat" },
-        { title: "Attention to Detail", body: "Quality workmanship for the little things that matter.", icon: "search" },
-        { title: "Clear Pricing", body: "Honest recommendations and a clear scope before work starts.", icon: "badge-dollar" },
-        { title: "Respectful Service", body: "Care for your home, schedule, and everyday routine.", icon: "shield" }
-      ],
-      galleryEyebrow: "COMMON HANDYMAN SERVICES",
-      galleryTitle: "The small jobs, handled.",
-      gallery: [
-        { title: "TV Mounting", body: "Secure placement and tidy cable planning.", icon: "panel", image: image(mediaIds.living, "Television mounted in a living room") },
-        { title: "Shelving Installation", body: "Functional storage installed with care.", icon: "panel", image: image(mediaIds.office, "Wall shelving in a bright room") },
-        { title: "Door & Hardware Repair", body: "Adjustments, handles, locks, and hinges.", icon: "door", image: image(mediaIds.furniture, "Interior door and household hardware") },
-        { title: "Caulking & Sealing", body: "Clean, durable seals for kitchens and bathrooms.", icon: "droplets", image: image(mediaIds.bathroom, "Bathroom fixtures and sealed surfaces") }
-      ],
-      ctaTitle: "Have a List of Small Jobs?",
-      ctaBody: "Let us take care of them. Request handyman service today."
-    }
-  },
-  {
-    sectionKey: "service_maintenance",
-    slug: "property-maintenance",
-    displayName: "Property maintenance",
-    content: {
-      eyebrow: "PROPERTY MAINTENANCE",
-      title: "Ongoing Care to Keep Your Property in Great Condition.",
-      description:
-        "Regular maintenance helps prevent small issues from becoming larger problems and protects the long-term value of your property.",
-      heroImage: image(mediaIds.garden, "Well-maintained home and landscaped garden"),
-      heroPosition: "center 62%",
-      servicesEyebrow: "MAINTENANCE SERVICES MAY INCLUDE",
-      servicesTitle: "Practical care for every part of your property.",
-      services: [
-        { title: "Cleaning & Exterior Care", body: "Interior cleaning plus pressure washing for paths, decks, siding, and exterior surfaces.", icon: "sparkles" },
-        { title: "Lawn & Seasonal Upkeep", body: "Mowing, pruning, leaf and gutter clearing, snow preparation, and seasonal clean-up.", icon: "flower" },
-        { title: "Preventive Property Checks", body: "Routine checks for leaks, heating, ventilation, doors, drainage, and weather-related risks.", icon: "clipboard" },
-        { title: "Minor Repairs & Coordination", body: "Resolve small issues early and coordinate qualified trades when specialized work is needed.", icon: "wrench" }
-      ],
-      highlightTitle: "One-time or ongoing care.",
-      highlightBody: "Tell us what your property needs and we’ll recommend the right service plan.",
-      storyEyebrow: "WHY CHOOSE US",
-      storyTitle: "Prevent Problems. Save Time. Protect Your Investment.",
-      storyBody:
-        "A well-maintained property is safer, more comfortable, and retains its value longer. Reliable support gives you peace of mind year-round.",
-      storyImage: image(mediaIds.house, "Well-maintained modern home and garden"),
-      benefits: [
-        { title: "Reliable & Punctual", body: "We arrive when promised and get the job done right.", icon: "clock" },
-        { title: "Experienced Team", body: "Skilled professionals who take pride in every detail.", icon: "hard-hat" },
-        { title: "Transparent Service", body: "Clear communication and honest recommendations.", icon: "message" },
-        { title: "Flexible Plans", body: "One-time or ongoing service that fits your needs.", icon: "calendar" }
-      ],
-      galleryEyebrow: "SEASONAL MAINTENANCE",
-      galleryTitle: "Year-round care for every season.",
-      gallery: [
-        { title: "Spring", body: "Garden clean-up, gutter cleaning, lawn care, and exterior washing.", icon: "flower", image: image(mediaIds.garden, "Garden in spring") },
-        { title: "Summer", body: "Lawn mowing, hedge trimming, weeding, and irrigation checks.", icon: "leaf", image: image(mediaIds.house, "Landscaped home in summer") },
-        { title: "Fall", body: "Leaf removal, gutter clearing, garden preparation, and exterior checks.", icon: "leaf", image: image(mediaIds.construction, "Exterior property care in fall") },
-        { title: "Winter", body: "Snow removal, ice management, property checks, and weather prep.", icon: "snowflake", image: image(mediaIds.rental, "Home prepared for winter") }
-      ],
-      ctaTitle: "Keep Your Property in Top Shape.",
-      ctaBody: "Let us handle the maintenance so you can enjoy peace of mind."
-    }
+    sectionKey: "service_property_care",
+    slug: "property-care",
+    displayName: "Property Care: Handyman + Maintenance",
+    content: propertyCareContent
   },
   {
     sectionKey: "service_strata",
@@ -340,46 +493,8 @@ export const servicePageDefinitions: readonly ServicePageDefinition[] = [
   {
     sectionKey: "service_rental_management",
     slug: "rental-management",
-    displayName: "Rental management",
-    content: {
-      eyebrow: "RENTAL MANAGEMENT",
-      title: "Hassle-Free Management. Happy Tenants.",
-      description:
-        "Professional rental management that protects your property, maximizes your investment, and gives you peace of mind.",
-      heroImage: image(mediaIds.rental, "Professionally managed modern rental home"),
-      heroPosition: "center 56%",
-      servicesEyebrow: "WHAT WE HANDLE",
-      servicesTitle: "Comprehensive rental management services.",
-      services: [
-        { title: "Tenant Screening & Leasing", body: "Screen applications and references, prepare agreements, and manage renewals.", icon: "users" },
-        { title: "Rent Collection & Reporting", body: "Coordinate rent payments and provide clear income, expense, and account reporting.", icon: "badge-dollar" },
-        { title: "Inspections & Maintenance", body: "Document move-in, move-out, and routine condition checks while coordinating repairs.", icon: "wrench" },
-        { title: "Tenant Communication & Compliance", body: "Handle tenant requests, notices, records, and day-to-day communication under BC tenancy rules.", icon: "message" }
-      ],
-      highlightTitle: "Protect your investment.",
-      highlightBody: "We treat your property as if it were our own, with proactive care and attention to every detail.",
-      storyEyebrow: "WHY CHOOSE US",
-      storyTitle: "Local Expertise. Reliable Results.",
-      storyBody:
-        "We combine local market knowledge with professional management practices to maximize rental income and minimize stress.",
-      storyImage: image(mediaIds.city, "Greater Vancouver skyline and mountains"),
-      benefits: [
-        { title: "Maximize Returns", body: "Thoughtful pricing, leasing, and ongoing oversight.", icon: "badge-dollar" },
-        { title: "Protect Your Property", body: "Proactive inspections, maintenance, and issue resolution.", icon: "shield" },
-        { title: "Reduce Vacancy", body: "Strong tenant screening and responsive leasing support.", icon: "users" },
-        { title: "Peace of Mind", body: "Clear reporting and dependable day-to-day management.", icon: "check" }
-      ],
-      galleryEyebrow: "WHAT’S INCLUDED",
-      galleryTitle: "Everything you need, all in one place.",
-      gallery: [
-        { title: "Marketing & Leasing", body: "Professional marketing, showings, and tenant placement.", icon: "users", image: image(mediaIds.office, "Rental marketing and leasing consultation") },
-        { title: "Rent & Financial Management", body: "Collection, follow-up, and financial reporting.", icon: "file-chart", image: image(mediaIds.paperwork, "Rental financial reports and records") },
-        { title: "Repairs & Maintenance", body: "Coordination and supervision of maintenance work.", icon: "wrench", image: image(mediaIds.tools, "Tools for rental property maintenance") },
-        { title: "Legal & Compliance", body: "Support aligned with BC tenancy requirements.", icon: "shield", image: image(mediaIds.paperwork, "Rental agreements and compliance documents") }
-      ],
-      ctaTitle: "Ready for Worry-Free Rental Management?",
-      ctaBody: "Enjoy the benefits of your investment without the day-to-day stress."
-    }
+    displayName: "Residential & Commercial Rental Management",
+    content: rentalManagementContent
   }
 ];
 

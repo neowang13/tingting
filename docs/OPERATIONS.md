@@ -111,7 +111,7 @@ run, signed callback, evidence review, and Owner approval sequence.
 
 - Supabase URL, anon key, service-role key, and first Auth administrator UUID.
 - Render production hostname and a random Cron secret of at least 24 characters.
-- Resend API key, verified `EMAIL_FROM`, contact/alert recipient addresses, and
+- Resend API key, verified `EMAIL_FROM` (`Ting Ting Xu <notifications@silverkey.ca>`), contact/alert recipient addresses, and
   webhook signing secret.
 - Approved production domain and final approved website images.
 

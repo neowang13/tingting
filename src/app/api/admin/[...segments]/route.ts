@@ -63,12 +63,19 @@ function routeNotFound(): never {
   throw new ApiError(404, "ROUTE_NOT_FOUND", "The API route was not found.");
 }
 
+function rejectDisabledAdminAutomation(resource: string | undefined) {
+  if (resource === "automation" && process.env.AUTOMATION_API_ENABLED !== "true") {
+    routeNotFound();
+  }
+}
+
 export async function GET(request: Request, context: Context) {
   let requestId = crypto.randomUUID();
   try {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action] = prepared.segments;
+    rejectDisabledAdminAutomation(resource);
     const repository = getRepository();
 
     if (resource === "dashboard" && !id) return ok(await repository.dashboard(), requestId);
@@ -163,6 +170,7 @@ export async function POST(request: Request, context: Context) {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action, nested] = prepared.segments;
+    rejectDisabledAdminAutomation(resource);
     const body = await readJson(request);
     const repository = getRepository();
     const actorId = prepared.admin.userId;
@@ -429,6 +437,7 @@ export async function PATCH(request: Request, context: Context) {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action] = prepared.segments;
+    rejectDisabledAdminAutomation(resource);
     const body = (await readJson(request)) as Record<string, unknown>;
     const repository = getRepository();
     const actorId = prepared.admin.userId;

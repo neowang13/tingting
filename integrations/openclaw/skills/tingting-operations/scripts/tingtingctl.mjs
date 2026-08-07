@@ -1311,6 +1311,67 @@ function spatialRows(lines) {
     .sort((left, right) => right.centerY - left.centerY);
 }
 
+function rtbLeaseCandidates(lines) {
+  const leaseTypes = [];
+  const startDates = [];
+  const endDates = [];
+  const checkedMarker = String.raw`(?:☒|■|●|•|✅|\[[xX]\]|[xX])`;
+  const pages = [...new Set(lines.map(({ page }) => page))];
+
+  for (const page of pages) {
+    const positioned = lines.filter(
+      (entry) => entry.page === page && Number.isFinite(entry.centerY)
+    );
+    if (
+      !positioned.some(({ line }) =>
+        /\bbeginning\s+and\s+term\s+of\s+the\s+agreement\b/iu.test(line)
+      )
+    ) {
+      continue;
+    }
+
+    for (const row of spatialRows(positioned)) {
+      const rowText = row.entries.map(({ line }) => line).join(" ");
+      const confidence = Math.min(
+        0.98,
+        Math.max(
+          0.85,
+          Math.min(...row.entries.map(({ confidence: value }) => value ?? 0.9))
+        )
+      );
+
+      if (/\bthis\s+tenancy\s+created\s+by\s+this\s+agreement\s+starts\s+on\b/iu.test(rowText)) {
+        const value = normalizedDate(rowText);
+        if (value) startDates.push({ value, page, confidence });
+      }
+
+      const fixedTerm = new RegExp(
+        String.raw`^\s*${checkedMarker}\s*C\)\s+.*\bfixed[\s-]*term\s+ending\s+on\b`,
+        "iu"
+      ).test(rowText);
+      if (fixedTerm) {
+        leaseTypes.push({ value: "fixed_term", page, confidence });
+        const value = normalizedDate(rowText);
+        if (value) endDates.push({ value, page, confidence });
+      }
+
+      const monthToMonth = new RegExp(
+        String.raw`^\s*${checkedMarker}\s*A\)\s+.*\bmonth[\s-]*to[\s-]*month\b`,
+        "iu"
+      ).test(rowText);
+      if (monthToMonth) {
+        leaseTypes.push({ value: "month_to_month", page, confidence });
+      }
+    }
+  }
+
+  return {
+    leaseTypes: uniqueCandidates(leaseTypes),
+    startDates: uniqueCandidates(startDates),
+    endDates: uniqueCandidates(endDates)
+  };
+}
+
 function rtbStructuredTenantCandidates(lines) {
   const tenants = [];
   const pages = [...new Set(lines.map(({ page }) => page))];
@@ -1562,6 +1623,7 @@ function tenantCandidatesFromOcr(ocrOutput) {
   const structuredTenantCandidates = rtbStructuredTenantCandidates(lines);
   const rtbNames = rtbTenantNameCandidates(lines);
   const rtbRental = rtbRentalCandidates(lines);
+  const rtbLease = rtbLeaseCandidates(lines);
   const fullNameCandidates = uniqueCandidates([
     ...labelCandidates(
       lines,
@@ -1671,55 +1733,64 @@ function tenantCandidatesFromOcr(ocrOutput) {
 
   const leaseStartDate = selectCandidate(
     "lease_start_date",
-    labelCandidates(
-      lines,
-      [
-        /^(?:move[\s-]?in\s+date|lease\s+start\s+date|tenancy\s+(?:start\s+date|begins)|start\s+of\s+tenancy)\s*(?:[:#\-]\s*)?(.*)$/iu
-      ],
-      {
-        normalize: normalizedDate,
-        validate: (value) => value !== null,
-        directConfidence: 0.95,
-        followingConfidence: 0.86
-      }
-    ),
+    [
+      ...labelCandidates(
+        lines,
+        [
+          /^(?:move[\s-]?in\s+date|lease\s+start\s+date|tenancy\s+(?:start\s+date|begins)|start\s+of\s+tenancy)\s*(?:[:#\-]\s*)?(.*)$/iu
+        ],
+        {
+          normalize: normalizedDate,
+          validate: (value) => value !== null,
+          directConfidence: 0.95,
+          followingConfidence: 0.86
+        }
+      ),
+      ...rtbLease.startDates
+    ],
     warnings
   );
 
   const leaseType = selectCandidate(
     "lease_type",
-    labelCandidates(
-      lines,
-      [
-        /^(?:lease|tenancy)\s+type\s*(?:[:#\-]\s*)?(.*)$/iu,
-        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:A\))?\s*(.*month[\s-]*to[\s-]*month.*)$/iu,
-        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*(?:C\))?\s*(.*fixed[\s-]*term.*)$/iu
-      ],
-      {
-        normalize: normalizedLeaseType,
-        validate: validLeaseType,
-        directConfidence: 0.97,
-        followingConfidence: 0.85
-      }
-    ),
+    [
+      ...labelCandidates(
+        lines,
+        [
+          /^(?:lease|tenancy)\s+type\s*(?:[:#\-]\s*)?(.*)$/iu,
+          /^(?:☒|■|●|•|✅|\[[xX]\]|[xX])\s*A\)\s*(.*month[\s-]*to[\s-]*month.*)$/iu,
+          /^(?:☒|■|●|•|✅|\[[xX]\]|[xX])\s*C\)\s*(.*fixed[\s-]*term.*)$/iu
+        ],
+        {
+          normalize: normalizedLeaseType,
+          validate: validLeaseType,
+          directConfidence: 0.97,
+          followingConfidence: 0.85
+        }
+      ),
+      ...rtbLease.leaseTypes
+    ],
     warnings
   );
 
   const leaseEndDate = selectCandidate(
     "lease_end_date",
-    labelCandidates(
-      lines,
-      [
-        /^(?:lease|tenancy|fixed[\s-]*term)\s+end(?:ing)?\s+(?:date|on)\s*(?:[:#\-]\s*)?(.*)$/iu,
-        /^(?:☒|■|✅|\[[xX]\]|[xX])\s*C\)\s*.*fixed[\s-]*term\s+ending\s+on\s*(.*)$/iu
-      ],
-      {
-        normalize: normalizedDate,
-        validate: (value) => value !== null,
-        directConfidence: 0.97,
-        followingConfidence: 0.85
-      }
-    ),
+    [
+      ...labelCandidates(
+        lines,
+        [
+          /^(?:lease|tenancy|fixed[\s-]*term)\s+end(?:ing)?\s+(?:date|on)\s*(?:[:#\-]\s*)?(.*)$/iu,
+          /^(?:☒|■|●|•|✅|\[[xX]\]|[xX])\s*C\)\s*.*fixed[\s-]*term\s+ending\s+on\s*(.*)$/iu
+        ],
+        {
+          normalize: normalizedDate,
+          validate: (value) => value !== null,
+          directConfidence: 0.97,
+          followingConfidence: 0.85
+        }
+      ),
+      ...rtbLease.endDates
+    ],
     warnings
   );
 

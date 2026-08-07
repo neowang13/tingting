@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { validateSection } from "@/features/content/schemas";
 import { upgradePropertyServicesContent } from "@/features/content/property-services";
-import { upgradeHandymanServiceContent } from "@/features/content/service-pages";
+import { upgradePropertyCareContent } from "@/features/content/service-pages";
 import { collectMediaAssetIds } from "@/features/content/media-service";
 import { isSeededPublicMedia } from "@/features/content/public-media";
 import {
@@ -122,7 +122,7 @@ function mapSection(value: unknown): SiteSection {
   const key = text(row, "key") as SectionKey;
   const normalizeContent = (content: unknown) => {
     if (key === "property_services") return upgradePropertyServicesContent(content);
-    if (key === "service_handyman") return upgradeHandymanServiceContent(content);
+    if (key === "service_property_care") return upgradePropertyCareContent(content);
     return content;
   };
   return {

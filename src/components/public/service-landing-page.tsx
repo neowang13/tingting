@@ -147,6 +147,49 @@ function ServiceGrid({
   );
 }
 
+function ManagementTypes({ page }: { page: ServicePageContent }) {
+  if (!page.managementTypes || !page.managementTypesEyebrow || !page.managementTypesTitle) {
+    return null;
+  }
+
+  return (
+    <section className="service-page-section rental-management-types" aria-labelledby="management-types-heading">
+      <div className="container">
+        <div className="service-page-heading">
+          <div className="eyebrow">{page.managementTypesEyebrow}</div>
+          <h2 id="management-types-heading">{page.managementTypesTitle}</h2>
+        </div>
+        <div className="rental-management-grid">
+          {page.managementTypes.map((managementType) => (
+            <article key={managementType.title}>
+              <h3>{managementType.title}</h3>
+              <p className="rental-management-summary">{managementType.summary}</p>
+              <h4>Management tasks may include</h4>
+              <ul>
+                {managementType.tasks.map((task) => <li key={task}>{task}</li>)}
+              </ul>
+              <dl>
+                <div>
+                  <dt>Intake facts</dt>
+                  <dd>{managementType.intake}</dd>
+                </div>
+                <div>
+                  <dt>Framework & exclusions</dt>
+                  <dd>{managementType.framework}</dd>
+                </div>
+                <div>
+                  <dt>Escalation path</dt>
+                  <dd>{managementType.escalation}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function StorySection({
   page,
   mediaUrls
@@ -241,7 +284,7 @@ export function ServiceLandingPage({
   mediaUrls: Record<string, string | null>;
 }) {
   const heroImage = resolveImage(page.heroImage, mediaUrls);
-  const storyFirst = sectionKey === "service_renovation";
+  const storyFirst = sectionKey === "service_trade_services";
   return (
     <ContactModalProvider contact={sections.contact}>
       <SiteHeader header={sections.header} />
@@ -273,6 +316,7 @@ export function ServiceLandingPage({
           </div>
         </section>
 
+        {sectionKey === "service_rental_management" && <ManagementTypes page={page} />}
         {storyFirst && <StorySection page={page} mediaUrls={mediaUrls} />}
         <ServiceGrid page={page} mediaUrls={mediaUrls} />
 

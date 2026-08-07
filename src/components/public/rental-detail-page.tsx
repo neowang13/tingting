@@ -9,6 +9,7 @@ import {
   ChevronRight,
   CircleParking,
   ClipboardCheck,
+  FilePenLine,
   House,
   MapPin,
   PawPrint,
@@ -21,6 +22,10 @@ import { ContactModalProvider, ContactTrigger } from "@/components/public/contac
 import { RentalCard } from "@/components/public/rental-card";
 import { RentalGallery } from "@/components/public/rental-gallery";
 import { SaveListingButton } from "@/components/public/save-listing-button";
+import {
+  ShowingRequestModalProvider,
+  ShowingRequestTrigger
+} from "@/components/public/showing-request-modal";
 import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import {
   formatRentalArea,
@@ -102,9 +107,17 @@ export function RentalDetailPage({
   const hasPolicyRequirements = Boolean(
     petPolicy || rental.smokingPolicy || rental.creditCheckRequired || rental.referencesRequired
   );
+  const applicationNext = `/client/applications?property=${encodeURIComponent(rental.slug)}`;
+  const applicationHref = `/client/login?property=${encodeURIComponent(rental.slug)}&next=${encodeURIComponent(applicationNext)}`;
 
   return (
     <ContactModalProvider contact={sections.contact}>
+      <ShowingRequestModalProvider property={{
+        slug: rental.slug,
+        title: rental.title,
+        addressLine: rental.addressLine,
+        city: rental.city
+      }}>
       <div className="rental-detail-page">
         <div className="rental-detail-hero">
           <SiteHeader header={sections.header} />
@@ -152,8 +165,10 @@ export function RentalDetailPage({
                 <div>
                   <SaveListingButton slug={rental.slug} />
                   <ContactTrigger className="button secondary rental-contact-button">Ask Ting Ting</ContactTrigger>
-                  <ContactTrigger className="button">Book a viewing</ContactTrigger>
+                  <ShowingRequestTrigger className="button">Book a viewing</ShowingRequestTrigger>
+                  <Link className="button secondary rental-apply-button" href={applicationHref}><FilePenLine aria-hidden />Apply online</Link>
                 </div>
+                <p className="rental-application-note">Application access is assigned after contact or a showing. Already invited? Sign in and continue with this property selected.</p>
               </div>
 
               <section className="rental-about" aria-labelledby="rental-about-heading">
@@ -276,6 +291,7 @@ export function RentalDetailPage({
         </main>
         <SiteFooter footer={sections.footer} />
       </div>
+      </ShowingRequestModalProvider>
     </ContactModalProvider>
   );
 }

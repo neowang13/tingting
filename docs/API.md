@@ -22,6 +22,12 @@ Bearer credentials are intentionally not accepted by `/api/admin/*`. Machine
 clients use the separately scoped `/api/automation/v1/*` service-account API;
 the reminder worker uses its own `REMINDER_CRON_SECRET` boundary.
 
+`/api/client/*` uses the independently authorized Client Login session. It
+requires an active `client_profiles` record, applies a 15-minute idle and
+1-hour absolute session limit, scopes every application operation to the
+authenticated owner, and requires same-origin writes. It never accepts an
+Admin cookie as client authorization or returns private object paths/URLs.
+
 ## Public
 
 | Method | Path | Purpose |
@@ -30,6 +36,7 @@ the reminder worker uses its own `REMINDER_CRON_SECRET` boundary.
 | GET | `/api/public/site` | Published sections and rentals |
 | GET | `/api/public/rentals` | Published rentals |
 | POST | `/api/public/contact` | Validate and accept a contact enquiry |
+| POST | `/api/public/showings` | Validate, persist, and notify on a requested (not confirmed) property showing |
 
 ## Content
 
@@ -42,6 +49,28 @@ the reminder worker uses its own `REMINDER_CRON_SECRET` boundary.
 | POST | `/api/admin/sections/:key/rollback` | Roll back to revision |
 | GET/POST | `/api/admin/media` | List or upload validated draft images |
 | PATCH/DELETE | `/api/admin/media/:id` | Update alt text or archive unused draft image |
+
+## Client applications
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/client/auth/login` | Local demo Client Login; production uses Supabase Auth plus session establishment |
+| POST | `/api/client/auth/session` | Verify a Supabase Auth session and active client profile |
+| POST | `/api/client/auth/logout` | End the client session |
+| PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
+| GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
+| POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
+| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue a minimal Admin email notification |
+| GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
+| GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
+| PATCH | `/api/admin/applications/:id` | Perform a documented staff status transition |
+
+Draft writes are same-origin, rate-limited, owner-scoped, and rejected after submission.
+Form and receipt responses are `private, no-store`. Uploads allow only content-
+sniffed PDF/JPEG/PNG files up to 10 MB, reject active PDF features, use random
+private-bucket keys, and remain `manual_review_required` until the approved
+malware-risk process clears them. See the
+[client application runbook](./client-application-operations.md).
 
 ## Rentals
 

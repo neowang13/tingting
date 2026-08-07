@@ -66,6 +66,8 @@ export function ContactModalProvider({
             submitLabel={contact.submitLabel}
             successMessage={contact.successMessage}
             errorMessage={contact.errorMessage}
+            publicEmail={contact.publicEmail}
+            publicPhone={contact.publicPhone}
           />
         </div>
       </dialog>

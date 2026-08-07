@@ -4,6 +4,90 @@ insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001');
 insert into public.admin_profiles(user_id, display_name)
 values ('00000000-0000-4000-8000-000000000001', 'Migration Test Admin');
 
+do $$
+begin
+  if exists (select 1 from public.site_sections where key = 'service_renovation') then
+    raise exception 'legacy Renovation CMS section still exists';
+  end if;
+  if not exists (
+    select 1
+    from public.site_sections
+    where key = 'service_trade_services'
+      and display_name = 'Trade services'
+      and schema_version >= 2
+      and draft_content->>'eyebrow' = 'TRADE SERVICES'
+      and published_content->>'eyebrow' = 'TRADE SERVICES'
+  ) then
+    raise exception 'Trade Services CMS migration did not complete';
+  end if;
+  if not exists (
+    select 1
+    from public.site_sections
+    where key = 'service_rental_management'
+      and display_name = 'Residential & commercial rental management'
+      and schema_version >= 2
+      and jsonb_array_length(draft_content->'managementTypes') = 2
+      and jsonb_array_length(published_content->'managementTypes') = 2
+      and draft_content #>> '{managementTypes,0,title}' = 'Residential Rental Management'
+      and draft_content #>> '{managementTypes,1,title}' = 'Commercial Rental Management'
+  ) then
+    raise exception 'residential/commercial Rental Management CMS migration did not complete';
+  end if;
+  if exists (
+    select 1 from public.site_sections
+    where key in ('service_handyman', 'service_maintenance')
+  ) then
+    raise exception 'legacy Handyman or Property Maintenance CMS section still exists';
+  end if;
+  if not exists (
+    select 1
+    from public.site_sections
+    where key = 'service_property_care'
+      and display_name = 'Property care: handyman + maintenance'
+      and schema_version >= 2
+      and draft_content->>'eyebrow' = 'PROPERTY CARE · HANDYMAN + MAINTENANCE'
+      and published_content->>'eyebrow' = 'PROPERTY CARE · HANDYMAN + MAINTENANCE'
+      and jsonb_array_length(draft_content->'services') = 6
+      and draft_content #>> '{heroImage,mediaAssetId}' = '11000000-0000-4000-8000-000000000006'
+      and draft_content #>> '{storyImage,mediaAssetId}' = '11000000-0000-4000-8000-000000000009'
+      and draft_content #>> '{gallery,2,image,mediaAssetId}' = '11000000-0000-4000-8000-000000000008'
+  ) then
+    raise exception 'Property Care CMS merge or media preservation did not complete';
+  end if;
+  if not exists (
+    select 1
+    from public.site_sections,
+      jsonb_array_elements(published_content->'services') as service
+    where key = 'property_services'
+      and schema_version >= 5
+      and service->>'key' = 'rental_management'
+      and service->>'summary' like 'Residential and commercial%'
+  ) then
+    raise exception 'Rental Management homepage card migration did not complete';
+  end if;
+  if not exists (
+    select 1
+    from public.site_sections
+    where key = 'property_services'
+      and schema_version >= 6
+      and jsonb_array_length(draft_content->'services') = 4
+      and jsonb_array_length(published_content->'services') = 4
+      and (
+        select count(*)
+        from jsonb_array_elements(published_content->'services') service
+        where service->>'key' = 'property_care'
+      ) = 1
+      and not exists (
+        select 1
+        from jsonb_array_elements(published_content->'services') service
+        where service->>'key' in ('handyman', 'maintenance')
+      )
+  ) then
+    raise exception 'Property Care homepage merge did not complete';
+  end if;
+end;
+$$;
+
 insert into public.site_sections(
   key, display_name, sort_order, schema_version, draft_content, published_content, updated_by
 ) values (
@@ -246,6 +330,66 @@ begin
   then raise exception 'published projection grants are missing'; end if;
 
   raise notice 'migration behavior suite passed';
+end
+$$;
+
+insert into auth.users(id) values
+  ('00000000-0000-4000-8000-000000000009'),
+  ('00000000-0000-4000-8000-000000000010');
+insert into public.client_profiles(user_id, display_name) values
+  ('00000000-0000-4000-8000-000000000009', 'Applicant One'),
+  ('00000000-0000-4000-8000-000000000010', 'Applicant Two');
+
+insert into public.client_applications(
+  owner_user_id, property_title, property_address, form_version_id, terms_version_id
+)
+select client_id, 'RLS Test Rental', 'Private test address', form.id, terms.id
+from (values
+  ('00000000-0000-4000-8000-000000000009'::uuid),
+  ('00000000-0000-4000-8000-000000000010'::uuid)
+) clients(client_id)
+cross join lateral (
+  select id from public.application_form_versions where is_active limit 1
+) form
+cross join lateral (
+  select id from public.application_terms_versions where is_active limit 1
+) terms;
+
+do $$
+declare
+  v_visible integer;
+begin
+  if has_table_privilege('anon', 'public.client_applications', 'select')
+    or has_table_privilege('anon', 'public.client_application_files', 'select')
+    or has_table_privilege('anon', 'public.application_form_versions', 'select')
+  then
+    raise exception 'anonymous application grants are too broad';
+  end if;
+  if not has_table_privilege('authenticated', 'public.client_applications', 'select')
+    or has_table_privilege('authenticated', 'public.client_applications', 'insert')
+    or has_table_privilege('authenticated', 'public.client_application_files', 'insert')
+  then
+    raise exception 'authenticated application grants do not enforce server-mediated writes';
+  end if;
+  if exists (
+    select 1 from public.application_form_versions
+    where is_active and legal_review_status <> 'pending'
+  ) or exists (
+    select 1 from public.application_terms_versions
+    where is_active and legal_review_status <> 'pending'
+  ) then
+    raise exception 'seeded application legal material was incorrectly approved';
+  end if;
+
+  perform set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000009', true);
+  set local role authenticated;
+  select count(*) into v_visible from public.client_applications;
+  reset role;
+  if v_visible <> 1 then
+    raise exception 'client application RLS exposed % rows instead of one owned row', v_visible;
+  end if;
+
+  raise notice 'client application RLS and legal-review behavior suite passed';
 end
 $$;
 

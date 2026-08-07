@@ -11,9 +11,8 @@ interface Props {
 }
 
 const serviceRoutes: Record<string, string> = {
-  renovation: "/services/renovation",
-  handyman: "/services/handyman-service",
-  maintenance: "/services/property-maintenance",
+  trade_services: "/services/trade-services",
+  property_care: "/services/property-care",
   strata: "/services/strata-service",
   rental_management: "/services/rental-management"
 };

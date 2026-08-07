@@ -80,6 +80,44 @@ function syntheticOcrResult() {
   };
 }
 
+function rtbLeaseOcrResult() {
+  const observations = [
+    ["2. BEGINNING AND TERM OF THE AGREEMENT", 0.05, 0.74, 0.6, 0.02],
+    ["This tenancy created by this agreement starts on: 31 JULY", 0.08, 0.71, 0.49, 0.02],
+    ["2026", 0.61, 0.71, 0.06, 0.02],
+    ["A) and continues on a month-to-month basis until ended in accordance with the Act.", 0.18, 0.68, 0.6, 0.015],
+    ["• C) and is for a fixed term ending on", 0.16, 0.61, 0.28, 0.015],
+    ["30 JULY", 0.46, 0.61, 0.1, 0.02],
+    ["2027", 0.6, 0.61, 0.06, 0.02]
+  ].map(([text, x, y, width, height]) => ({
+    text,
+    confidence: 0.99,
+    x,
+    y,
+    width,
+    height
+  }));
+  return {
+    pageCount: 2,
+    pages: [
+      {
+        page: 1,
+        text: [
+          "Tenant legal name: Liam Zhao",
+          "Address of the rental unit: 6633 Buswell Street, Richmond, BC",
+          "Unit: 8",
+          "Tenant email: liam@example.com"
+        ].join("\n")
+      },
+      {
+        page: 2,
+        text: observations.map(({ text }) => text).join("\n"),
+        observations
+      }
+    ]
+  };
+}
+
 function structuredRtbOcrResult() {
   const observations = [
     ["and the TENANT(S):", 0.03, 0.82, 0.25, 0.03],
@@ -572,6 +610,47 @@ test("document inspection stays local, scrubs secrets, and writes a private cand
     assert.doesNotMatch(JSON.stringify(result), /neo@example\.com|\+16045550123/u);
     assert.doesNotMatch(JSON.stringify(result), /SUPER_SECRET_UNRELATED_TEXT/u);
     assert.doesNotMatch(JSON.stringify(result), /tingting-document-inspect/u);
+  });
+});
+
+test("BC RTB lease rows combine split OCR date blocks and recognize a filled checkbox", async () => {
+  await withDocumentDirectories(async ({ inputDirectory, mediaDirectory }) => {
+    await writeFile(
+      join(mediaDirectory, "rtb-lease.pdf"),
+      Buffer.from("%PDF-1.7\nlease fixture\n%%EOF\n"),
+      { mode: 0o600 }
+    );
+    const result = await run(
+      [
+        "documents",
+        "inspect-tenant",
+        "--media-path",
+        "media://inbound/rtb-lease.pdf"
+      ],
+      {
+        TINGTING_INPUT_DIRECTORY: inputDirectory,
+        TINGTING_MEDIA_DIRECTORY: mediaDirectory
+      },
+      { runPdfOcr: async () => rtbLeaseOcrResult() }
+    );
+
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.tenant.leaseType, {
+      value: "fixed_term",
+      page: 2,
+      confidence: 0.98
+    });
+    assert.deepEqual(result.tenant.leaseStartDate, {
+      value: "2026-07-31",
+      page: 2,
+      confidence: 0.98
+    });
+    assert.deepEqual(result.tenant.leaseEndDate, {
+      value: "2027-07-30",
+      page: 2,
+      confidence: 0.98
+    });
+    assert.deepEqual(result.warnings, []);
   });
 });
 

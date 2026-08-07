@@ -19,8 +19,18 @@ describe("public homepage boundary", () => {
   });
 
   it("preserves the fixed service identity and order", async () => {
-    expect((await loadPublicHomepageData()).sections.property_services.services.map((service) => service.key))
-      .toEqual(["rental_management", "renovation", "handyman", "maintenance", "strata"]);
+    const services = (await loadPublicHomepageData()).sections.property_services.services;
+    expect(services.map((service) => service.key))
+      .toEqual(["rental_management", "trade_services", "property_care", "strata"]);
+    expect(services.filter((service) => service.key === "property_care")).toHaveLength(1);
+    expect(services[2]).toMatchObject({
+      title: "Property Care: Handyman + Maintenance",
+      summary: "One-time fixes and ongoing upkeep, with clear scope and trade referrals where required."
+    });
+    expect(services[0]).toMatchObject({
+      title: "Rental Management",
+      summary: "Residential and commercial rental-management support, with scope and next steps tailored to the property."
+    });
   });
 
   it("returns only published rentals and caps the homepage at three", async () => {

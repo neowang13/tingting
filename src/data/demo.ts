@@ -7,7 +7,9 @@ import type {
   Tenant
 } from "@/lib/contracts";
 import {
+  propertyCareService,
   rentalManagementService,
+  tradeServicesService,
   upgradePropertyServicesContent
 } from "@/features/content/property-services";
 import {
@@ -55,57 +57,8 @@ const content: Record<SiteSection["key"], unknown> = {
     body: "Reliable support for everyday repairs, planned improvements, and ongoing property care—all coordinated through one convenient point of contact.",
     services: [
       structuredClone(rentalManagementService),
-      {
-        key: "renovation",
-        title: "Renovation",
-        summary: "Kitchen and bathroom updates, flooring, painting, and general home improvements.",
-        ctaLabel: "Explore Renovation",
-        detail: {
-          eyebrow: "RENOVATION SERVICES",
-          heading: "Thoughtful improvements, managed from start to finish.",
-          body: "Refresh a room or update an entire property with practical planning and dependable coordination.",
-          includedHeading: "Renovation services include",
-          includedItems: ["Kitchen updates", "Bathroom updates", "Flooring", "Interior painting"],
-          processHeading: "A straightforward process",
-          processBody: "We review the scope, coordinate the right trades, and keep the work moving.",
-          primaryCtaLabel: "Request a Quote",
-          secondaryCtaLabel: "Ask a Question"
-        }
-      },
-      {
-        key: "handyman",
-        title: "Handyman Services",
-        summary: "Furniture assembly, installations, adjustments, and everyday home repairs.",
-        ctaLabel: "View Handyman Services",
-        detail: {
-          eyebrow: "HANDYMAN SERVICES",
-          heading: "Reliable help for the jobs that keep your home working.",
-          body: "Get practical support for small repairs, installations, and finishing work.",
-          includedHeading: "Common requests",
-          includedItems: ["Furniture assembly", "Fixture installation", "Door adjustments", "Minor repairs"],
-          processHeading: "Simple to arrange",
-          processBody: "Share what needs attention and we will coordinate an appropriate service visit.",
-          primaryCtaLabel: "Request a Service",
-          secondaryCtaLabel: "Ask a Question"
-        }
-      },
-      {
-        key: "maintenance",
-        title: "Property Maintenance",
-        summary: "Cleaning, seasonal upkeep, pressure washing, and ongoing property care.",
-        ctaLabel: "Explore Maintenance",
-        detail: {
-          eyebrow: "PROPERTY MAINTENANCE",
-          heading: "Consistent care that protects your property.",
-          body: "Stay ahead of routine upkeep with reliable help for interior and exterior maintenance.",
-          includedHeading: "Maintenance services include",
-          includedItems: ["Seasonal upkeep", "Cleaning coordination", "Pressure washing", "Routine inspections"],
-          processHeading: "Flexible support",
-          processBody: "Choose one-time service or arrange ongoing care based on the property.",
-          primaryCtaLabel: "Request Maintenance",
-          secondaryCtaLabel: "Ask a Question"
-        }
-      },
+      structuredClone(tradeServicesService),
+      structuredClone(propertyCareService),
       {
         key: "strata",
         title: "Strata Services",
@@ -181,9 +134,8 @@ const content: Record<SiteSection["key"], unknown> = {
     },
     disclosureParagraphs: ["Independent real-estate professional. Information is subject to change."]
   },
-  service_renovation: getSeededServicePageContent("service_renovation"),
-  service_handyman: getSeededServicePageContent("service_handyman"),
-  service_maintenance: getSeededServicePageContent("service_maintenance"),
+  service_trade_services: getSeededServicePageContent("service_trade_services"),
+  service_property_care: getSeededServicePageContent("service_property_care"),
   service_strata: getSeededServicePageContent("service_strata"),
   service_rental_management: getSeededServicePageContent("service_rental_management")
 };
@@ -197,17 +149,18 @@ const sectionNames: Record<SiteSection["key"], string> = {
   about: "About",
   contact: "Contact",
   footer: "Footer",
-  service_renovation: "Renovation",
-  service_handyman: "Handyman service",
-  service_maintenance: "Property maintenance",
+  service_trade_services: "Trade services",
+  service_property_care: "Property care: handyman + maintenance",
   service_strata: "Strata service",
-  service_rental_management: "Rental management"
+  service_rental_management: "Residential & commercial rental management"
 };
 
 export const demoSections: SiteSection[] = Object.entries(content).map(([key, value]) => ({
   key: key as SiteSection["key"],
   displayName: sectionNames[key as SiteSection["key"]],
-  schemaVersion: key === "property_services" ? 3 : 1,
+  schemaVersion: key === "property_services" ? 6
+    : key === "service_trade_services" || key === "service_rental_management" || key === "service_property_care" ? 2
+      : 1,
   draftContent: structuredClone(key === "property_services" ? upgradePropertyServicesContent(value) : value),
   publishedContent: structuredClone(key === "property_services" ? upgradePropertyServicesContent(value) : value),
   publishedAt: now,

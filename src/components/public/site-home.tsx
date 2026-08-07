@@ -6,10 +6,10 @@ import {
   BedDouble,
   Building2,
   CalendarDays,
+  HardHat,
   House,
   KeyRound,
   Mail,
-  PaintRoller,
   PawPrint,
   Phone,
   Ruler,
@@ -23,9 +23,8 @@ import type { PublicHomepageData } from "@/features/content/public-homepage";
 
 const serviceIcons = {
   rental_management: KeyRound,
-  renovation: PaintRoller,
-  handyman: Wrench,
-  maintenance: House,
+  trade_services: HardHat,
+  property_care: Wrench,
   strata: Building2
 } as const;
 
@@ -232,6 +231,8 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
               submitLabel={contact.submitLabel}
               successMessage={contact.successMessage}
               errorMessage={contact.errorMessage}
+              publicEmail={contact.publicEmail}
+              publicPhone={contact.publicPhone}
             />
           </div>
         </section>

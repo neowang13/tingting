@@ -10,9 +10,8 @@ export const homepageSectionKeys = [
 ] as const;
 
 export const servicePageSectionKeys = [
-  "service_renovation",
-  "service_handyman",
-  "service_maintenance",
+  "service_trade_services",
+  "service_property_care",
   "service_strata",
   "service_rental_management"
 ] as const;

@@ -6,7 +6,9 @@ import {
 } from "@/features/content/property-services";
 import {
   serviceIconKeys,
-  upgradeHandymanServiceContent
+  upgradePropertyCareContent,
+  upgradeRentalManagementContent,
+  upgradeTradeServicesContent
 } from "@/features/content/service-pages";
 
 const shortText = z.string().trim().min(1).max(40);
@@ -87,9 +89,8 @@ const propertyServicesSchema = z.preprocess(
     body: bodyText,
     services: z.tuple([
       serviceCardSchema.extend({ key: z.literal(propertyServiceKeys[0]) }),
-      serviceCardSchema.extend({ key: z.literal("renovation") }),
-      serviceCardSchema.extend({ key: z.literal("handyman") }),
-      serviceCardSchema.extend({ key: z.literal("maintenance") }),
+      serviceCardSchema.extend({ key: z.literal("trade_services") }),
+      serviceCardSchema.extend({ key: z.literal("property_care") }),
       serviceCardSchema.extend({ key: z.literal("strata") })
     ]),
     primaryCta: z.object({ label: shortText, href: z.literal("/#contact") }).strict()
@@ -216,8 +217,9 @@ const servicePageShape = {
   ctaBody: z.string().trim().min(1).max(240)
 } as const;
 
-const renovationServicePageSchema = z
-  .object({
+const tradeServicesServicePageSchema = z.preprocess(
+  upgradeTradeServicesContent,
+  z.object({
     ...servicePageShape,
     gallery: z.tuple([
       servicePageCardSchema,
@@ -225,7 +227,8 @@ const renovationServicePageSchema = z
       servicePageCardSchema
     ])
   })
-  .strict();
+  .strict()
+);
 
 const standardServicePageSchema = z
   .object({
@@ -239,11 +242,42 @@ const standardServicePageSchema = z
   })
   .strict();
 
-const handymanServicePageSchema = z.preprocess(
-  upgradeHandymanServiceContent,
+const rentalManagementTypeSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    summary: bodyText,
+    tasks: z.tuple([bodyText, bodyText, bodyText]),
+    intake: bodyText,
+    framework: bodyText,
+    escalation: bodyText
+  })
+  .strict();
+
+const rentalManagementServicePageSchema = z.preprocess(
+  upgradeRentalManagementContent,
+  z.object({
+    ...servicePageShape,
+    managementTypesEyebrow: z.string().trim().min(1).max(80),
+    managementTypesTitle: headingText,
+    managementTypes: z.tuple([
+      rentalManagementTypeSchema,
+      rentalManagementTypeSchema
+    ]),
+    gallery: z.tuple([
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema,
+      servicePageCardSchema
+    ])
+  }).strict()
+);
+
+const propertyCareServicePageSchema = z.preprocess(
+  upgradePropertyCareContent,
   z.object({
     ...servicePageShape,
     services: z.tuple([
+      servicePageCardSchema,
       servicePageCardSchema,
       servicePageCardSchema,
       servicePageCardSchema,
@@ -268,11 +302,10 @@ export const sectionSchemas = {
   about: aboutSchema,
   contact: contactSchema,
   footer: footerSchema,
-  service_renovation: renovationServicePageSchema,
-  service_handyman: handymanServicePageSchema,
-  service_maintenance: standardServicePageSchema,
+  service_trade_services: tradeServicesServicePageSchema,
+  service_property_care: propertyCareServicePageSchema,
   service_strata: standardServicePageSchema,
-  service_rental_management: standardServicePageSchema
+  service_rental_management: rentalManagementServicePageSchema
 } satisfies Record<SectionKey, z.ZodType>;
 
 export const sectionKeySchema = z.enum(sectionKeys);
