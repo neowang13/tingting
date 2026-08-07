@@ -29,7 +29,7 @@ const content: Record<SiteSection["key"], unknown> = {
       { key: "service", label: "Services", href: "/#services" },
       { key: "about", label: "About", href: "/#about" }
     ],
-    contactCta: { label: "Ask Ting Ting", href: "/#contact" }
+    contactCta: { label: "Log in", href: "/client/login" }
   },
   hero: {
     eyebrow: "GREATER VANCOUVER RENTALS",

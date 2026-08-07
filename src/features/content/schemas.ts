@@ -22,7 +22,8 @@ const internalHref = z.enum([
   "/#rentals",
   "/#services",
   "/#about",
-  "/#contact"
+  "/#contact",
+  "/client/login"
 ]);
 
 const mediaRefSchema = z
@@ -43,7 +44,7 @@ const headerSchema = z
       z.object({ key: z.literal("service"), label: shortText, href: z.literal("/#services") }).strict(),
       z.object({ key: z.literal("about"), label: shortText, href: z.literal("/#about") }).strict()
     ]),
-    contactCta: z.object({ label: shortText, href: z.literal("/#contact") }).strict()
+    contactCta: z.object({ label: z.literal("Log in"), href: z.literal("/client/login") }).strict()
   })
   .strict();
 

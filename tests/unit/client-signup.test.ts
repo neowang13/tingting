@@ -15,6 +15,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: mocks.createClient }));
 import {
   CLIENT_PASSWORD_MIN_LENGTH,
   clientEmailConfirmationRedirect,
+  clientSignupErrorMessage,
   parseClientSignup,
   sanitizeClientNextPath
 } from "../../src/lib/client-signup";
@@ -65,6 +66,27 @@ describe("client signup input", () => {
       password: "x".repeat(11),
       role: "admin"
     })).toThrow();
+  });
+});
+
+describe("client signup errors", () => {
+  it("explains disabled registration without exposing provider details", () => {
+    expect(clientSignupErrorMessage({
+      code: "signup_disabled",
+      message: "Signups not allowed for this instance"
+    })).toBe("Client registration is temporarily unavailable. Please contact info@silverkey.ca for help.");
+  });
+
+  it("gives actionable guidance for rate limits and password errors", () => {
+    expect(clientSignupErrorMessage({ code: "over_email_send_rate_limit" }))
+      .toBe("Too many registration attempts were made. Wait a moment and try again.");
+    expect(clientSignupErrorMessage({ message: "Password should contain more characters" }))
+      .toBe("Use a stronger password with at least 11 characters.");
+  });
+
+  it("uses a non-enumerating fallback for other provider errors", () => {
+    expect(clientSignupErrorMessage({ message: "User already registered" }))
+      .toBe("The registration request could not be completed. Check the details and try again.");
   });
 });
 

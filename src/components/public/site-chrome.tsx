@@ -18,7 +18,6 @@ export function SiteHeader({ header }: { header: HeaderContent }) {
           {header.navigation.map((item) => (
             <Link key={item.key} href={item.href}>{item.label}</Link>
           ))}
-          <Link href="/client/applications">My applications</Link>
           <Link className="button header-cta" href={header.contactCta.href}>
             {header.contactCta.label}
           </Link>
