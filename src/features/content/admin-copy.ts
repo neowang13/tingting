@@ -73,7 +73,7 @@ const friendlyFieldLabels: Record<string, string> = {
   body: "Supporting text",
   brandName: "Business name",
   brandSubtitle: "Business category",
-  contactCta: "Contact button",
+  contactCta: "Login button",
   cta: "Button",
   ctaLabel: "Button label",
   detail: "Service details",

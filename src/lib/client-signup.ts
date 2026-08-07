@@ -12,12 +12,34 @@ export const clientSignupSchema = z.object({
 
 export type ClientSignupInput = z.infer<typeof clientSignupSchema>;
 
+type ClientSignupError = {
+  code?: string;
+  message?: string;
+};
+
 export function parseClientSignup(input: unknown): ClientSignupInput {
   return clientSignupSchema.parse(input);
 }
 
 export function clientEmailConfirmationRedirect(origin: string): string {
   return new URL("/client/auth/confirm", origin).toString();
+}
+
+export function clientSignupErrorMessage(error: ClientSignupError): string {
+  const code = error.code?.toLowerCase() ?? "";
+  const message = error.message?.toLowerCase() ?? "";
+
+  if (code === "signup_disabled") {
+    return "Client registration is temporarily unavailable. Please contact info@silverkey.ca for help.";
+  }
+  if (code.includes("rate_limit") || message.includes("rate limit")) {
+    return "Too many registration attempts were made. Wait a moment and try again.";
+  }
+  if (message.includes("password")) {
+    return `Use a stronger password with at least ${CLIENT_PASSWORD_MIN_LENGTH} characters.`;
+  }
+
+  return "The registration request could not be completed. Check the details and try again.";
 }
 
 export function sanitizeClientNextPath(candidate: string | null | undefined): string {

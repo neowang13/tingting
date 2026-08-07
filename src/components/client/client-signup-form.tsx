@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from "react";
 import {
   CLIENT_PASSWORD_MIN_LENGTH,
   clientEmailConfirmationRedirect,
+  clientSignupErrorMessage,
   clientSignupSchema
 } from "@/lib/client-signup";
 import { getClientAuthBrowserClient } from "@/lib/client-auth-browser";
@@ -66,11 +67,7 @@ export function ClientSignupForm({ authMode }: { authMode: "local" | "supabase" 
         }
       });
       if (result.error) {
-        setError(
-          result.error.message.toLowerCase().includes("password")
-            ? `Use a stronger password with at least ${CLIENT_PASSWORD_MIN_LENGTH} characters.`
-            : "The registration request could not be completed. Check the details and try again."
-        );
+        setError(clientSignupErrorMessage(result.error));
         return;
       }
       setPendingEmail(input.data.email);
