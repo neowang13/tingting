@@ -133,6 +133,26 @@ describe("Client recovery intent and identity boundary", () => {
     );
   });
 
+  it("redirects Render callback traffic to the configured public origin", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_BASE_URL", "https://silverkey.ca");
+    const store = cookieStore();
+    mocks.cookies.mockResolvedValue(store);
+    mocks.createServerClient.mockReturnValue(authenticatedClient());
+    mocks.createClient.mockReturnValue(serviceClient());
+
+    const response = await recoverClientPassword(new Request(
+      "http://0.0.0.0:10000/client/auth/recover?code=recovery-code"
+    ));
+
+    expect(response.headers.get("location")).toBe("https://silverkey.ca/client/reset-password");
+    expect(store.set).toHaveBeenCalledWith(
+      CLIENT_RECOVERY_COOKIE_NAME,
+      expect.any(String),
+      expect.objectContaining({ secure: true })
+    );
+  });
+
   it("rejects an active Admin and expires Client auth base/chunk cookies", async () => {
     const store = cookieStore({
       [CLIENT_SUPABASE_COOKIE_NAME]: "base-session",
