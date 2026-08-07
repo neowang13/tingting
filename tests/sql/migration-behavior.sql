@@ -1,5 +1,7 @@
 \set ON_ERROR_STOP on
 
+begin;
+
 insert into auth.users(id) values ('00000000-0000-4000-8000-000000000001');
 insert into public.admin_profiles(user_id, display_name)
 values ('00000000-0000-4000-8000-000000000001', 'Migration Test Admin');
@@ -702,3 +704,5 @@ begin
   raise notice 'rental listing v2 behavior suite passed';
 end
 $$;
+
+rollback;

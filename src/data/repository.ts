@@ -13,6 +13,7 @@ import {
 } from "@/features/rent-payments/service";
 import type {
   DashboardSummary,
+  ClientAccount,
   NotificationBatch,
   NotificationEvent,
   NotificationEventFilters,
@@ -33,6 +34,7 @@ import type {
   TenantListFilters,
   TestContacts
 } from "@/lib/contracts";
+import { clientTenantLinkInputSchema } from "@/lib/schemas";
 
 export interface DataRepository {
   dashboard(): Promise<DashboardSummary>;
@@ -69,6 +71,9 @@ export interface DataRepository {
     action: "rental.publish" | "rental.unpublish" | "rental.archive" | "schedule.enable" | "schedule.disable";
   }): Promise<unknown>;
   listTenants(filters?: TenantListFilters): Promise<Tenant[]>;
+  listClientAccounts(): Promise<ClientAccount[]>;
+  linkClientToTenant(clientUserId: string, payload: unknown, actorId: string): Promise<ClientAccount>;
+  unlinkClientFromTenant(clientUserId: string, actorId: string): Promise<ClientAccount>;
   getTenant(id: string): Promise<{ tenant: Tenant; schedule: ReminderSchedule | null }>;
   createTenant(payload: unknown, actorId: string): Promise<Tenant>;
   updateTenant(id: string, payload: unknown, expectedVersion: unknown, actorId: string): Promise<Tenant>;
@@ -282,12 +287,22 @@ class MemoryRepository implements DataRepository {
         return !filters.leaseType || tenant.leaseType === filters.leaseType;
       });
   }
+  async listClientAccounts() { return store.listClientAccounts(); }
+  async linkClientToTenant(clientUserId: string, payload: unknown, actorId: string) {
+    const input = clientTenantLinkInputSchema.parse(payload);
+    return store.linkClientToTenant(clientUserId, input.tenantId, actorId);
+  }
+  async unlinkClientFromTenant(clientUserId: string, actorId: string) {
+    return store.unlinkClientFromTenant(clientUserId, actorId);
+  }
   async getTenant(id: string) { return store.getTenant(id); }
   async createTenant(payload: unknown) { return store.createTenant(payload); }
   async updateTenant(id: string, payload: unknown, expectedVersion: unknown) {
     return store.updateTenant(id, payload, expectedVersion);
   }
-  async archiveTenant(id: string, expectedVersion: unknown) { return store.archiveTenant(id, expectedVersion); }
+  async archiveTenant(id: string, expectedVersion: unknown, actorId: string) {
+    return store.archiveTenant(id, expectedVersion, actorId);
+  }
   async saveSchedule(tenantId: string, payload: unknown, expectedVersion: unknown) {
     return store.saveSchedule(tenantId, payload, expectedVersion);
   }

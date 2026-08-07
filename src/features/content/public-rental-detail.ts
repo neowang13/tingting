@@ -6,6 +6,7 @@ import type {
   PublicSiteSection,
   RentalListing
 } from "@/lib/contracts";
+import { sanitizePublicRentalImages } from "@/lib/public-image-url";
 
 type Header = ReturnType<(typeof sectionSchemas)["header"]["parse"]>;
 type Contact = ReturnType<(typeof sectionSchemas)["contact"]["parse"]>;
@@ -47,10 +48,11 @@ export const loadPublicRentalDetailData = cache(
     ]);
     if (!rental || rental.status !== "published" || !rental.publishedAt) return null;
 
+    const publicRental = sanitizePublicRentalImages(rental);
     return {
       rental: {
-        ...rental,
-        images: [...rental.images]
+        ...publicRental,
+        images: [...publicRental.images]
           .filter((image) => Boolean(image.url))
           .sort((a, b) => a.sortOrder - b.sortOrder)
       },
@@ -61,7 +63,8 @@ export const loadPublicRentalDetailData = cache(
           candidate.publishedAt
         )
         .sort((a, b) => a.sortOrder - b.sortOrder)
-        .slice(0, 4),
+        .slice(0, 4)
+        .map(sanitizePublicRentalImages),
       sections: {
         header: parseSection("header", publishedSections),
         contact: parseSection("contact", publishedSections),

@@ -21,6 +21,7 @@ const navigationGroups = [
   {
     label: "Rent management",
     links: [
+      { label: "Client accounts", href: "/admin/clients", exact: false },
       { label: "Tenants & schedules", href: "/admin/tenants", exact: false },
       { label: "Email activity", href: "/admin/notifications/history", exact: false },
       { label: "Email templates", href: "/admin/notifications/templates", exact: false }

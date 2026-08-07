@@ -253,6 +253,38 @@ export interface Tenant extends Versioned {
   currentRentPayment?: TenantRentPayment | null;
 }
 
+export interface ClientTenantSummary {
+  id: string;
+  fullName: string;
+  propertyLabel: string;
+  unitLabel: string | null;
+  isActive: boolean;
+  archivedAt: string | null;
+}
+
+export interface ClientTenantLink {
+  id: string;
+  clientUserId: string;
+  tenantId: string;
+  tenant: ClientTenantSummary;
+  linkedAt: string;
+  linkedBy: string;
+  archivedAt: string | null;
+  archivedBy: string | null;
+}
+
+export interface ClientAccount {
+  userId: string;
+  displayName: string;
+  email: string | null;
+  emailConfirmedAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+  deactivatedAt: string | null;
+  currentTenant: ClientTenantSummary | null;
+  linkHistory: ClientTenantLink[];
+}
+
 export type RentPaymentStatus = "due" | "collected";
 
 export interface TenantRentPayment extends Versioned {

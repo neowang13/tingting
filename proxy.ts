@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
 
 const ADMIN_IDLE_TIMEOUT_MS = 30 * 60_000;
 const ADMIN_ABSOLUTE_TIMEOUT_MS = 12 * 60 * 60_000;
@@ -89,6 +90,7 @@ export async function proxy(request: NextRequest) {
 
   let response = NextResponse.next({ request });
   const supabase = createServerClient(url, anonKey, {
+    cookieOptions: clientRoute ? { name: CLIENT_SUPABASE_COOKIE_NAME } : undefined,
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll: (items) => {

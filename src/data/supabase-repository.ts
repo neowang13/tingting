@@ -22,6 +22,9 @@ import {
   RENT_RECEIPT_BUCKET
 } from "@/features/rent-payments/service";
 import type {
+  ClientAccount,
+  ClientTenantLink,
+  ClientTenantSummary,
   DashboardSummary,
   NotificationBatch,
   NotificationEvent,
@@ -43,6 +46,7 @@ import type {
 } from "@/lib/contracts";
 import {
   batchConfirmSchema,
+  clientTenantLinkInputSchema,
   notificationPreviewSchema,
   reminderSettingsInputSchema,
   rentalInputSchema,
@@ -115,6 +119,19 @@ function databaseError(error: { code?: string; message: string } | null): never 
       ? "This record changed after it was loaded. Refresh the page before trying again."
       : "We could not save this change because the database is unavailable. Nothing after the last confirmed save was applied. Try again."
   );
+}
+
+function clientLinkDatabaseError(error: { code?: string; message: string } | null): never {
+  if (error?.code === "42501") {
+    throw new ApiError(403, "ADMIN_ACCESS_REQUIRED", "An active administrator is required to manage Client tenant links.");
+  }
+  if (error?.code === "P0002") {
+    throw new ApiError(404, "CLIENT_OR_TENANT_NOT_FOUND", "The selected Client account or current tenant no longer exists.");
+  }
+  if (error?.code === "TT409" || error?.code === "23505") {
+    throw new ApiError(409, "CLIENT_TENANT_LINK_CONFLICT", "This Client account cannot be linked to the selected tenant. Refresh and try again.");
+  }
+  databaseError(error);
 }
 
 function mapSection(value: unknown): SiteSection {
@@ -318,6 +335,32 @@ function mapTenant(value: unknown): Tenant {
     tenant.currentRentPayment = null;
   }
   return tenant;
+}
+
+function mapClientTenantSummary(value: unknown): ClientTenantSummary {
+  const row = asRow(value);
+  return {
+    id: text(row, "id"),
+    fullName: text(row, "full_name"),
+    propertyLabel: text(row, "property_label"),
+    unitLabel: nullableText(row, "unit_label"),
+    isActive: booleanValue(row, "is_active"),
+    archivedAt: nullableText(row, "archived_at")
+  };
+}
+
+function mapClientTenantLink(value: unknown): ClientTenantLink {
+  const row = asRow(value);
+  return {
+    id: text(row, "id"),
+    clientUserId: text(row, "client_user_id"),
+    tenantId: text(row, "tenant_id"),
+    tenant: mapClientTenantSummary(row.tenant),
+    linkedAt: text(row, "linked_at"),
+    linkedBy: text(row, "linked_by"),
+    archivedAt: nullableText(row, "archived_at"),
+    archivedBy: nullableText(row, "archived_by")
+  };
 }
 
 function mapRentPayment(value: unknown): TenantRentPayment {
@@ -755,6 +798,82 @@ export class SupabaseRepository implements DataRepository {
     const { data, error } = await query.limit(Math.min(Math.max(filters.limit ?? 500, 1), 500));
     if (error) databaseError(error);
     return asRows(data).map(mapTenant);
+  }
+
+  async listClientAccounts(): Promise<ClientAccount[]> {
+    const [{ data: profiles, error: profileError }, { data: links, error: linkError }] = await Promise.all([
+      this.client().from("client_profiles").select("*").order("display_name"),
+      this.client()
+        .from("client_tenant_links")
+        .select("*,tenant:tenants(id,full_name,property_label,unit_label,is_active,archived_at)")
+        .order("linked_at", { ascending: false })
+    ]);
+    if (profileError) databaseError(profileError);
+    if (linkError) databaseError(linkError);
+
+    const mappedLinks = asRows(links).map(mapClientTenantLink);
+    const linksByClient = new Map<string, ClientTenantLink[]>();
+    mappedLinks.forEach((link) => {
+      const current = linksByClient.get(link.clientUserId) ?? [];
+      current.push(link);
+      linksByClient.set(link.clientUserId, current);
+    });
+    const authUsers = new Map<string, { email?: string; email_confirmed_at?: string | null }>();
+    const perPage = 1_000;
+    for (let page = 1; ; page += 1) {
+      const { data, error } = await this.client().auth.admin.listUsers({ page, perPage });
+      if (error) {
+        throw new ApiError(502, "AUTH_DIRECTORY_UNAVAILABLE", "Client email addresses could not be loaded.");
+      }
+      data.users.forEach((user) => authUsers.set(user.id, user));
+      if (data.users.length < perPage) break;
+    }
+
+    return asRows(profiles).map((profile) => {
+      const userId = text(profile, "user_id");
+      const authUser = authUsers.get(userId);
+      if (!authUser) {
+        throw new ApiError(502, "AUTH_DIRECTORY_UNAVAILABLE", "A Client account is missing from the authentication directory.");
+      }
+      const linkHistory = linksByClient.get(userId) ?? [];
+      return {
+        userId,
+        displayName: text(profile, "display_name"),
+        email: authUser.email ?? null,
+        emailConfirmedAt: authUser.email_confirmed_at ?? null,
+        isActive: booleanValue(profile, "is_active"),
+        createdAt: text(profile, "created_at"),
+        deactivatedAt: nullableText(profile, "deactivated_at"),
+        currentTenant: linkHistory.find((link) =>
+          link.archivedAt === null && link.tenant.isActive && link.tenant.archivedAt === null
+        )?.tenant ?? null,
+        linkHistory
+      };
+    });
+  }
+
+  async linkClientToTenant(clientUserId: string, payload: unknown, actorId: string) {
+    const input = clientTenantLinkInputSchema.parse(payload);
+    const { error } = await this.client().rpc("admin_link_client_tenant", {
+      p_client_user_id: clientUserId,
+      p_tenant_id: input.tenantId,
+      p_actor_id: actorId
+    });
+    if (error) clientLinkDatabaseError(error);
+    const account = (await this.listClientAccounts()).find((client) => client.userId === clientUserId);
+    if (!account) throw new ApiError(404, "CLIENT_NOT_FOUND", "Client account was not found.");
+    return account;
+  }
+
+  async unlinkClientFromTenant(clientUserId: string, actorId: string) {
+    const { error } = await this.client().rpc("admin_unlink_client_tenant", {
+      p_client_user_id: clientUserId,
+      p_actor_id: actorId
+    });
+    if (error) clientLinkDatabaseError(error);
+    const account = (await this.listClientAccounts()).find((client) => client.userId === clientUserId);
+    if (!account) throw new ApiError(404, "CLIENT_NOT_FOUND", "Client account was not found.");
+    return account;
   }
 
   async getTenant(id: string) {

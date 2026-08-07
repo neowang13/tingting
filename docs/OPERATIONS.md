@@ -14,9 +14,12 @@ retention period, templates, recipients, and provider dry-run results.
 
 ## Production provisioning
 
-1. Create Supabase in West US (Oregon). Disable public signup.
+1. Create Supabase in West US (Oregon). Enable email/password signup and require
+   email confirmation. Set the public Site URL and allow
+   `https://<public-host>/client/auth/confirm` as an Auth redirect URL.
 2. Apply migrations in filename order from `supabase/migrations`.
-3. Owner-create the administrator in Supabase Auth and enable TOTP MFA.
+3. Owner-create the administrator in Supabase Auth and enable TOTP MFA. Never use
+   the public Client registration form for an administrator.
 4. Load `.env.local` with the Supabase URL, anon key, service-role key, bucket
    names, and the Auth user UUID as `ADMIN_USER_ID`.
 5. Run `pnpm provision:supabase`. Confirm that templates and reminders remain
@@ -52,6 +55,9 @@ retention period, templates, recipients, and provider dry-run results.
    `checks.publicBaseUrl=https`. A missing Cron secret or database dependency
    intentionally returns `503`; the response names missing variable(s) but
    never their values.
+9. Configure custom SMTP for Supabase Auth confirmation mail and test registration,
+   confirmation, expired-link handling, and resend against a non-production account.
+   Supabase Auth SMTP is separate from the application's Resend notification adapter.
 
 ## Free demo provisioning
 

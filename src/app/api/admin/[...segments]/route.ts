@@ -9,6 +9,7 @@ import {
 import { getRepository } from "@/data/repository";
 import {
   businessNameSettingsInputSchema,
+  clientUserIdSchema,
   pauseInputSchema,
   reminderSettingsInputSchema,
   notificationEventFilterSchema,
@@ -102,6 +103,7 @@ export async function GET(request: Request, context: Context) {
       return ok(await repository.listTenants(filters), requestId);
     }
     if (resource === "tenants" && id && !action) return ok(await repository.getTenant(id), requestId);
+    if (resource === "clients" && !id) return ok(await repository.listClientAccounts(), requestId);
     if (resource === "templates" && !id) return ok(await repository.listTemplates(), requestId);
     if (resource === "notifications" && id === "events" && !action) {
       const url = new URL(request.url);
@@ -252,6 +254,18 @@ export async function POST(request: Request, context: Context) {
     if (resource === "tenants" && id && action === "schedule") {
       const payload = body as { schedule?: unknown; expectedVersion?: unknown };
       return ok(await repository.saveSchedule(id, payload.schedule, payload.expectedVersion, actorId), requestId);
+    }
+    if (resource === "clients" && id && action === "link") {
+      return ok(
+        await repository.linkClientToTenant(clientUserIdSchema.parse(id), body, actorId),
+        requestId
+      );
+    }
+    if (resource === "clients" && id && action === "unlink") {
+      return ok(
+        await repository.unlinkClientFromTenant(clientUserIdSchema.parse(id), actorId),
+        requestId
+      );
     }
     if (resource === "schedules" && id === "next-run") {
       const input = schedulePreviewSchema.parse(body);

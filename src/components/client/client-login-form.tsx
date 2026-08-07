@@ -1,17 +1,19 @@
 "use client";
 
-import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
+import { getClientAuthBrowserClient } from "@/lib/client-auth-browser";
+import { clientEmailConfirmationRedirect } from "@/lib/client-signup";
 
 export function ClientLoginForm({ authMode, nextPath = "/client/applications" }: { authMode: "local" | "supabase"; nextPath?: string }) {
   const router = useRouter();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const supabase = useMemo(() => url && anonKey ? createBrowserClient(url, anonKey) : null, [url, anonKey]);
+  const supabase = useMemo(() => url && anonKey ? getClientAuthBrowserClient(url, anonKey) : null, [url, anonKey]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [recoveryMessage, setRecoveryMessage] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState("");
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
@@ -19,6 +21,8 @@ export function ClientLoginForm({ authMode, nextPath = "/client/applications" }:
       event.preventDefault();
       setBusy(true);
       setError("");
+      setRecoveryMessage("");
+      setUnverifiedEmail("");
       const form = new FormData(event.currentTarget);
       const email = String(form.get("email"));
       const password = String(form.get("password"));
@@ -35,7 +39,12 @@ export function ClientLoginForm({ authMode, nextPath = "/client/applications" }:
         }
         const signedIn = await supabase.auth.signInWithPassword({ email, password });
         if (signedIn.error || !signedIn.data.session) {
-          setError("Email or password is incorrect, or this account is not authorized.");
+          if (signedIn.error?.message.toLowerCase().includes("email not confirmed")) {
+            setUnverifiedEmail(email.trim().toLowerCase());
+            setError("Verify your email before signing in. You can request another verification email below.");
+          } else {
+            setError("Email or password is incorrect, or this account is not authorized.");
+          }
           setBusy(false);
           return;
         }
@@ -68,11 +77,25 @@ export function ClientLoginForm({ authMode, nextPath = "/client/applications" }:
         setError(""); setRecoveryMessage("");
         if (!email || !supabase) { setError("Enter your account email before requesting a recovery link."); return; }
         setBusy(true);
-        const result = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/client/reset-password` });
+        const result = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/client/auth/recover`
+        });
         setBusy(false);
         if (result.error) setError("A recovery link could not be requested. Confirm the email and try again.");
         else setRecoveryMessage("If this authorized client account exists, a recovery link has been sent.");
       }}>Forgot password?</button>}
+      {authMode === "supabase" && unverifiedEmail && <button className="text-button" type="button" disabled={busy} onClick={async () => {
+        if (!supabase) return;
+        setBusy(true); setRecoveryMessage("");
+        const result = await supabase.auth.resend({
+          type: "signup",
+          email: unverifiedEmail,
+          options: { emailRedirectTo: clientEmailConfirmationRedirect(window.location.origin) }
+        });
+        setBusy(false);
+        if (result.error) setError("A verification email could not be requested yet. Wait a moment and try again.");
+        else { setError(""); setRecoveryMessage("If this address can be registered, another verification email has been sent."); }
+      }}>Resend verification email</button>}
       {recoveryMessage && <p className="form-status success" role="status" aria-live="polite">{recoveryMessage}</p>}
       {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
     </form>

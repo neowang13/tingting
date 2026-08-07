@@ -57,6 +57,7 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | POST | `/api/client/auth/login` | Local demo Client Login; production uses Supabase Auth plus session establishment |
 | POST | `/api/client/auth/session` | Verify a Supabase Auth session and active client profile |
 | POST | `/api/client/auth/logout` | End the client session |
+| GET | `/client/auth/confirm` | Exchange a one-time Supabase email-confirmation code, clear the temporary session, and return to Client Login |
 | PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
 | GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
 | POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
@@ -86,6 +87,9 @@ malware-risk process clears them. See the
 
 | Method | Path | Purpose |
 |---|---|---|
+| GET | `/api/admin/clients` | List registered Client accounts with verification and current-tenant status |
+| POST | `/api/admin/clients/:userId/link` | Explicitly link a Client account to a current tenant |
+| POST | `/api/admin/clients/:userId/unlink` | End the current tenant link while preserving history |
 | GET/POST | `/api/admin/tenants` | List or create |
 | GET/PATCH | `/api/admin/tenants/:id` | Read or update |
 | POST | `/api/admin/tenants/:id/archive` | Archive |

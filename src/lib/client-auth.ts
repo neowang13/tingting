@@ -7,6 +7,7 @@ import type { ClientIdentity } from "@/features/applications/contracts";
 import { isDemoMode } from "@/lib/auth";
 import { LOCAL_CLIENT_SESSION_COOKIE, verifyLocalClientSession } from "@/lib/local-client-auth";
 import { readCookieValue } from "@/lib/local-admin-auth";
+import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
 
 async function resolveSupabaseClient(): Promise<ClientIdentity> {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -17,6 +18,7 @@ async function resolveSupabaseClient(): Promise<ClientIdentity> {
   }
   const cookieStore = await cookies();
   const authClient = createServerClient(url, anonKey, {
+    cookieOptions: { name: CLIENT_SUPABASE_COOKIE_NAME },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (items) => items.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
@@ -24,11 +26,23 @@ async function resolveSupabaseClient(): Promise<ClientIdentity> {
   });
   const { data, error } = await authClient.auth.getUser();
   if (error || !data.user) throw new ApiError(401, "UNAUTHORIZED", "Client authentication is required.");
+  if (!data.user.email_confirmed_at) {
+    throw new ApiError(403, "EMAIL_VERIFICATION_REQUIRED", "Verify the Client account email before signing in.");
+  }
   const service = createClient(url, serviceKey, { auth: { persistSession: false } });
-  const profile = await service.from("client_profiles")
-    .select("display_name,is_active")
-    .eq("user_id", data.user.id)
-    .maybeSingle();
+  const [profile, adminProfile] = await Promise.all([
+    service.from("client_profiles")
+      .select("display_name,is_active")
+      .eq("user_id", data.user.id)
+      .maybeSingle(),
+    service.from("admin_profiles")
+      .select("is_active")
+      .eq("user_id", data.user.id)
+      .maybeSingle()
+  ]);
+  if (adminProfile.error || adminProfile.data?.is_active) {
+    throw new ApiError(403, "CLIENT_ADMIN_IDENTITY_CONFLICT", "Administrator identities cannot use Client Login.");
+  }
   if (profile.error || !profile.data?.is_active) {
     throw new ApiError(403, "CLIENT_ACCESS_DENIED", "This account does not have access to Client Login.");
   }
@@ -65,6 +79,7 @@ export async function establishClientSession(tokens: { accessToken: string; refr
   if (!url || !anonKey) throw new ApiError(503, "CLIENT_AUTH_CONFIGURATION_ERROR", "Client authentication is not configured.");
   const cookieStore = await cookies();
   const client = createServerClient(url, anonKey, {
+    cookieOptions: { name: CLIENT_SUPABASE_COOKIE_NAME },
     cookies: {
       getAll: () => cookieStore.getAll(),
       setAll: (items) => items.forEach(({ name, value, options }) => cookieStore.set(name, value, options))

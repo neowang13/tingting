@@ -16,6 +16,17 @@ function localSupabaseSource() {
 }
 
 const localSupabase = localSupabaseSource();
+const localSupabaseImagePattern = localSupabase
+  ? (() => {
+      const url = new URL(localSupabase);
+      return {
+        protocol: url.protocol.slice(0, -1) as "http" | "https",
+        hostname: url.hostname,
+        port: url.port,
+        pathname: "/storage/v1/object/public/**"
+      };
+    })()
+  : null;
 const imageSources = [
   "'self'",
   "data:",
@@ -31,8 +42,9 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["read-excel-file", "unzipper"],
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "*.supabase.co" },
-      { protocol: "https", hostname: "images.unsplash.com" }
+      { protocol: "https", hostname: "*.supabase.co", pathname: "/storage/v1/object/public/**" },
+      { protocol: "https", hostname: "images.unsplash.com" },
+      ...(localSupabaseImagePattern ? [localSupabaseImagePattern] : [])
     ]
   },
   poweredByHeader: false,

@@ -347,6 +347,12 @@ export const tenantCreateInputSchema = tenantInputSchema.superRefine((value, ctx
   }
 });
 
+export const clientUserIdSchema = z.uuid();
+
+export const clientTenantLinkInputSchema = z.object({
+  tenantId: z.uuid()
+}).strict();
+
 export const scheduleInputSchema = z
   .object({
     rentDueDay: z.number().int().min(1).max(31),

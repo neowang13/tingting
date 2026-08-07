@@ -3363,6 +3363,9 @@ a {
   margin-top: 24px;
 }
 
+.client-auth-switch { margin: 20px 0 0; }
+.client-auth-result { display: grid; gap: 16px; margin-top: 24px; }
+
 .client-security-note {
   border-left: 4px solid #b27b28;
   background: #fff8e9;

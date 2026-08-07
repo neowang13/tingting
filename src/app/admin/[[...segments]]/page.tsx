@@ -28,6 +28,7 @@ import {
 } from "@/lib/notification-copy";
 import { Temporal } from "@js-temporal/polyfill";
 import { ApplicationQueue } from "@/components/admin/application-queue";
+import { ClientManager } from "@/components/admin/client-manager";
 import { listApplicationsForStaff } from "@/features/applications/service";
 
 interface Props {
@@ -313,6 +314,22 @@ export default async function AdminPage({ params, searchParams }: Props) {
             </div>
           </div>
         )}
+      </AdminShell>
+    );
+  }
+
+  if (area === "clients" && !id) {
+    const [clients, tenants] = await Promise.all([
+      repository.listClientAccounts(),
+      repository.listTenants({ lifecycle: "active", limit: 500 })
+    ]);
+    return (
+      <AdminShell
+        admin={admin}
+        title="Client accounts"
+        description="Review registered clients and explicitly link each account to one current tenant."
+      >
+        <ClientManager initialClients={clients} tenants={tenants} />
       </AdminShell>
     );
   }

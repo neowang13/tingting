@@ -23,8 +23,10 @@ sql_paths = ["./seed.sql"]
 [studio]
 enabled = false
 
-[inbucket]
-enabled = false
+# Local Mailpit inbox for Supabase Auth confirmation messages.
+[local_smtp]
+enabled = true
+port = 54324
 
 [storage]
 enabled = true
@@ -32,17 +34,28 @@ file_size_limit = "50MiB"
 
 [auth]
 enabled = true
-site_url = "http://127.0.0.1:3300"
-additional_redirect_urls = ["http://127.0.0.1:3300/admin"]
+site_url = "http://localhost:3000"
+additional_redirect_urls = [
+  "http://localhost:3000/client/auth/confirm",
+  "http://localhost:3000/client/auth/recover",
+  "http://127.0.0.1:3000/client/auth/confirm",
+  "http://127.0.0.1:3000/client/auth/recover",
+  "http://localhost:3300/client/auth/confirm",
+  "http://localhost:3300/client/auth/recover",
+  "http://127.0.0.1:3300/admin",
+  "http://127.0.0.1:3300/client/auth/confirm",
+  "http://127.0.0.1:3300/client/auth/recover",
+]
 jwt_expiry = 3600
-enable_signup = false
+enable_signup = true
 enable_anonymous_sign_ins = false
-minimum_password_length = 10
+minimum_password_length = 11
 
 [auth.email]
 enable_signup = true
-enable_confirmations = false
+enable_confirmations = true
 double_confirm_changes = true
+max_frequency = "1s"
 
 [auth.mfa]
 max_enrolled_factors = 10

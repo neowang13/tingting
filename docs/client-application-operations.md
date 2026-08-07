@@ -8,8 +8,10 @@ type, intended landlord/recipient, applicant rights, and retention exceptions.
 
 ## Access and assignment
 
-- Client accounts are owner-created in Supabase Auth; public signup is disabled.
-- An active `client_profiles` row grants Client Login access. It never grants Admin.
+- Clients self-register at `/client/signup` with name, email, and a password of at
+  least 11 characters. Supabase email confirmation is required before first sign-in.
+- Registration metadata can create only an active `client_profiles` row. It never
+  creates `admin_profiles`, assigns an application/property, or grants Admin access.
 - Staff assign one versioned form and one versioned consent to an application.
   `scripts/provision-supabase.ts` refuses its optional initial assignment unless both
   source versions are approved.
@@ -22,31 +24,33 @@ type, intended landlord/recipient, applicant rights, and retention exceptions.
 
 ## Applicant workflow
 
-1. Staff creates the Auth account/profile and assigns the correct property, form,
-   and consent versions.
-2. Applicant signs in at `/client/login`, opens `/client/applications`, and completes
+1. Applicant registers, confirms the email link, and signs in. Staff can see the
+   registered account under `/admin/clients`; the new account initially has no
+   application or tenant assignment.
+2. Staff assigns the correct property, form, and consent versions when applicable.
+3. Applicant signs in at `/client/login`, opens `/client/applications`, and completes
    the assigned eight-step online application: personal details, household/tenancy,
    housing history, employment/income, references, emergency contact, documents, and
    review/submit. Each explicit save is server-validated, owner-scoped, and audited.
-3. Applicant uploads requested PDF/JPEG/PNG supporting files, maximum 10 MB each and
+4. Applicant uploads requested PDF/JPEG/PNG supporting files, maximum 10 MB each and
    8 files. The server checks magic bytes, extension/MIME agreement, and rejects PDF
    scripts, launch actions, and embedded files. The assigned downloadable form remains
    available only as a `private, no-store` fallback.
-4. Objects use random keys in the private `client-applications` bucket. New files are
+5. Objects use random keys in the private `client-applications` bucket. New files are
    `manual_review_required`; an approved malware-screening workstation or future
    scanner integration must clear them before staff opens or distributes them.
-5. Server submission revalidates all required online sections. Applicant separately
+6. Server submission revalidates all required online sections. Applicant separately
    checks the landlord-sharing authorization and the credit/
    reference-screening consent. Neither box is pre-checked. Submission verifies the
    exact form/terms versions and hashes, then stores displayed consent text, hashes,
    timestamp, authenticated user, application ID, and minimized request context.
-6. After the database accepts the submission, the email provider notifies the Admin
+7. After the database accepts the submission, the email provider notifies the Admin
    recipient configured in `CONTACT_TO_EMAIL` (falling back to `ALERT_TO_EMAIL` or
    `LOCAL_ADMIN_EMAIL`). The message contains only the application reference,
    applicant/contact summary, property, submission time, and authenticated Admin link;
    supporting documents are never attached. Delivery success or failure is audited,
    and an email-provider failure does not undo the applicant's completed submission.
-7. Applicant downloads a receipt showing the reference, files, status, versions,
+8. Applicant downloads a receipt showing the reference, files, status, versions,
    hashes, consent time, correction route, and retention-review date.
 
 ## Staff processing
@@ -71,6 +75,14 @@ Admin queue to the approved screening workstation. The response is private/no-st
 never a public URL, and carries the current scan-status header. Recording `cleared` or
 `rejected` requires recent AAL2 authentication; review cannot start until every file
 is cleared.
+
+Use `/admin/clients` to review every registered Client account, including accounts
+still waiting for email verification. Linking a Client account to an existing current
+tenant is always an explicit Admin action; matching names or email addresses never
+creates a link. Link history is retained for operational review, and the current
+tenant opens in the existing Tenant editor for rent, lease, reminder, and payment
+management. This relationship does not grant the Client direct access to the private
+`tenants` table or any other Client's records.
 
 ## Retention, deletion, and incidents
 

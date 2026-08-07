@@ -22,9 +22,11 @@ credentials are configured server-side with `LOCAL_ADMIN_EMAIL`, a scrypt
 The demo Client Login is `/client/login`. Configure its separate
 `LOCAL_CLIENT_EMAIL`, `LOCAL_CLIENT_PASSWORD_HASH`, and
 `LOCAL_CLIENT_SESSION_SECRET`; development may fall back to the local admin hash and
-secret, but client and admin cookies and authorization remain separate. Production
-client accounts are owner-created in Supabase Auth with an active `client_profiles`
-row and no public signup.
+secret, but client and admin cookies and authorization remain separate. In production,
+clients register at `/client/signup` with a name, email, and password of at least
+11 characters. Supabase must confirm the email before Client Login is allowed; the
+database creates only a `client_profiles` row and never an Admin profile. Admin access
+still requires an owner-created Auth user, active `admin_profiles` row, and MFA.
 
 No third-party account is required for local development. Supabase is replaced
 by the seeded memory adapter and notification delivery defaults to
@@ -75,7 +77,7 @@ PostgreSQL 17 using [tests/sql/migration-behavior.sql](./tests/sql/migration-beh
 ## Supabase provisioning
 
 Apply every migration in `supabase/migrations`, create the first administrator
-in Supabase Auth with public signup disabled, then run:
+in Supabase Auth, and then run:
 
 ```bash
 ADMIN_USER_ID=<auth-user-uuid> pnpm provision:supabase
@@ -85,6 +87,14 @@ The command creates the active admin profile, fixed validated site sections,
 disabled email/SMS templates, private/public media buckets, and a globally
 paused reminder configuration. It is idempotent and does not overwrite existing
 content.
+
+For Client registration, enable email/password signup and **Confirm email** in
+Supabase Auth, set the Site URL to the public HTTPS origin, and allow
+`https://<public-host>/client/auth/confirm` as a redirect URL. Configure a trusted
+custom SMTP sender for Supabase Auth confirmation mail; this is separate from the
+application's Resend HTTP provider used for operational notifications.
+Local Supabase captures confirmation messages in its development inbox; run
+`supabase status` to find the inbox URL.
 
 ## Production readiness
 

@@ -3,6 +3,7 @@ import { RentalCard } from "@/components/public/rental-card";
 import { getRepository } from "@/data/repository";
 import { rentalSearchQuerySchema } from "@/lib/schemas";
 import type { Metadata } from "next";
+import { sanitizePublicRentalImages } from "@/lib/public-image-url";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -25,28 +26,30 @@ export default async function RentalsPage({ searchParams }: Props) {
     )
   );
   const query = parsed.success ? parsed.data : {};
-  const rentals = (await getRepository().listRentals(false)).filter((rental) => {
-    const location = query.location?.toLocaleLowerCase();
-    if (
-      location &&
-      ![rental.addressLine, rental.neighbourhood, rental.city]
-        .filter(Boolean)
-        .some((value) => value?.toLocaleLowerCase().includes(location))
-    ) return false;
-    if (query.beds !== undefined && rental.bedrooms < query.beds) return false;
-    if (query.baths !== undefined && rental.bathrooms < query.baths) return false;
-    if (query.priceRange === "under-2500" && rental.monthlyRentCents >= 250_000) return false;
-    if (
-      query.priceRange === "2500-3000" &&
-      (rental.monthlyRentCents < 250_000 || rental.monthlyRentCents > 300_000)
-    ) return false;
-    if (query.priceRange === "over-3000" && rental.monthlyRentCents < 300_000) return false;
-    if (
-      query.propertyType &&
-      rental.property?.propertyType !== query.propertyType
-    ) return false;
-    return true;
-  });
+  const rentals = (await getRepository().listRentals(false))
+    .map(sanitizePublicRentalImages)
+    .filter((rental) => {
+      const location = query.location?.toLocaleLowerCase();
+      if (
+        location &&
+        ![rental.addressLine, rental.neighbourhood, rental.city]
+          .filter(Boolean)
+          .some((value) => value?.toLocaleLowerCase().includes(location))
+      ) return false;
+      if (query.beds !== undefined && rental.bedrooms < query.beds) return false;
+      if (query.baths !== undefined && rental.bathrooms < query.baths) return false;
+      if (query.priceRange === "under-2500" && rental.monthlyRentCents >= 250_000) return false;
+      if (
+        query.priceRange === "2500-3000" &&
+        (rental.monthlyRentCents < 250_000 || rental.monthlyRentCents > 300_000)
+      ) return false;
+      if (query.priceRange === "over-3000" && rental.monthlyRentCents < 300_000) return false;
+      if (
+        query.propertyType &&
+        rental.property?.propertyType !== query.propertyType
+      ) return false;
+      return true;
+    });
 
   return (
     <main className="section">

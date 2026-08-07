@@ -39,6 +39,8 @@ import {
 import { ApiError } from "@/lib/api";
 import type {
   Channel,
+  ClientAccount,
+  ClientTenantLink,
   DashboardSummary,
   NotificationBatch,
   NotificationEvent,
@@ -73,6 +75,8 @@ interface MemoryState {
   rentals: RentalListing[];
   rentalPublishedSnapshots: Record<string, RentalListing>;
   tenants: Tenant[];
+  clients: Array<Omit<ClientAccount, "currentTenant" | "linkHistory">>;
+  clientTenantLinks: ClientTenantLink[];
   schedules: ReminderSchedule[];
   templates: NotificationTemplate[];
   events: NotificationEvent[];
@@ -124,6 +128,16 @@ function initialState(): MemoryState {
         .map((rental) => [rental.id, clone(rental)])
     ),
     tenants: clone(demoTenants),
+    clients: [{
+      userId: "00000000-0000-4000-8000-000000000101",
+      displayName: "Demo Client",
+      email: "tenant@example.com",
+      emailConfirmedAt: "2026-07-31T12:00:00.000Z",
+      isActive: true,
+      createdAt: "2026-07-31T12:00:00.000Z",
+      deactivatedAt: null
+    }],
+    clientTenantLinks: [],
     schedules: clone(demoSchedules),
     templates: clone(demoTemplates),
     events: clone(demoEvents),
@@ -500,6 +514,78 @@ export const store = {
       .slice(0, filters.limit ?? 500));
   },
 
+  listClientAccounts(): ClientAccount[] {
+    return clone(state().clients
+      .map((client) => {
+        const linkHistory = state().clientTenantLinks
+          .filter((link) => link.clientUserId === client.userId)
+          .sort((left, right) => right.linkedAt.localeCompare(left.linkedAt));
+        return {
+          ...client,
+          currentTenant: linkHistory.find((link) =>
+            link.archivedAt === null && link.tenant.isActive && link.tenant.archivedAt === null
+          )?.tenant ?? null,
+          linkHistory
+        };
+      })
+      .sort((left, right) => left.displayName.localeCompare(right.displayName)));
+  },
+
+  linkClientToTenant(clientUserId: string, tenantId: string, actorId: string): ClientAccount {
+    const client = state().clients.find((candidate) => candidate.userId === clientUserId);
+    if (!client) throw new ApiError(404, "CLIENT_NOT_FOUND", "Client account was not found.");
+    if (!client.isActive) throw new ApiError(409, "CLIENT_INACTIVE", "Inactive client accounts cannot be linked.");
+    if (!client.emailConfirmedAt) {
+      throw new ApiError(409, "CLIENT_EMAIL_UNVERIFIED", "Verify the Client email before linking a tenant.");
+    }
+    const tenant = findOr404(state().tenants, tenantId, "Tenant");
+    if (!tenant.isActive || tenant.archivedAt) {
+      throw new ApiError(409, "TENANT_NOT_CURRENT", "Choose a current tenant.");
+    }
+    const existing = state().clientTenantLinks.find((link) =>
+      link.clientUserId === clientUserId && link.archivedAt === null
+    );
+    if (existing?.tenantId === tenantId) {
+      return this.listClientAccounts().find((candidate) => candidate.userId === clientUserId)!;
+    }
+    const now = new Date().toISOString();
+    if (existing) {
+      existing.archivedAt = now;
+      existing.archivedBy = actorId;
+    }
+    state().clientTenantLinks.push({
+      id: crypto.randomUUID(),
+      clientUserId,
+      tenantId,
+      tenant: {
+        id: tenant.id,
+        fullName: tenant.fullName,
+        propertyLabel: tenant.propertyLabel,
+        unitLabel: tenant.unitLabel,
+        isActive: tenant.isActive,
+        archivedAt: tenant.archivedAt
+      },
+      linkedAt: now,
+      linkedBy: actorId,
+      archivedAt: null,
+      archivedBy: null
+    });
+    return this.listClientAccounts().find((candidate) => candidate.userId === clientUserId)!;
+  },
+
+  unlinkClientFromTenant(clientUserId: string, actorId: string): ClientAccount {
+    const client = state().clients.find((candidate) => candidate.userId === clientUserId);
+    if (!client) throw new ApiError(404, "CLIENT_NOT_FOUND", "Client account was not found.");
+    const current = state().clientTenantLinks.find((link) =>
+      link.clientUserId === clientUserId && link.archivedAt === null
+    );
+    if (current) {
+      current.archivedAt = new Date().toISOString();
+      current.archivedBy = actorId;
+    }
+    return this.listClientAccounts().find((candidate) => candidate.userId === clientUserId)!;
+  },
+
   getTenant(id: string) {
     const tenant = findOr404(state().tenants, id, "Tenant");
     const schedule = state().schedules.find((item) => item.tenantId === id) ?? null;
@@ -541,13 +627,21 @@ export const store = {
     return clone(tenant);
   },
 
-  archiveTenant(id: string, expectedVersion: unknown) {
+  archiveTenant(id: string, expectedVersion: unknown, actorId = "system:tenant-archive") {
     const tenant = findOr404(state().tenants, id, "Tenant");
     assertVersion(tenant.updatedAt, expectedVersion);
     const now = new Date().toISOString();
     tenant.archivedAt = now;
     tenant.isActive = false;
     tenant.updatedAt = now;
+    for (const link of state().clientTenantLinks) {
+      if (link.tenantId === tenant.id && link.archivedAt === null) {
+        link.archivedAt = now;
+        link.archivedBy = actorId;
+        link.tenant.isActive = false;
+        link.tenant.archivedAt = now;
+      }
+    }
     const schedule = state().schedules.find((item) => item.tenantId === id);
     if (schedule) {
       schedule.isEnabled = false;

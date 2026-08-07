@@ -8,6 +8,7 @@ import {
   type PublicSiteSection,
   type RentalListing
 } from "@/lib/contracts";
+import { sanitizePublicRentalImages } from "@/lib/public-image-url";
 
 type ParsedSections = {
   [Key in HomepageSectionKey]: ReturnType<(typeof sectionSchemas)[Key]["parse"]>;
@@ -49,7 +50,8 @@ export async function loadPublicHomepageData(): Promise<PublicHomepageData> {
   const rentals = (await repository
     .listRentals(false))
     .filter((rental) => rental.status === "published" && rental.publishedAt)
-    .slice(0, 3);
+    .slice(0, 3)
+    .map(sanitizePublicRentalImages);
   const mediaIds = collectMediaAssetIds(sections);
   return {
     sections,

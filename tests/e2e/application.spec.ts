@@ -165,6 +165,7 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   const routes = [
     ["/admin/content", "Website content"],
     ["/admin/rentals", "Rental listings"],
+    ["/admin/clients", "Client accounts"],
     ["/admin/tenants", "Tenants & schedules"],
     ["/admin/notifications/templates", "Email templates"],
     ["/admin/notifications/history", "Email activity"],
@@ -177,6 +178,19 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
     ).toBe(true);
   }
+
+  await page.goto("/admin/clients");
+  await expect(page.getByText("Matching email addresses are never linked automatically.")).toBeVisible();
+  await expect(page.getByText("Verified", { exact: true })).toBeVisible();
+  await expect(page.getByText("Not linked", { exact: true })).toBeVisible();
+  await page.getByLabel("Tenant for Demo Client").selectOption("30000000-0000-4000-8000-000000000001");
+  await page.getByRole("button", { name: "Link tenant" }).click();
+  await expect(page.getByRole("link", { name: "Manage tenant" })).toHaveAttribute(
+    "href",
+    "/admin/tenants/30000000-0000-4000-8000-000000000001"
+  );
+  await page.getByRole("button", { name: "Unlink" }).click();
+  await expect(page.getByText("Not linked", { exact: true })).toBeVisible();
 
   await page.goto("/admin/content");
   await expect(page.getByText("Edit → Save draft → Preview → Publish")).toBeVisible();
