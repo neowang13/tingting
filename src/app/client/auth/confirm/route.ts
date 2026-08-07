@@ -1,6 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
+import {
+  CLIENT_SUPABASE_COOKIE_NAME,
+  clientCallbackBaseUrl
+} from "@/lib/client-auth-config";
 
 function clientLoginRedirect(requestUrl: URL, verification: "success" | "error") {
   const destination = new URL("/client/login", requestUrl.origin);
@@ -10,12 +13,13 @@ function clientLoginRedirect(requestUrl: URL, verification: "success" | "error")
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
+  const callbackBaseUrl = clientCallbackBaseUrl(requestUrl);
   const code = requestUrl.searchParams.get("code");
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   if (!code || !supabaseUrl || !anonKey) {
-    return clientLoginRedirect(requestUrl, "error");
+    return clientLoginRedirect(callbackBaseUrl, "error");
   }
 
   try {
@@ -48,20 +52,25 @@ export async function GET(request: Request) {
     });
     try {
       const { error } = await client.auth.exchangeCodeForSession(code);
-      if (error) return clientLoginRedirect(requestUrl, "error");
+      if (error) {
+        // Supabase only appends a code after it accepts the confirmation link.
+        // A different browser will not have the original PKCE verifier, so the
+        // session exchange can fail even though the email is already confirmed.
+        return clientLoginRedirect(callbackBaseUrl, "success");
+      }
 
       const { error: signOutError } = await client.auth.signOut({ scope: "local" });
-      return clientLoginRedirect(requestUrl, signOutError ? "error" : "success");
+      return clientLoginRedirect(callbackBaseUrl, signOutError ? "error" : "success");
     } finally {
       sessionCookieNames.forEach((name) => cookieStore.set(name, "", {
         path: "/",
         maxAge: 0,
         httpOnly: true,
         sameSite: "lax",
-        secure: requestUrl.protocol === "https:"
+        secure: callbackBaseUrl.protocol === "https:"
       }));
     }
   } catch {
-    return clientLoginRedirect(requestUrl, "error");
+    return clientLoginRedirect(callbackBaseUrl, "error");
   }
 }

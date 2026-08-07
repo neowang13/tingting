@@ -233,20 +233,45 @@ describe("client email confirmation callback", () => {
       .toBe("https://tingting.example/client/login?verification=error");
   });
 
-  it("fails closed when Supabase rejects the PKCE code", async () => {
+  it("keeps a confirmed-email success result when the PKCE verifier belongs to another browser", async () => {
     mocks.createServerClient.mockReturnValue({
       auth: {
-        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: new Error("expired") })
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: new Error("PKCE code verifier not found") })
       }
     });
 
     const response = await confirmClientEmail(new Request(
-      "https://tingting.example/client/auth/confirm?code=expired"
+      "https://tingting.example/client/auth/confirm?code=confirmed-in-another-browser"
     ));
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location"))
-      .toBe("https://tingting.example/client/login?verification=error");
+      .toBe("https://tingting.example/client/login?verification=success");
+  });
+
+  it("uses the configured public origin instead of Render's internal bind address", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_BASE_URL", "https://silverkey.ca");
+    const set = vi.fn();
+    mocks.cookies.mockResolvedValue({ getAll: vi.fn().mockReturnValue([]), set });
+    mocks.createServerClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        signOut: vi.fn().mockResolvedValue({ error: null })
+      }
+    });
+
+    const response = await confirmClientEmail(new Request(
+      "http://0.0.0.0:10000/client/auth/confirm?code=render-code"
+    ));
+
+    expect(response.headers.get("location"))
+      .toBe("https://silverkey.ca/client/login?verification=success");
+    expect(set).toHaveBeenCalledWith(
+      CLIENT_SUPABASE_COOKIE_NAME,
+      "",
+      expect.objectContaining({ secure: true })
+    );
   });
 
   it("fails closed when Supabase auth is not configured", async () => {

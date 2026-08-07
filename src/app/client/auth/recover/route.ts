@@ -1,7 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
-import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
+import {
+  CLIENT_SUPABASE_COOKIE_NAME,
+  clientCallbackBaseUrl
+} from "@/lib/client-auth-config";
 import {
   CLIENT_RECOVERY_COOKIE_NAME,
   clientRecoveryCookieOptions,
@@ -21,7 +24,8 @@ function recoveryRedirect(requestUrl: URL, success: boolean) {
 
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
-  const secure = requestUrl.protocol === "https:";
+  const callbackBaseUrl = clientCallbackBaseUrl(requestUrl);
+  const secure = callbackBaseUrl.protocol === "https:";
   const cookieStore = await cookies();
   const code = requestUrl.searchParams.get("code");
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,7 +34,7 @@ export async function GET(request: Request) {
 
   if (!code || !supabaseUrl || !anonKey || !serviceKey) {
     expireClientRecoverySession(cookieStore, secure);
-    return recoveryRedirect(requestUrl, false);
+    return recoveryRedirect(callbackBaseUrl, false);
   }
 
   let client: ReturnType<typeof createServerClient> | null = null;
@@ -56,7 +60,7 @@ export async function GET(request: Request) {
       createClientRecoveryMarker(data.user.id),
       clientRecoveryCookieOptions(secure)
     );
-    return recoveryRedirect(requestUrl, true);
+    return recoveryRedirect(callbackBaseUrl, true);
   } catch {
     try {
       await client?.auth.signOut({ scope: "local" });
@@ -64,6 +68,6 @@ export async function GET(request: Request) {
       // Explicit cookie expiry below remains the fail-closed boundary.
     }
     expireClientRecoverySession(cookieStore, secure);
-    return recoveryRedirect(requestUrl, false);
+    return recoveryRedirect(callbackBaseUrl, false);
   }
 }
