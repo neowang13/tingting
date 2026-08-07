@@ -22,7 +22,14 @@ async function resolveSupabaseClient(): Promise<ClientIdentity> {
     cookieOptions: { name: CLIENT_SUPABASE_COOKIE_NAME },
     cookies: {
       getAll: () => cookieStore.getAll(),
-      setAll: (items) => items.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+      setAll: (items) => items.forEach(({ name, value, options }) => {
+        try {
+          cookieStore.set(name, value, options);
+        } catch {
+          // Server Components can read an existing session but cannot always
+          // persist a refreshed cookie. Route handlers still perform writes.
+        }
+      })
     }
   });
   const { data, error } = await authClient.auth.getUser();
@@ -57,6 +64,18 @@ export async function requireClientRequest(request: Request): Promise<ClientIden
     return identity;
   }
   return resolveSupabaseClient();
+}
+
+export async function getOptionalClientIdentity(): Promise<ClientIdentity | null> {
+  try {
+    if (isDemoMode()) {
+      const cookieStore = await cookies();
+      return verifyLocalClientSession(cookieStore.get(LOCAL_CLIENT_SESSION_COOKIE)?.value);
+    }
+    return await resolveSupabaseClient();
+  } catch {
+    return null;
+  }
 }
 
 function clientLoginDestination(options?: { nextPath?: string; propertySlug?: string }) {

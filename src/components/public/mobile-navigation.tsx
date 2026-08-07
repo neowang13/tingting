@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { LayoutDashboard, Menu, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { ClientIdentity } from "@/features/applications/contracts";
 
 interface NavigationItem {
   key: string;
@@ -13,9 +14,10 @@ interface NavigationItem {
 interface Props {
   items: readonly NavigationItem[];
   contactCta: { label: string; href: string };
+  client: ClientIdentity | null;
 }
 
-export function MobileNavigation({ items, contactCta }: Props) {
+export function MobileNavigation({ items, contactCta, client }: Props) {
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const firstLinkRef = useRef<HTMLAnchorElement>(null);
@@ -52,6 +54,12 @@ export function MobileNavigation({ items, contactCta }: Props) {
       </button>
       {open && (
         <nav id="mobile-menu" className="mobile-menu" aria-label="Mobile navigation">
+          {client && (
+            <div className="mobile-client-summary">
+              <span className="client-avatar" aria-hidden>{clientInitials(client.displayName)}</span>
+              <span><small>Signed in as</small><strong>{client.displayName}</strong></span>
+            </div>
+          )}
           {items.map((item, index) => (
             <Link
               ref={index === 0 ? firstLinkRef : undefined}
@@ -62,11 +70,26 @@ export function MobileNavigation({ items, contactCta }: Props) {
               {item.label}
             </Link>
           ))}
-          <Link className="button" href={contactCta.href} onClick={close}>
-            {contactCta.label}
-          </Link>
+          {client ? (
+            <Link className="button" href="/client/applications" onClick={close}>
+              <LayoutDashboard size={17} aria-hidden />
+              Portal
+            </Link>
+          ) : (
+            <Link className="button" href={contactCta.href} onClick={close}>
+              {contactCta.label}
+            </Link>
+          )}
         </nav>
       )}
     </div>
   );
+}
+
+function clientInitials(displayName: string) {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1) {
+    return `${Array.from(parts[0])[0] ?? ""}${Array.from(parts.at(-1) ?? "")[0] ?? ""}`.toLocaleUpperCase();
+  }
+  return Array.from(parts[0] ?? "C").slice(0, 2).join("").toLocaleUpperCase();
 }
