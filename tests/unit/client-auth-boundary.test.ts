@@ -11,7 +11,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: mocks.createClient }));
 vi.mock("next/headers", () => ({ cookies: mocks.cookies }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
-import { requireClientRequest } from "@/lib/client-auth";
+import { getOptionalClientIdentity, requireClientRequest } from "@/lib/client-auth";
 import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
 
 const originalEnvironment = { ...process.env };
@@ -79,5 +79,39 @@ describe("Client and Admin authentication boundary", () => {
 
     await expect(requireClientRequest(new Request("https://example.test/api/client/applications")))
       .rejects.toMatchObject({ status: 403, code: "CLIENT_ADMIN_IDENTITY_CONFLICT" });
+  });
+
+  it("returns an active verified Client identity for optional public-page personalization", async () => {
+    mocks.createServerClient.mockReturnValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({
+          data: { user: { id: "client-1", email: "leo@example.test", email_confirmed_at: "2026-08-07T12:00:00Z" } },
+          error: null
+        })
+      }
+    });
+    mocks.createClient.mockReturnValue({
+      from: vi.fn((table: string) => queryResult(
+        table === "client_profiles"
+          ? { display_name: "Leo 王", is_active: true }
+          : null
+      ))
+    });
+
+    await expect(getOptionalClientIdentity()).resolves.toEqual({
+      userId: "client-1",
+      email: "leo@example.test",
+      displayName: "Leo 王"
+    });
+  });
+
+  it("keeps the public header logged out when no valid Client session exists", async () => {
+    mocks.createServerClient.mockReturnValue({
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: { message: "missing" } })
+      }
+    });
+
+    await expect(getOptionalClientIdentity()).resolves.toBeNull();
   });
 });

@@ -2,11 +2,14 @@ import Link from "next/link";
 import { Facebook, Instagram, Linkedin, Mail, MapPin, Phone } from "lucide-react";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
 import { MobileNavigation } from "@/components/public/mobile-navigation";
+import { ClientAccountMenu } from "@/components/public/client-account-menu";
+import { getOptionalClientIdentity } from "@/lib/client-auth";
 
 type HeaderContent = PublicHomepageData["sections"]["header"];
 type FooterContent = PublicHomepageData["sections"]["footer"];
 
-export function SiteHeader({ header }: { header: HeaderContent }) {
+export async function SiteHeader({ header }: { header: HeaderContent }) {
+  const client = await getOptionalClientIdentity();
   return (
     <header className="site-header">
       <div className="container header-inner">
@@ -18,11 +21,15 @@ export function SiteHeader({ header }: { header: HeaderContent }) {
           {header.navigation.map((item) => (
             <Link key={item.key} href={item.href}>{item.label}</Link>
           ))}
-          <Link className="button header-cta" href={header.contactCta.href}>
-            {header.contactCta.label}
-          </Link>
+          {client ? (
+            <ClientAccountMenu displayName={client.displayName} />
+          ) : (
+            <Link className="button header-cta" href={header.contactCta.href}>
+              {header.contactCta.label}
+            </Link>
+          )}
         </nav>
-        <MobileNavigation items={header.navigation} contactCta={header.contactCta} />
+        <MobileNavigation items={header.navigation} contactCta={header.contactCta} client={client} />
       </div>
     </header>
   );
