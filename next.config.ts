@@ -36,6 +36,25 @@ const nextConfig: NextConfig = {
     ]
   },
   poweredByHeader: false,
+  async redirects() {
+    return [
+      {
+        source: "/services/renovation",
+        destination: "/services/trade-services",
+        permanent: true
+      },
+      {
+        source: "/services/handyman-service",
+        destination: "/services/property-care",
+        permanent: true
+      },
+      {
+        source: "/services/property-maintenance",
+        destination: "/services/property-care",
+        permanent: true
+      }
+    ];
+  },
   async headers() {
     return [
       {

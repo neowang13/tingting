@@ -33,7 +33,13 @@ integration("Supabase anonymous RLS boundaries", () => {
     "automation_jobs",
     "tenant_imports",
     "tenant_import_rows",
-    "tenant_contact_permission_events"
+    "tenant_contact_permission_events",
+    "client_profiles",
+    "application_form_versions",
+    "application_terms_versions",
+    "client_applications",
+    "client_application_files",
+    "client_application_audit_events"
   ]) {
     it(`blocks anonymous reads from ${table}`, async () => {
       const { error } = await client.from(table).select("*").limit(1);

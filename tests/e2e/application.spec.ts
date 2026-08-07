@@ -37,6 +37,13 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   await expect(page.getByRole("search")).toHaveCount(0);
   await expect(page.getByLabel("Location", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
+  await expect(page.getByText(
+    "Residential and commercial rental-management support, with scope and next steps tailored to the property."
+  )).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Trade Services" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Property Care: Handyman + Maintenance" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { level: 3, name: "Handyman Services" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { level: 3, name: "Property Maintenance" })).toHaveCount(0);
   await expect(page.locator(".service-card").first()).toContainText("Rental Management");
   const tingTingPortrait = page.getByAltText("Real estate professional Ting Ting Xu");
   await tingTingPortrait.scrollIntoViewIfNeeded();
@@ -56,27 +63,51 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   }
 
   const servicePages = [
-    ["/services/renovation", "Renovations Designed Around Your Home."],
-    ["/services/handyman-service", "Reliable Help for the Small Jobs Around Your Home."],
-    ["/services/property-maintenance", "Ongoing Care to Keep Your Property in Great Condition."],
+    ["/services/trade-services", "A Clear First Step for Property Projects."],
+    ["/services/property-care", "One-Time Fixes and Ongoing Property Upkeep."],
     ["/services/strata-service", "Practical Support for Strata Property Needs."],
-    ["/services/rental-management", "Hassle-Free Management. Happy Tenants."]
+    ["/services/rental-management", "Rental Management for Homes and Commercial Properties."]
   ] as const;
   for (const [path, heading] of servicePages) {
     await page.goto(path);
     await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
     await expect(page.locator(".service-offering")).toHaveCount(
-      path === "/services/handyman-service" ? 5 : 4
+      path === "/services/property-care" ? 6 : 4
     );
     await expect(page.getByText("OUR PROCESS", { exact: true })).toHaveCount(0);
     await expect(page.getByText("FREQUENTLY ASKED QUESTIONS", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "Call 604-872-6896" }).first())
       .toHaveAttribute("href", "tel:+16048726896");
   }
-  await page.goto("/services/handyman-service");
-  await expect(page.getByRole("heading", { level: 3, name: "Minor Plumbing Repairs" })).toBeVisible();
+  await page.goto("/services/renovation");
+  await expect(page).toHaveURL(/\/services\/trade-services$/);
+  await expect(page.getByRole("heading", { level: 1, name: "A Clear First Step for Property Projects." })).toBeVisible();
+  for (const legacyPath of ["/services/handyman-service", "/services/property-maintenance"]) {
+    await page.goto(legacyPath);
+    await expect(page).toHaveURL(/\/services\/property-care$/);
+    await expect(page.getByRole("heading", { level: 1, name: "One-Time Fixes and Ongoing Property Upkeep." })).toBeVisible();
+  }
+
+  await page.goto("/services/rental-management");
+  await expect(page.getByRole("heading", { level: 3, name: "Residential Rental Management" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Commercial Rental Management" })).toBeVisible();
+  await expect(page.getByText("Framework & exclusions", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Escalation path", { exact: true })).toHaveCount(2);
+  for (const viewport of [
+    { width: 375, height: 812 },
+    { width: 768, height: 1024 },
+    { width: 1440, height: 900 }
+  ]) {
+    await page.setViewportSize(viewport);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
+    ).toBe(true);
+  }
+
+  await page.goto("/services/property-care");
+  await expect(page.getByRole("heading", { level: 3, name: "One-Time Fixes · Minor Fixture Support" })).toBeVisible();
   await expect(page.getByText(
-    "Help with faucets, drains, fixtures, caulking, and minor leaks. Specialized plumbing work is handled by qualified trades."
+    "Minor caulking, sealing, fixture, faucet, or drain requests are assessed first; regulated plumbing or electrical work is directed to a qualified trade."
   )).toBeVisible();
 
   await page.getByRole("button", { name: "Contact us", exact: true }).first().click();
@@ -108,9 +139,9 @@ test("public homepage, rental search, rental detail, validation, responsive layo
 
   await page.goto("/#contact");
   await page.getByRole("button", { name: "Send Message" }).click();
-  await expect(page.locator("#contact-name")).toBeFocused();
-  expect(await page.locator("#contact-name").evaluate((element) => element.matches(":invalid"))).toBe(true);
-  expect(await page.locator("#contact-message").evaluate((element) => element.matches(":invalid"))).toBe(true);
+  await expect(page.locator("#homepage-contact-name")).toBeFocused();
+  expect(await page.locator("#homepage-contact-name").evaluate((element) => element.matches(":invalid"))).toBe(true);
+  expect(await page.locator("#homepage-contact-message").evaluate((element) => element.matches(":invalid"))).toBe(true);
 
   await page.goto("/");
   await page.keyboard.press("Tab");
@@ -128,6 +159,7 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await page.getByLabel("Password").fill("test-admin-password");
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Automation & imports" })).toHaveCount(0);
   await expectNoSeriousAccessibilityViolations(page);
 
   const routes = [
@@ -136,10 +168,6 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
     ["/admin/tenants", "Tenants & schedules"],
     ["/admin/notifications/templates", "Email templates"],
     ["/admin/notifications/history", "Email activity"],
-    ["/admin/automation", "Automation & imports"],
-    ["/admin/automation/service-accounts", "Service accounts"],
-    ["/admin/automation/imports", "Import history"],
-    ["/admin/automation/audit", "Automation audit"],
     ["/admin/settings", "Reminder settings"]
   ] as const;
   for (const [path, heading] of routes) {
@@ -154,7 +182,7 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await expect(page.getByText("Edit → Save draft → Preview → Publish")).toBeVisible();
   await expect(page.getByText("rental_search", { exact: true })).toHaveCount(0);
   await expect(page.locator(".content-group").last().locator(".content-section-row").first())
-    .toContainText("Rental management");
+    .toContainText("Residential & commercial rental management");
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(
@@ -224,11 +252,17 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await expect(page.getByRole("group", { name: "Rental management" })).toBeVisible();
   await expect(page.locator('input[value="Rental Management"]')).toBeVisible();
 
-  await page.goto("/admin/content/service_handyman");
+  await page.goto("/admin/content/service_rental_management");
+  await page.getByRole("button", { name: "Management types" }).click();
+  await expect(page.getByRole("group", { name: "Residential Rental Management" })).toBeVisible();
+  await expect(page.getByRole("group", { name: "Commercial Rental Management" })).toBeVisible();
+  await expect(page.getByLabel("Framework and exclusions").first()).toHaveValue(/Residential Tenancy Act/);
+
+  await page.goto("/admin/content/service_property_care");
   await page.getByRole("button", { name: "Core services" }).click();
   await expect(
-    page.getByRole("group", { name: "Core service 5 of 5" }).getByLabel("Title")
-  ).toHaveValue("Minor Plumbing Repairs");
+    page.getByRole("group", { name: "Core service 6 of 6" }).getByLabel("Title")
+  ).toHaveValue("Ongoing Upkeep · Preventive Property Checks");
 
   await page.goto("/admin/tenants/new");
   await page.getByLabel("Name", { exact: true }).fill("E2E Reminder Tenant");
@@ -274,15 +308,9 @@ test("admin modules, fixed content editor, logout, and accessibility", async ({ 
   await page.getByRole("button", { name: /Send test email to/ }).click();
   await expect(page.getByText("Test-mode email recorded. No real email was sent.")).toBeVisible();
 
-  await page.goto("/admin/automation/service-accounts");
-  await page.getByLabel("Account name").fill("E2E OpenClaw Operations");
-  await page.getByRole("button", { name: "Create service account" }).click();
-  await expect(page.getByRole("heading", { name: "Save this token now" })).toBeVisible();
-  await expect(page.locator(".token-value")).toContainText("tta_");
-  await page.getByLabel("I saved this token in an approved secret store.").check();
-  await page.getByRole("button", { name: "Done" }).click();
-  await expect(page.locator(".token-value")).toHaveCount(0);
-  await expectNoSeriousAccessibilityViolations(page);
+  await page.goto("/admin/automation");
+  await expect(page.getByRole("heading", { level: 1, name: "Page not found" })).toBeVisible();
+  expect((await page.request.get("/api/admin/automation/summary")).status()).toBe(404);
 
   await page.goto("/admin");
   await page.getByRole("button", { name: "Sign out" }).click();

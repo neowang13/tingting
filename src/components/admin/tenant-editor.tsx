@@ -35,12 +35,10 @@ interface SavedTenantResult extends Tenant {
 
 export function TenantEditor({
   initial,
-  sourceMarker,
   reminderSystem,
   initialNotice
 }: {
   initial: { tenant: Tenant; schedule: ReminderSchedule | null } | null;
-  sourceMarker?: { sourceSystem: string | null; externalReference: string | null };
   reminderSystem: ReminderSystemStatus;
   initialNotice?: { message: string; tone: "success" | "error" };
 }) {
@@ -249,13 +247,6 @@ export function TenantEditor({
       )}
 
       <form className="admin-form tenant-prototype-form" onSubmit={saveTenant}>
-        {sourceMarker?.sourceSystem && (
-          <p className="source-marker">
-            Added by {sourceMarker.sourceSystem === "openclaw" ? "OpenClaw Operations" : sourceMarker.sourceSystem}
-            {sourceMarker.externalReference ? ` · ${sourceMarker.externalReference}` : ""}
-          </p>
-        )}
-
         <section className="prototype-form-card tenant-step-panel" aria-labelledby="tenant-details-heading">
           <h2 id="tenant-details-heading">Tenant details</h2>
           <p>

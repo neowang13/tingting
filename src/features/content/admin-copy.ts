@@ -45,20 +45,15 @@ export const sectionAdminCopy: Record<SectionKey, {
     description: "Business details, social links, office information, and disclosure text.",
     publicLocation: "Bottom of every website page"
   },
-  service_renovation: {
-    title: "Renovation",
-    description: "Hero, four core services, benefits, gallery, and final call to action.",
-    publicLocation: "/services/renovation"
+  service_trade_services: {
+    title: "Trade services",
+    description: "Scope, project types, coordination boundaries, benefits, gallery, and final call to action.",
+    publicLocation: "/services/trade-services"
   },
-  service_handyman: {
-    title: "Handyman service",
-    description: "Hero, five core services, benefits, gallery, and final call to action.",
-    publicLocation: "/services/handyman-service"
-  },
-  service_maintenance: {
-    title: "Property maintenance",
-    description: "Hero, four core services, benefits, seasonal gallery, and final call to action.",
-    publicLocation: "/services/property-maintenance"
+  service_property_care: {
+    title: "Property care: handyman + maintenance",
+    description: "One-time fixes, ongoing upkeep, service boundaries, benefits, gallery, and final call to action.",
+    publicLocation: "/services/property-care"
   },
   service_strata: {
     title: "Strata service",
@@ -66,8 +61,8 @@ export const sectionAdminCopy: Record<SectionKey, {
     publicLocation: "/services/strata-service"
   },
   service_rental_management: {
-    title: "Rental management",
-    description: "Hero, four core services, benefits, gallery, and final call to action.",
+    title: "Residential & commercial rental management",
+    description: "Distinct residential and commercial scopes, shared management support, benefits, workflows, and final call to action.",
     publicLocation: "/services/rental-management"
   }
 };

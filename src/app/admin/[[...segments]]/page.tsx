@@ -20,11 +20,6 @@ import { loadAdminServicePagePreviewData } from "@/features/content/public-servi
 import { listMediaAssets } from "@/features/content/media-service";
 import { requireAdminPage } from "@/lib/auth";
 import { isServicePageSectionKey, type SectionKey } from "@/lib/contracts";
-import { getAutomationRepository } from "@/data/automation-repository";
-import { AutomationOverview } from "@/components/admin/automation-overview";
-import { ServiceAccountManager } from "@/components/admin/service-account-manager";
-import { TenantImportHistory } from "@/components/admin/tenant-import-history";
-import { AutomationAudit } from "@/components/admin/automation-audit";
 import { sectionAdminCopy } from "@/features/content/admin-copy";
 import {
   deliveryModeCopy,
@@ -32,6 +27,8 @@ import {
   notificationStatusCopy
 } from "@/lib/notification-copy";
 import { Temporal } from "@js-temporal/polyfill";
+import { ApplicationQueue } from "@/components/admin/application-queue";
+import { listApplicationsForStaff } from "@/features/applications/service";
 
 interface Props {
   params: Promise<{ segments?: string[] }>;
@@ -290,7 +287,6 @@ export default async function AdminPage({ params, searchParams }: Props) {
           <RentalEditor
             rental={id === "new" ? null : await repository.getRental(id)}
             initialMedia={await listMediaAssets()}
-            sourceMarker={id === "new" ? undefined : await getAutomationRepository().getRental(id)}
           />
         ) : (
           <div className="prototype-page rentals-list-page">
@@ -339,12 +335,9 @@ export default async function AdminPage({ params, searchParams }: Props) {
     const leaseWarningEnd = tenantToday.add({ days: 30 }).toString();
     const tenantTodayString = tenantToday.toString();
     if (id) {
-      const [initialTenant, pause, sourceMarker] = await Promise.all([
+      const [initialTenant, pause] = await Promise.all([
         id === "new" ? Promise.resolve(null) : repository.getTenant(id),
-        repository.getPause(),
-        id === "new"
-          ? Promise.resolve(undefined)
-          : getAutomationRepository().getTenant(id).then((result) => result.tenant)
+        repository.getPause()
       ]);
       return (
         <AdminShell
@@ -354,7 +347,6 @@ export default async function AdminPage({ params, searchParams }: Props) {
         >
           <TenantEditor
             initial={initialTenant}
-            sourceMarker={sourceMarker}
             reminderSystem={{
               ...pause,
               forcePaused: process.env.REMINDERS_FORCE_PAUSED !== "false",
@@ -509,55 +501,16 @@ export default async function AdminPage({ params, searchParams }: Props) {
     );
   }
 
-  if (area === "automation") {
-    const automationRepository = getAutomationRepository();
-    if (!id) {
-      return (
-        <AdminShell
-          admin={admin}
-          title="Automation & imports"
-          description="Health of the OpenClaw automation connection."
-        >
-          <AutomationOverview summary={await automationRepository.automationSummary()} />
-        </AdminShell>
-      );
-    }
-    if (id === "service-accounts") {
-      return (
-        <AdminShell
-          admin={admin}
-          title="Service accounts"
-          description="Create, rotate, and manage automation credentials."
-        >
-          <ServiceAccountManager
-            initialAccounts={await automationRepository.listServiceAccounts()}
-            delegatedAdminUserId={admin.userId}
-          />
-        </AdminShell>
-      );
-    }
-    if (id === "imports") {
-      return (
-        <AdminShell
-          admin={admin}
-          title="Import history"
-          description="Tenant import batches created by automation."
-        >
-          <TenantImportHistory imports={await automationRepository.listImportsForAdmin()} />
-        </AdminShell>
-      );
-    }
-    if (id === "audit") {
-      return (
-        <AdminShell
-          admin={admin}
-          title="Automation audit"
-          description="A record of automated actions taken on this account."
-        >
-          <AutomationAudit events={await automationRepository.listAutomationAudit()} />
-        </AdminShell>
-      );
-    }
+  if (area === "applications") {
+    return (
+      <AdminShell
+        admin={admin}
+        title="Client applications"
+        description="Receive, screen, and process private rental applications through the documented status workflow."
+      >
+        <ApplicationQueue initial={await listApplicationsForStaff(admin)} />
+      </AdminShell>
+    );
   }
 
   return (
@@ -686,9 +639,8 @@ const contentGroups: Array<{
     action: "Edit page",
     keys: [
       "service_rental_management",
-      "service_renovation",
-      "service_handyman",
-      "service_maintenance",
+      "service_trade_services",
+      "service_property_care",
       "service_strata"
     ]
   }

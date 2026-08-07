@@ -22,10 +22,20 @@ export async function generateMetadata({
   const definition = getServicePageDefinitionBySlug((await params).slug);
   if (!definition) return {};
 
+  const serviceData = await loadPublicServicePageData(definition.slug);
+  const description = serviceData?.page.description ?? definition.content.description;
+
+  const title = `${definition.displayName} | Ting Ting Xu`;
   return {
-    title: `${definition.content.eyebrow.replace(" SERVICES", "")} | Ting Ting Xu`,
-    description: definition.content.description,
-    alternates: { canonical: `/services/${definition.slug}` }
+    title,
+    description,
+    alternates: { canonical: `/services/${definition.slug}` },
+    openGraph: {
+      title,
+      description,
+      url: `/services/${definition.slug}`,
+      type: "website"
+    }
   };
 }
 

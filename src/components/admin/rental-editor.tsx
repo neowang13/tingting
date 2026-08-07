@@ -18,12 +18,10 @@ type FeeRow = RentalFee & { key: string };
 
 export function RentalEditor({
   rental,
-  initialMedia,
-  sourceMarker
+  initialMedia
 }: {
   rental: RentalListing | null;
   initialMedia: MediaAsset[];
-  sourceMarker?: { sourceSystem: string | null; externalReference: string | null };
 }) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -272,12 +270,6 @@ export function RentalEditor({
         </div>
         <strong className="listing-state">{statusLabel(current, liveHasChanges)}</strong>
       </header>
-      {sourceMarker?.sourceSystem && (
-        <p className="source-marker">
-          Source: {sourceMarker.sourceSystem === "openclaw" ? "OpenClaw Operations" : sourceMarker.sourceSystem}
-          {sourceMarker.externalReference ? ` · ${sourceMarker.externalReference}` : ""}
-        </p>
-      )}
       <form className="admin-form rental-v2-form" ref={formRef} onSubmit={submit}>
         <FormCard number={1} title="Home and address">
           <div className="field-grid">

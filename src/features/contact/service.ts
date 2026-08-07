@@ -4,6 +4,7 @@ import {
   createNotificationProviders,
   resolveEmailProviderMode
 } from "@/features/notifications/providers";
+import { renderContactNotification } from "@/features/contact/follow-up";
 import { ApiError } from "@/lib/api";
 import { contactInputSchema } from "@/lib/schemas";
 
@@ -79,20 +80,13 @@ export async function submitContactEnquiry(payload: unknown, request: Request) {
     const mode = resolveEmailProviderMode();
     if (recipient && mode !== "disabled") {
       const provider = createNotificationProviders({ email: mode, sms: "disabled" }).email;
-      const text = [
-        `Name: ${input.name}`,
-        `Preferred contact: ${input.preferredContact}`,
-        `Email: ${input.email ?? "Not provided"}`,
-        `Phone: ${input.phone ?? "Not provided"}`,
-        "",
-        input.message
-      ].join("\n");
+      const notification = renderContactNotification(input);
       try {
         await provider.send({
           to: recipient,
-          subject: "New website enquiry",
-          text,
-          html: escapeHtml(text).replaceAll("\n", "<br>"),
+          subject: notification.subject,
+          text: notification.text,
+          html: notification.html,
           idempotencyKey: `contact-${enquiry.id}`
         });
       } catch {
@@ -120,13 +114,4 @@ export async function submitContactEnquiry(payload: unknown, request: Request) {
 
 export function getDemoContactEnquiriesForTests() {
   return structuredClone(globalThis.__tingtingContactEnquiries ?? []);
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }

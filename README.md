@@ -2,7 +2,9 @@
 
 Next.js full-stack application for the public real-estate website, fixed-schema
 content administration, rentals, tenant management, monthly rent receipts,
-weekly owner reporting, and rent reminders.
+weekly owner reporting, rent reminders, and a separately authorized Client Login
+for saved multi-step online rental applications, private supporting-document uploads,
+affirmative consent evidence, receipts, and staff status processing.
 
 ## Run locally
 
@@ -16,6 +18,13 @@ The default local mode uses seeded in-memory data. Open `http://localhost:3000`
 for the public website and `/admin` for the authenticated admin. Local admin
 credentials are configured server-side with `LOCAL_ADMIN_EMAIL`, a scrypt
 `LOCAL_ADMIN_PASSWORD_HASH`, and `LOCAL_ADMIN_SESSION_SECRET`.
+
+The demo Client Login is `/client/login`. Configure its separate
+`LOCAL_CLIENT_EMAIL`, `LOCAL_CLIENT_PASSWORD_HASH`, and
+`LOCAL_CLIENT_SESSION_SECRET`; development may fall back to the local admin hash and
+secret, but client and admin cookies and authorization remain separate. Production
+client accounts are owner-created in Supabase Auth with an active `client_profiles`
+row and no public signup.
 
 No third-party account is required for local development. Supabase is replaced
 by the seeded memory adapter and notification delivery defaults to
@@ -36,6 +45,13 @@ disabled until the sender is approved and a callback-tested dry run succeeds.
 The current Owner decision is an Email-only launch: Twilio/SMS is deferred, all
 Twilio variables stay unset, and `SMS_PROVIDER_MODE=disabled` remains in
 production.
+
+Contact-enquiry emails include `mailto:`, `tel:`, and `sms:` follow-up links
+when the visitor supplied the corresponding validated destination. The public
+success state builds the same actions from the published website contact
+details. SMS URI handling varies by device and messaging app, so links do not
+prefill a message body; desktop browsers without an SMS handler may not open
+them.
 
 ## Verify
 
@@ -88,6 +104,10 @@ tenant data, unpausing reminders, or deploying are explicit owner actions.
 
 See [Operations and Launch Runbook](./docs/OPERATIONS.md) and
 [PRD Completion Report](./docs/PRD-COMPLETION.md).
+
+The application form and consent seeded by migration 038 are deliberately marked
+pending legal/privacy review and must not be used with real applicants until approved.
+See [Client application operations and privacy runbook](./docs/client-application-operations.md).
 
 The implemented global reminder scheduling policy is documented in
 [Reminder Global Scheduling Change Plan](./docs/Reminder%20Global%20Scheduling%20Change%20Plan.md).
