@@ -49,7 +49,8 @@ test("mobile visitors can request a showing with accessible validation and reque
   await expect(dialog.getByText(/Showing requested—not yet confirmed/)).toBeVisible();
   await expect(dialog.getByText(/contact you to confirm or arrange another time/)).toBeVisible();
   await expect(dialog.getByText(/Need a different time/)).toBeVisible();
-  await expect(dialog.getByRole("link", { name: "Continue in Client Login" })).toHaveAttribute("href", /property=howe-street-one-bedroom/);
+  await expect(dialog.getByRole("link", { name: "Apply online for this home" }))
+    .toHaveAttribute("href", "/client/apply/howe-street-one-bedroom");
 
   const accessibility = await new AxeBuilder({ page })
     .include(".showing-dialog")

@@ -41,8 +41,7 @@ export function ShowingRequestModalProvider({
   const triggerRef = useRef<HTMLElement | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const dateBounds = showingDateBounds();
-  const applicationNext = `/client/applications?property=${encodeURIComponent(property.slug)}`;
-  const applicationHref = `/client/login?property=${encodeURIComponent(property.slug)}&next=${encodeURIComponent(applicationNext)}`;
+  const applicationHref = `/client/apply/${encodeURIComponent(property.slug)}`;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -219,7 +218,7 @@ export function ShowingRequestModalProvider({
             {status && (
               <div className={`form-status ${status.type}`} role={status.type === "error" ? "alert" : "status"}>
                 <p><strong>{status.type === "success" ? "Showing requested—not yet confirmed. " : ""}</strong>{status.message}</p>
-                {status.type === "success" && <><p className="showing-reschedule">Need a different time? Send another request or contact Ting Ting directly.</p><p className="showing-reschedule">Already invited to apply? <a href={applicationHref}>Continue in Client Login</a>.</p></>}
+                {status.type === "success" && <><p className="showing-reschedule">Need a different time? Send another request or contact Ting Ting directly.</p><p className="showing-reschedule"><a href={applicationHref}>Apply online for this home</a>.</p></>}
               </div>
             )}
           </form>

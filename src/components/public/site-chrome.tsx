@@ -18,7 +18,7 @@ export function SiteHeader({ header }: { header: HeaderContent }) {
           {header.navigation.map((item) => (
             <Link key={item.key} href={item.href}>{item.label}</Link>
           ))}
-          <Link href="/client/login">Client Login</Link>
+          <Link href="/client/applications">My applications</Link>
           <Link className="button header-cta" href={header.contactCta.href}>
             {header.contactCta.label}
           </Link>
@@ -62,7 +62,7 @@ export function SiteFooter({ footer }: { footer: FooterContent }) {
       </div>
       <div className="container disclosures">
         {footer.disclosureParagraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
-        <p className="footer-legal-links"><Link href="/privacy">Privacy</Link><Link href="/terms/application">Application terms</Link><Link href="/client/login">Client Login</Link></p>
+        <p className="footer-legal-links"><Link href="/privacy">Privacy</Link><Link href="/terms/application">Application terms</Link><Link href="/client/applications">My applications</Link></p>
       </div>
     </footer>
   );

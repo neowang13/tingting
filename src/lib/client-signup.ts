@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const DEFAULT_CLIENT_NEXT_PATH = "/client/applications";
+const DEFAULT_CLIENT_NEXT_PATH = "/";
 const CLIENT_REDIRECT_BASE = "https://client-redirect.invalid";
 export const CLIENT_PASSWORD_MIN_LENGTH = 11;
 

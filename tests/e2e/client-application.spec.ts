@@ -8,7 +8,7 @@ test("client login, saved online application, validated upload, affirmative cons
   expect(denied.status()).toBe(401);
 
   await page.goto("/client/applications");
-  await expect(page).toHaveURL(/\/client\/login$/);
+  await expect(page).toHaveURL(/\/client\/login\?next=%2Fclient%2Fapplications$/);
   await page.getByLabel("Email").fill("client@example.test");
   await page.getByLabel("Password").fill("wrong-password");
   await page.getByRole("button", { name: "Sign in securely" }).click();

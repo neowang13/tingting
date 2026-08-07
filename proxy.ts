@@ -28,8 +28,17 @@ function sessionExpired(
   );
 }
 
+function expiredLoginUrl(request: NextRequest, loginPath: string, preserveClientDestination: boolean) {
+  const loginUrl = new URL(loginPath, request.url);
+  if (preserveClientDestination && !request.nextUrl.pathname.startsWith("/api/")) {
+    loginUrl.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
+  }
+  return loginUrl;
+}
+
 export async function proxy(request: NextRequest) {
   const clientRoute = request.nextUrl.pathname.startsWith("/client/applications") ||
+    request.nextUrl.pathname.startsWith("/client/apply") ||
     request.nextUrl.pathname.startsWith("/api/client/applications");
   const tracking = clientRoute
     ? {
@@ -55,7 +64,7 @@ export async function proxy(request: NextRequest) {
     const now = Date.now();
 
     if (sessionExpired(request, now, tracking)) {
-      const loginUrl = new URL(tracking.loginPath, request.url);
+      const loginUrl = expiredLoginUrl(request, tracking.loginPath, clientRoute);
       const redirectResponse = NextResponse.redirect(loginUrl);
       redirectResponse.cookies.delete(tracking.sessionCookie);
       redirectResponse.cookies.delete(tracking.lastActiveCookie);
@@ -108,7 +117,7 @@ export async function proxy(request: NextRequest) {
     response.cookies.delete(tracking.lastActiveCookie);
     response.cookies.delete(tracking.startedCookie);
     if (!request.nextUrl.pathname.startsWith("/api/")) {
-      const loginUrl = new URL(tracking.loginPath, request.url);
+      const loginUrl = expiredLoginUrl(request, tracking.loginPath, clientRoute);
       return NextResponse.redirect(loginUrl);
     }
     return response;
@@ -135,5 +144,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*", "/client/applications/:path*", "/api/client/applications/:path*"]
+  matcher: ["/admin/:path*", "/api/admin/:path*", "/client/applications/:path*", "/client/apply/:path*", "/api/client/applications/:path*"]
 };

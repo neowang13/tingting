@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import { getRepository } from "@/data/repository";
 import { ApiError } from "@/lib/api";
 import type { AdminIdentity } from "@/lib/auth";
 import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
@@ -137,6 +138,19 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
   };
 }
 
+export function assertApplicationMaterialsApproved(
+  application: Pick<ClientApplicationRecord, "legalReviewStatus">,
+  enforce = process.env.DATA_BACKEND === "supabase"
+) {
+  if (enforce && application.legalReviewStatus !== "approved") {
+    throw new ApiError(
+      409,
+      "APPLICATION_LEGAL_REVIEW_REQUIRED",
+      "Online applications are temporarily unavailable while the application form and consent are reviewed."
+    );
+  }
+}
+
 async function loadOwnedApplication(identity: ClientIdentity, id: string) {
   if (process.env.DATA_BACKEND !== "supabase") {
     const application = demoStore().get(id);
@@ -156,6 +170,79 @@ async function loadOwnedApplication(identity: ClientIdentity, id: string) {
   return mapApplication(result.data as unknown as Record<string, unknown>);
 }
 
+async function startClientApplicationWithoutRpc(
+  identity: ClientIdentity,
+  rental: Awaited<ReturnType<ReturnType<typeof getRepository>["getPublicRentalBySlug"]>> & {}
+) {
+  const service = supabaseService();
+  const existing = await service.from("client_applications")
+    .select("id")
+    .eq("owner_user_id", identity.userId)
+    .eq("rental_listing_id", rental.id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (existing.error) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be started.");
+  }
+  if (existing.data) return loadOwnedApplication(identity, String(existing.data.id));
+
+  const [form, terms] = await Promise.all([
+    service.from("application_form_versions")
+      .select("id")
+      .eq("form_key", "residential-rental-application")
+      .eq("is_active", true)
+      .eq("legal_review_status", "approved")
+      .maybeSingle(),
+    service.from("application_terms_versions")
+      .select("id")
+      .eq("is_active", true)
+      .eq("legal_review_status", "approved")
+      .maybeSingle()
+  ]);
+  if (form.error || terms.error) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be started.");
+  }
+  if (!form.data || !terms.data) {
+    throw new ApiError(
+      409,
+      "APPLICATION_LEGAL_REVIEW_REQUIRED",
+      "Online applications are temporarily unavailable while the application form and consent are reviewed."
+    );
+  }
+
+  const created = await service.from("client_applications").insert({
+    owner_user_id: identity.userId,
+    rental_listing_id: rental.id,
+    property_title: rental.title,
+    property_address: rental.addressLine,
+    form_version_id: form.data.id,
+    terms_version_id: terms.data.id
+  }).select("id").single();
+  if (created.error || !created.data) {
+    const raced = await service.from("client_applications")
+      .select("id")
+      .eq("owner_user_id", identity.userId)
+      .eq("rental_listing_id", rental.id)
+      .is("deleted_at", null)
+      .order("assigned_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (raced.error || !raced.data) {
+      throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be started.");
+    }
+    return loadOwnedApplication(identity, String(raced.data.id));
+  }
+
+  await service.from("client_application_audit_events").insert({
+    application_id: created.data.id,
+    actor_user_id: identity.userId,
+    actor_type: "client",
+    action: "application.client_started",
+    request_context: { rentalSlug: rental.slug, compatibilityMode: true }
+  });
+  return loadOwnedApplication(identity, String(created.data.id));
+}
+
 export async function listClientApplications(identity: ClientIdentity) {
   if (process.env.DATA_BACKEND !== "supabase") {
     return [...demoStore().values()]
@@ -169,6 +256,70 @@ export async function listClientApplications(identity: ClientIdentity) {
     .order("assigned_at", { ascending: false });
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
   return (result.data ?? []).map((row) => mapApplication(row as unknown as Record<string, unknown>));
+}
+
+export async function startOrReuseClientApplication(identity: ClientIdentity, propertySlug: string) {
+  const slug = propertySlug.trim();
+  if (!slug || slug.length > 160) {
+    throw new ApiError(404, "RENTAL_NOT_FOUND", "This rental is not available for online applications.");
+  }
+  const rental = await getRepository().getPublicRentalBySlug(slug);
+  if (!rental) {
+    throw new ApiError(404, "RENTAL_NOT_FOUND", "This rental is not available for online applications.");
+  }
+
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const existing = [...demoStore().values()].find((application) =>
+      application.ownerUserId === identity.userId && application.propertySlug === rental.slug
+    );
+    if (existing) return structuredClone(existing);
+
+    const now = new Date().toISOString();
+    const application: DemoApplication = {
+      id: crypto.randomUUID(),
+      ownerUserId: identity.userId,
+      propertySlug: rental.slug,
+      propertyTitle: rental.title,
+      propertyAddress: rental.addressLine,
+      status: "draft",
+      formVersion: APPLICATION_FORM_VERSION,
+      formSha256: sha256(applicationFormText),
+      termsVersion: APPLICATION_TERMS_VERSION,
+      termsSha256: sha256(applicationTermsText),
+      legalReviewStatus: "pending",
+      assignedAt: now,
+      submittedAt: null,
+      consentedAt: null,
+      retainUntil: null,
+      draft: applicationDraftSchema.parse({}),
+      draftUpdatedAt: null,
+      files: [],
+      consentText: null,
+      audit: [{ action: "application.client_started", createdAt: now }]
+    };
+    demoStore().set(application.id, application);
+    return structuredClone(application);
+  }
+
+  const service = supabaseService();
+  const started = await service.rpc("start_client_application", {
+    p_owner_user_id: identity.userId,
+    p_rental_slug: rental.slug
+  });
+  if (["PGRST202", "42883"].includes(started.error?.code ?? "")) {
+    return startClientApplicationWithoutRpc(identity, rental);
+  }
+  if (started.error?.code === "55000" && started.error.message.includes("materials are unavailable")) {
+    throw new ApiError(
+      409,
+      "APPLICATION_LEGAL_REVIEW_REQUIRED",
+      "Online applications are temporarily unavailable while the application form and consent are reviewed."
+    );
+  }
+  if (started.error || !started.data) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be started.");
+  }
+  return loadOwnedApplication(identity, String(started.data));
 }
 
 export async function getClientApplication(identity: ClientIdentity, id: string) {
@@ -194,6 +345,7 @@ export async function saveApplicationDraft(
   input: { draft: ApplicationDraft; activeStep: number }
 ) {
   const application = await loadOwnedApplication(identity, id);
+  assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") {
     throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application can no longer be edited.");
   }
@@ -290,6 +442,7 @@ function inspectUpload(file: File, bytes: Uint8Array) {
 
 export async function uploadApplicationFile(identity: ClientIdentity, id: string, file: File) {
   const application = await loadOwnedApplication(identity, id);
+  assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
   if (application.files.length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_FILES", "An application can include at most 8 files.");
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -353,6 +506,7 @@ export async function submitClientApplication(
   options: { notifier?: EmailProvider; recipient?: string | null; appBaseUrl?: string } = {}
 ) {
   const application = await loadOwnedApplication(identity, id);
+  assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application has already been submitted.");
   if (!input.sharingAuthorization || !input.screeningConsent) {
     throw new ApiError(400, "APPLICATION_CONSENT_REQUIRED", "Both affirmative application authorizations are required.");

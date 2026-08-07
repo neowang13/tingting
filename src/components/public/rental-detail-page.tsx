@@ -18,10 +18,8 @@ import {
   Sofa,
   Warehouse
 } from "lucide-react";
-import { ContactModalProvider, ContactTrigger } from "@/components/public/contact-modal";
 import { RentalCard } from "@/components/public/rental-card";
 import { RentalGallery } from "@/components/public/rental-gallery";
-import { SaveListingButton } from "@/components/public/save-listing-button";
 import {
   ShowingRequestModalProvider,
   ShowingRequestTrigger
@@ -107,12 +105,10 @@ export function RentalDetailPage({
   const hasPolicyRequirements = Boolean(
     petPolicy || rental.smokingPolicy || rental.creditCheckRequired || rental.referencesRequired
   );
-  const applicationNext = `/client/applications?property=${encodeURIComponent(rental.slug)}`;
-  const applicationHref = `/client/login?property=${encodeURIComponent(rental.slug)}&next=${encodeURIComponent(applicationNext)}`;
+  const applicationHref = `/client/apply/${encodeURIComponent(rental.slug)}`;
 
   return (
-    <ContactModalProvider contact={sections.contact}>
-      <ShowingRequestModalProvider property={{
+    <ShowingRequestModalProvider property={{
         slug: rental.slug,
         title: rental.title,
         addressLine: rental.addressLine,
@@ -161,14 +157,14 @@ export function RentalDetailPage({
               </dl>
 
               <div className="rental-primary-actions">
-                {lease && <p><strong>Lease:</strong> {lease}</p>}
-                <div>
-                  <SaveListingButton slug={rental.slug} />
-                  <ContactTrigger className="button secondary rental-contact-button">Ask Ting Ting</ContactTrigger>
-                  <ShowingRequestTrigger className="button">Book a viewing</ShowingRequestTrigger>
-                  <Link className="button secondary rental-apply-button" href={applicationHref}><FilePenLine aria-hidden />Apply online</Link>
+                <div className="rental-action-row">
+                  {lease && <p><strong>Lease:</strong> {lease}</p>}
+                  <div className="rental-action-buttons">
+                    <ShowingRequestTrigger className="button">Book a viewing</ShowingRequestTrigger>
+                    <Link className="button secondary rental-apply-button" href={applicationHref}><FilePenLine aria-hidden />Apply online</Link>
+                  </div>
                 </div>
-                <p className="rental-application-note">Application access is assigned after contact or a showing. Already invited? Sign in and continue with this property selected.</p>
+                <p className="rental-application-note">Sign in or create a Client account to start an online application for this home. Your application stays private to your account.</p>
               </div>
 
               <section className="rental-about" aria-labelledby="rental-about-heading">
@@ -291,8 +287,7 @@ export function RentalDetailPage({
         </main>
         <SiteFooter footer={sections.footer} />
       </div>
-      </ShowingRequestModalProvider>
-    </ContactModalProvider>
+    </ShowingRequestModalProvider>
   );
 }
 

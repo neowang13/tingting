@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applicationReceipt,
+  assertApplicationMaterialsApproved,
   getApplicationForm,
   getApplicationFileForStaff,
   getClientApplication,
@@ -8,6 +9,7 @@ import {
   resetDemoApplicationsForTests,
   reviewApplicationFile,
   saveApplicationDraft,
+  startOrReuseClientApplication,
   submitClientApplication,
   updateApplicationStatus,
   uploadApplicationFile
@@ -48,6 +50,34 @@ beforeEach(() => {
 });
 
 describe("client application workflow", () => {
+  it("fails closed for unapproved application materials in durable mode", () => {
+    expect(() => assertApplicationMaterialsApproved({ legalReviewStatus: "pending" }, true))
+      .toThrow(expect.objectContaining({ status: 409, code: "APPLICATION_LEGAL_REVIEW_REQUIRED" }));
+    expect(() => assertApplicationMaterialsApproved({ legalReviewStatus: "approved" }, true))
+      .not.toThrow();
+  });
+
+  it("starts one owned application per published rental and reuses it", async () => {
+    const first = await startOrReuseClientApplication(client, "melville-street-two-bedroom");
+    const repeated = await startOrReuseClientApplication(client, "melville-street-two-bedroom");
+
+    expect(first.id).toBe(repeated.id);
+    expect(first.ownerUserId).toBe(client.userId);
+    expect(first.propertySlug).toBe("melville-street-two-bedroom");
+    expect(first.status).toBe("draft");
+
+    const otherClient = { ...client, userId: "00000000-0000-4000-8000-000000000010", email: "other@example.test" };
+    const otherApplication = await startOrReuseClientApplication(otherClient, "melville-street-two-bedroom");
+    expect(otherApplication.id).not.toBe(first.id);
+    await expect(getClientApplication(client, otherApplication.id))
+      .rejects.toMatchObject({ status: 404, code: "APPLICATION_NOT_FOUND" });
+  });
+
+  it("does not start an application for a missing or unpublished rental", async () => {
+    await expect(startOrReuseClientApplication(client, "not-a-public-rental"))
+      .rejects.toMatchObject({ status: 404, code: "RENTAL_NOT_FOUND" });
+  });
+
   it("enforces application ownership for reads and form downloads", async () => {
     expect(await listClientApplications(client)).toHaveLength(1);
     await expect(getClientApplication({ ...client, userId: crypto.randomUUID() }, applicationId))

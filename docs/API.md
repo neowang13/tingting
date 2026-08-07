@@ -58,6 +58,7 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | POST | `/api/client/auth/session` | Verify a Supabase Auth session and active client profile |
 | POST | `/api/client/auth/logout` | End the client session |
 | GET | `/client/auth/confirm` | Exchange a one-time Supabase email-confirmation code, clear the temporary session, and return to Client Login |
+| POST | `/api/client/applications/start` | Create or reuse the authenticated Client's single application for a published rental |
 | PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
 | GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
 | POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
@@ -66,7 +67,12 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
 | PATCH | `/api/admin/applications/:id` | Perform a documented staff status transition |
 
-Draft writes are same-origin, rate-limited, owner-scoped, and rejected after submission.
+Application starts and draft writes are same-origin, rate-limited, owner-scoped, and
+rejected after submission. Starting an application accepts only a published rental
+slug, derives ownership from the authenticated session, and atomically reuses the
+existing Client/rental application when one exists. The service refuses to create,
+save, upload to, or submit an application unless both the canonical form and active
+consent version have completed legal/privacy approval.
 Form and receipt responses are `private, no-store`. Uploads allow only content-
 sniffed PDF/JPEG/PNG files up to 10 MB, reject active PDF features, use random
 private-bucket keys, and remain `manual_review_required` until the approved

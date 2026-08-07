@@ -24,12 +24,12 @@ describe("public homepage boundary", () => {
       .toEqual(["rental_management", "trade_services", "property_care", "strata"]);
     expect(services.filter((service) => service.key === "property_care")).toHaveLength(1);
     expect(services[2]).toMatchObject({
-      title: "Property Care: Handyman + Maintenance",
-      summary: "One-time fixes and ongoing upkeep, with clear scope and trade referrals where required."
+      title: "Property Management",
+      summary: "Repairs and ongoing upkeep, clearly scoped from the start."
     });
     expect(services[0]).toMatchObject({
       title: "Rental Management",
-      summary: "Residential and commercial rental-management support, with scope and next steps tailored to the property."
+      summary: "Tenant placement, rent collection, inspections, and day-to-day coordination."
     });
   });
 

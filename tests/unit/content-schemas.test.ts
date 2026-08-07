@@ -76,7 +76,7 @@ describe("fixed section registry", () => {
       .toEqual(["rental_management", "trade_services", "property_care", "strata"]);
     expect(parsed.services[1]).toMatchObject({
       title: "Trade Services",
-      ctaLabel: "Explore Trade Services"
+      ctaLabel: "Trade services"
     });
   });
 

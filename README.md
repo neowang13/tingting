@@ -26,7 +26,10 @@ secret, but client and admin cookies and authorization remain separate. In produ
 clients register at `/client/signup` with a name, email, and password of at least
 11 characters. Supabase must confirm the email before Client Login is allowed; the
 database creates only a `client_profiles` row and never an Admin profile. Admin access
-still requires an owner-created Auth user, active `admin_profiles` row, and MFA.
+still requires an owner-created Auth user, active `admin_profiles` row, and MFA. A
+generic Client sign-in returns to the public homepage. From a published rental detail
+page, the Client can book a viewing or use `Apply online` to create or continue one
+private application for that rental.
 
 No third-party account is required for local development. Supabase is replaced
 by the seeded memory adapter and notification delivery defaults to
