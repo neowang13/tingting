@@ -157,7 +157,7 @@ describe("Supabase administrator API authentication", () => {
     );
   });
 
-  it("allows an AAL1 administrator only when the local MFA override is disabled", async () => {
+  it("allows an AAL1 administrator when MFA is disabled", async () => {
     process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "false";
     configureSupabaseSession({ aal: "aal1" });
 
@@ -167,9 +167,20 @@ describe("Supabase administrator API authentication", () => {
     });
   });
 
-  it("keeps MFA mandatory in production even when the local override is disabled", async () => {
+  it("allows an AAL1 administrator in production when MFA is disabled", async () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "false";
+    configureSupabaseSession({ aal: "aal1" });
+
+    await expect(requireAdminRequest(adminRequest())).resolves.toMatchObject({
+      assuranceLevel: "aal1",
+      displayName: "Test Admin"
+    });
+  });
+
+  it("requires MFA in production when it is explicitly enabled", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "true";
     configureSupabaseSession({ aal: "aal1" });
 
     await expect(requireAdminRequest(adminRequest())).rejects.toMatchObject({
@@ -269,7 +280,8 @@ describe("Supabase administrator API authentication", () => {
     });
   });
 
-  it("requires AAL2 in production and accepts AAL2 for ordinary writes", async () => {
+  it("requires AAL2 for ordinary writes when MFA is explicitly enabled", async () => {
+    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "true";
     configureSupabaseSession({ aal: "aal1" });
     await expect(requireAdminRequest(adminRequest())).rejects.toMatchObject({
       status: 403,

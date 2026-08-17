@@ -45,9 +45,7 @@ function isProductionAdminMode() {
 }
 
 function isAdminMfaRequired() {
-  if (process.env.NODE_ENV === "production") return true;
-  return process.env.NEXT_PUBLIC_APP_MODE === "production" &&
-    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED !== "false";
+  return process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED === "true";
 }
 
 function latestAuthenticationTimestamp(claims: VerifiedClaims) {

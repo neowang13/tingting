@@ -5,7 +5,7 @@ const baseEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATA_BACKEND: z.enum(["memory", "supabase"]).default("memory"),
   NEXT_PUBLIC_APP_MODE: z.enum(["demo", "production"]).default("demo"),
-  NEXT_PUBLIC_ADMIN_MFA_REQUIRED: z.enum(["true", "false"]).default("true"),
+  NEXT_PUBLIC_ADMIN_MFA_REQUIRED: z.enum(["true", "false"]).default("false"),
   NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1).optional(),
   NEXT_PUBLIC_GOOGLE_BUSINESS_URL: z.string().url().optional(),

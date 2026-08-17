@@ -19,9 +19,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
   const [qrCode, setQrCode] = useState("");
   const [totpSecret, setTotpSecret] = useState("");
   const [accountEmail, setAccountEmail] = useState("");
-  const mfaRequired = process.env.NODE_ENV === "production" ||
-    (process.env.NEXT_PUBLIC_APP_MODE === "production" &&
-      process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED !== "false");
+  const mfaRequired = process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED === "true";
 
   async function recordFailure(
     event: "login_failed" | "mfa_challenge_failed",
