@@ -46,7 +46,9 @@ const APPLICATION_SELECT = `
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
   application_terms_versions!inner(version,sha256,legal_review_status,displayed_text),
   client_application_files(id,original_filename,mime_type,byte_size,scan_status,uploaded_at),
-  client_application_lease_files(id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at)
+  client_application_lease_files!client_application_lease_files_application_id_fkey(
+    id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at
+  )
 `;
 
 interface DemoApplication extends ClientApplicationRecord {
