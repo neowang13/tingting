@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:supabase": "playwright test --config=playwright.supabase.config.ts",
+    "optimize:published-media": "tsx --env-file-if-exists=.env.local scripts/optimize-published-media.ts",
     "configure:openclaw": "tsx --env-file-if-exists=.env.local scripts/configure-openclaw-tenant-automation.ts",
     "provision:supabase": "tsx --env-file-if-exists=.env.local scripts/provision-supabase.ts"
   },
@@ -25,6 +26,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "read-excel-file": "8.0.3",
+    "sharp": "0.34.5",
     "svix": "^1.82.0",
     "twilio": "^5.10.4",
     "zod": "^4.1.11"

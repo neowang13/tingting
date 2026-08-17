@@ -57,6 +57,7 @@ import {
   tenantInputSchema
 } from "@/lib/schemas";
 import type { DataRepository } from "@/data/repository";
+import { refreshPublicRentalMediaUrls } from "@/lib/public-image-url";
 
 type Row = Record<string, unknown>;
 
@@ -625,7 +626,7 @@ export class SupabaseRepository implements DataRepository {
       error = legacy.error;
     }
     if (error) databaseError(error);
-    return asRows(data).map((row) =>
+    const rentals = asRows(data).map((row) =>
       mapRental({
         status: "published",
         created_at: row.published_at,
@@ -633,6 +634,9 @@ export class SupabaseRepository implements DataRepository {
         ...row
       })
     );
+    if (includePrivate) return rentals;
+    const mediaUrls = await this.resolvePublicMedia(collectMediaAssetIds(rentals));
+    return rentals.map((rental) => refreshPublicRentalMediaUrls(rental, mediaUrls));
   }
 
   async getPublicRentalBySlug(slug: string) {
@@ -643,12 +647,16 @@ export class SupabaseRepository implements DataRepository {
       .maybeSingle();
     if (!detail.error && detail.data) {
       const row = asRow(detail.data);
-      return mapRental({
+      const rental = mapRental({
         status: "published",
         created_at: row.published_at,
         updated_at: row.published_at,
         ...row
       });
+      return refreshPublicRentalMediaUrls(
+        rental,
+        await this.resolvePublicMedia(collectMediaAssetIds(rental))
+      );
     }
     if (
       detail.error &&
@@ -665,13 +673,17 @@ export class SupabaseRepository implements DataRepository {
     if (legacy.error) databaseError(legacy.error);
     if (!legacy.data) return null;
     const row = asRow(legacy.data);
-    return mapRental({
+    const rental = mapRental({
       status: "published",
       created_at: row.published_at,
       updated_at: row.published_at,
       images: [],
       ...row
     });
+    return refreshPublicRentalMediaUrls(
+      rental,
+      await this.resolvePublicMedia(collectMediaAssetIds(rental))
+    );
   }
 
   async getRental(id: string) {

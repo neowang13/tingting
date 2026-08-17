@@ -10,7 +10,6 @@ interface GoogleReviewCardProps {
   reviews: GooglePlaceReview[];
   rating: number | null;
   reviewCount: number;
-  isDemo: boolean;
 }
 
 function reviewerInitials(name: string) {
@@ -37,8 +36,7 @@ export function GoogleReviewCard({
   reviewUrl,
   reviews,
   rating,
-  reviewCount,
-  isDemo
+  reviewCount
 }: GoogleReviewCardProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const activeReview = reviews[activeIndex] ?? reviews[0];
@@ -50,6 +48,8 @@ export function GoogleReviewCard({
   };
 
   if (!activeReview) return null;
+  const displayedRating = rating ?? activeReview.rating;
+  const displayedReviewCount = Math.max(reviewCount, reviews.length);
 
   return (
     <aside
@@ -70,14 +70,13 @@ export function GoogleReviewCard({
             <strong id="google-review-heading">Google Reviews</strong>
           </span>
         </div>
-        {isDemo ? <span className="google-review-demo">DEMO · SYNCING</span> : null}
       </div>
 
       <div className="google-review-score">
-        <strong>{isDemo ? "Preview" : rating?.toFixed(1) ?? "New"}</strong>
+        <strong>{displayedRating.toFixed(1)}</strong>
         <span>
-          <StarRow rating={isDemo ? 5 : rating ?? activeReview.rating} label={`${isDemo ? 5 : rating ?? activeReview.rating} out of 5 stars`} />
-          <small>{isDemo ? "Awaiting Google sync" : `${reviewCount} Google review${reviewCount === 1 ? "" : "s"}`}</small>
+          <StarRow rating={displayedRating} label={`${displayedRating} out of 5 stars`} />
+          <small>{displayedReviewCount} Google review{displayedReviewCount === 1 ? "" : "s"}</small>
         </span>
       </div>
 
@@ -85,7 +84,7 @@ export function GoogleReviewCard({
         <div className="google-review-author">
           <span className="google-review-avatar" aria-hidden>{reviewerInitials(activeReview.authorName)}</span>
           <span>
-            {activeReview.authorUri && !isDemo ? (
+            {activeReview.authorUri ? (
               <a href={activeReview.authorUri} target="_blank" rel="noreferrer">{activeReview.authorName}</a>
             ) : (
               <strong>{activeReview.authorName}</strong>
@@ -120,9 +119,6 @@ export function GoogleReviewCard({
         <ExternalLink aria-hidden />
       </a>
 
-      {isDemo ? (
-        <p className="google-review-disclosure">Preview content only. It will be replaced automatically when Google returns a public review.</p>
-      ) : null}
     </aside>
   );
 }

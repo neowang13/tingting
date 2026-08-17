@@ -22,6 +22,7 @@ import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
 import { googleReviewDemoFeed, type GoogleReviewFeed } from "@/features/google-reviews";
+import { shouldServePublicImageDirectly } from "@/lib/public-image-url";
 
 const serviceIcons = {
   rental_management: KeyRound,
@@ -70,6 +71,7 @@ export function SiteHome({
               alt={hero.background.alt}
               fill
               priority
+              unoptimized={shouldServePublicImageDirectly(heroImage)}
               sizes="100vw"
             />
           ) : (
@@ -88,6 +90,7 @@ export function SiteHome({
                   width={1164}
                   height={1000}
                   sizes="132px"
+                  unoptimized
                 />
               </div>
               <Link className="button hero-cta" href={hero.primaryCta.href}>
@@ -101,7 +104,6 @@ export function SiteHome({
               reviews={reviewFeed.reviews}
               rating={reviewFeed.rating}
               reviewCount={reviewFeed.reviewCount}
-              isDemo={reviewFeed.isDemo}
             />
           </div>
         </section>
@@ -149,7 +151,7 @@ export function SiteHome({
             </div>
             {rentals.length ? (
               <div className="rental-grid">
-                {rentals.map((rental, index) => (
+                {rentals.map((rental) => (
                   <article className="rental-card" key={rental.id}>
                     <div className="rental-media">
                       {rental.coverImageUrl ? (
@@ -157,7 +159,7 @@ export function SiteHome({
                           src={rental.coverImageUrl}
                           alt={`${rental.title} in ${rental.city}`}
                           fill
-                          priority={index === 0}
+                          unoptimized={shouldServePublicImageDirectly(rental.coverImageUrl)}
                           sizes="(max-width: 700px) 100vw, (max-width: 1050px) 50vw, 33vw"
                         />
                       ) : (
@@ -216,6 +218,7 @@ export function SiteHome({
                   src={portraitImage}
                   alt={about.portrait.alt}
                   fill
+                  unoptimized={portraitImage.startsWith("/") || shouldServePublicImageDirectly(portraitImage)}
                   sizes="(max-width: 700px) 100vw, 38vw"
                 />
               ) : (

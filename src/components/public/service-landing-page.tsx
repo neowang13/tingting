@@ -44,6 +44,7 @@ import type {
   ServicePageContent
 } from "@/features/content/service-pages";
 import type { ServicePageSectionKey } from "@/lib/contracts";
+import { shouldServePublicImageDirectly } from "@/lib/public-image-url";
 
 const serviceIcons: Record<ServiceIconKey, LucideIcon> = {
   armchair: Armchair,
@@ -124,6 +125,7 @@ function ServiceGrid({
                     src={resolveImage(service.image, mediaUrls)!}
                     alt={service.image.alt}
                     fill
+                    unoptimized={shouldServePublicImageDirectly(resolveImage(service.image, mediaUrls))}
                     sizes="(max-width: 700px) 100vw, 25vw"
                   />
                 </div>
@@ -207,6 +209,7 @@ function StorySection({
               src={storyImage}
               alt={page.storyImage.alt}
               fill
+              unoptimized={shouldServePublicImageDirectly(storyImage)}
               sizes="(max-width: 760px) 100vw, 46vw"
             />
           )}
@@ -255,6 +258,7 @@ function GallerySection({
                     src={resolveImage(item.image, mediaUrls)!}
                     alt={item.image.alt}
                     fill
+                    unoptimized={shouldServePublicImageDirectly(resolveImage(item.image, mediaUrls))}
                     sizes="(max-width: 700px) 100vw, 25vw"
                   />
                 </div>
@@ -297,6 +301,7 @@ export function ServiceLandingPage({
               alt={page.heroImage.alt}
               fill
               priority
+              unoptimized={shouldServePublicImageDirectly(heroImage)}
               sizes="100vw"
               style={{ objectPosition: page.heroPosition }}
             />

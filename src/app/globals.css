@@ -417,18 +417,6 @@ a {
   letter-spacing: -0.01em;
 }
 
-.google-review-demo {
-  border: 1px solid #e5c56c;
-  border-radius: 999px;
-  padding: 0.35rem 0.52rem;
-  color: #775900;
-  background: #fff8d9;
-  font-size: 0.55rem;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
-}
-
 .google-review-score {
   display: flex;
   align-items: center;
@@ -647,14 +635,6 @@ a {
 .google-review-submit:hover {
   box-shadow: 0 13px 28px rgba(5, 101, 42, 0.27);
   transform: translateY(-1px);
-}
-
-.google-review-disclosure {
-  margin: 0.65rem 0 0;
-  color: #7a827e;
-  font-size: 0.58rem;
-  line-height: 1.4;
-  text-align: center;
 }
 
 @keyframes google-review-in {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { demoRentals } from "@/data/demo";
 import {
+  refreshPublicRentalMediaUrls,
   sanitizePublicImageUrl,
   sanitizePublicRentalImages
 } from "@/lib/public-image-url";
@@ -77,5 +78,21 @@ describe("public rental image URL boundary", () => {
 
     expect(sanitized.coverImageUrl).toBeNull();
     expect(sanitized.images.map((image) => image.url)).toEqual([null, "/images/safe-rental.jpg"]);
+  });
+
+  it("replaces snapshot URLs with the current published media URL", () => {
+    const mediaAssetId = crypto.randomUUID();
+    const rental = {
+      ...structuredClone(demoRentals[0]),
+      coverImageUrl: "/images/old.jpg",
+      images: [{ mediaAssetId, url: "/images/old.jpg", alt: "Rental", sortOrder: 0, isCover: true }]
+    };
+    const refreshed = refreshPublicRentalMediaUrls(rental, {
+      [mediaAssetId]: "https://project-ref.supabase.co/storage/v1/object/public/site-media/current.webp"
+    });
+
+    expect(refreshed.coverImageUrl).toContain("current.webp");
+    expect(refreshed.images.find((image) => image.mediaAssetId === mediaAssetId)?.url)
+      .toContain("current.webp");
   });
 });

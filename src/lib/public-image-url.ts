@@ -36,6 +36,35 @@ export function sanitizePublicImageUrl(value: string | null | undefined): string
   return null;
 }
 
+export function shouldServePublicImageDirectly(value: string | null | undefined): boolean {
+  const safeValue = sanitizePublicImageUrl(value);
+  if (!safeValue) return false;
+  try {
+    const parsed = new URL(safeValue);
+    return (
+      parsed.hostname === "images.unsplash.com"
+      || parsed.pathname.startsWith("/storage/v1/object/public/")
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function refreshPublicRentalMediaUrls(
+  rental: RentalListing,
+  mediaUrls: Record<string, string | null>
+): RentalListing {
+  const images = rental.images.map((image) => ({
+    ...image,
+    url: mediaUrls[image.mediaAssetId] ?? image.url
+  }));
+  return {
+    ...rental,
+    images,
+    coverImageUrl: images.find((image) => image.isCover)?.url ?? rental.coverImageUrl
+  };
+}
+
 export function sanitizePublicRentalImages(rental: RentalListing): RentalListing {
   return {
     ...rental,

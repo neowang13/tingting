@@ -8,6 +8,7 @@ import {
   formatRentalPrice
 } from "@/features/content/public-rental-detail";
 import type { RentalListing } from "@/lib/contracts";
+import { shouldServePublicImageDirectly } from "@/lib/public-image-url";
 
 export function RentalCard({
   rental,
@@ -25,6 +26,7 @@ export function RentalCard({
             alt={`${rental.title} in ${rental.city}`}
             fill
             loading={imageLoading}
+            unoptimized={shouldServePublicImageDirectly(rental.coverImageUrl)}
             sizes="(max-width: 700px) 100vw, (max-width: 1050px) 50vw, 25vw"
           />
         ) : (

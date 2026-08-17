@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { validateImageFile } from "@/features/content/image-validation";
+import { optimizeImageForWeb } from "@/features/content/image-optimization";
 import { ApiError } from "@/lib/api";
 import type { MediaAsset } from "@/lib/contracts";
 
@@ -76,7 +77,7 @@ export async function uploadMediaAsset(file: File, altText: string, actorId: str
   if (!alt || alt.length > 160) {
     throw new ApiError(400, "ALT_TEXT_REQUIRED", "Alt text is required and must be 160 characters or fewer.");
   }
-  const image = await validateImageFile(file);
+  const image = await optimizeImageForWeb(await validateImageFile(file));
   const id = crypto.randomUUID();
   const createdAt = new Date().toISOString();
 
@@ -105,6 +106,7 @@ export async function uploadMediaAsset(file: File, altText: string, actorId: str
   const path = `draft/${id}.${image.extension}`;
   const { error: uploadError } = await client.storage.from(draftBucket).upload(path, image.bytes, {
     contentType: image.mimeType,
+    cacheControl: "31536000",
     upsert: false
   });
   if (uploadError) throw new ApiError(502, "MEDIA_UPLOAD_FAILED", "The image could not be uploaded.");

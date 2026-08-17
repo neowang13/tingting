@@ -39,7 +39,7 @@ const connectSources = ["'self'", "https://*.supabase.co", localSupabase].filter
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
-  serverExternalPackages: ["read-excel-file", "unzipper"],
+  serverExternalPackages: ["read-excel-file", "sharp", "unzipper"],
   images: {
     dangerouslyAllowLocalIP: Boolean(localSupabase),
     remotePatterns: [

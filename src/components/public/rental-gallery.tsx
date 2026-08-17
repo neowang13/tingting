@@ -4,6 +4,7 @@ import Image from "next/image";
 import { ChevronLeft, ChevronRight, Images, X } from "lucide-react";
 import { useRef, useState } from "react";
 import type { RentalImage } from "@/lib/contracts";
+import { shouldServePublicImageDirectly } from "@/lib/public-image-url";
 
 export function RentalGallery({
   title,
@@ -62,6 +63,7 @@ export function RentalGallery({
               fill
               loading="eager"
               fetchPriority="high"
+              unoptimized={shouldServePublicImageDirectly(active.url)}
               sizes="(max-width: 800px) calc(100vw - 32px), (max-width: 1180px) 68vw, 800px"
               onError={() => setBroken((items) => new Set(items).add(activeIndex))}
             />
@@ -104,6 +106,7 @@ export function RentalGallery({
                     src={image.url}
                     alt=""
                     fill
+                    unoptimized={shouldServePublicImageDirectly(image.url)}
                     sizes="(max-width: 800px) 31vw, 320px"
                     onError={() => setBroken((items) => new Set(items).add(index))}
                   />
@@ -137,6 +140,7 @@ export function RentalGallery({
                 src={active.url}
                 alt={active.alt || `${title} in ${city}`}
                 fill
+                unoptimized={shouldServePublicImageDirectly(active.url)}
                 sizes="95vw"
               />
             ) : <span className="rental-gallery-fallback"><Images aria-hidden />Photo unavailable</span>}

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import sharp from "sharp";
 import {
   archiveMediaAsset,
   listMediaAssets,
@@ -7,12 +8,11 @@ import {
   uploadMediaAsset
 } from "../../src/features/content/media-service";
 
-function pngFixture() {
-  const bytes = new Uint8Array(24);
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
-  new DataView(bytes.buffer).setUint32(16, 800);
-  new DataView(bytes.buffer).setUint32(20, 600);
-  return new File([bytes], "fixture.png", { type: "image/png" });
+async function pngFixture() {
+  const bytes = await sharp({
+    create: { width: 800, height: 600, channels: 3, background: "#2d725c" }
+  }).png().toBuffer();
+  return new File([Uint8Array.from(bytes)], "fixture.png", { type: "image/png" });
 }
 
 describe("media library service", () => {
@@ -29,7 +29,8 @@ describe("media library service", () => {
   });
 
   it("updates alt text and archives only private drafts", async () => {
-    const uploaded = await uploadMediaAsset(pngFixture(), "Original alt", crypto.randomUUID());
+    const uploaded = await uploadMediaAsset(await pngFixture(), "Original alt", crypto.randomUUID());
+    expect(uploaded).toMatchObject({ mimeType: "image/webp", width: 800, height: 600 });
     await expect(updateMediaAltText(uploaded.id, "Updated alt")).resolves.toMatchObject({
       altText: "Updated alt"
     });
@@ -38,7 +39,7 @@ describe("media library service", () => {
   });
 
   it("protects media after publication", async () => {
-    const uploaded = await uploadMediaAsset(pngFixture(), "Published image", crypto.randomUUID());
+    const uploaded = await uploadMediaAsset(await pngFixture(), "Published image", crypto.randomUUID());
     promoteDemoMedia([uploaded.id]);
     await expect(archiveMediaAsset(uploaded.id)).rejects.toMatchObject({ code: "MEDIA_IN_USE" });
   });

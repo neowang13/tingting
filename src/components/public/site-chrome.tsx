@@ -25,6 +25,7 @@ export async function SiteHeader({ header }: { header: HeaderContent }) {
             width={442}
             height={128}
             priority
+            unoptimized
           />
         </Link>
         <nav className="desktop-nav" aria-label="Primary navigation">
@@ -62,6 +63,7 @@ export function SiteFooter({ footer }: { footer: FooterContent }) {
             alt="Silverkey"
             width={442}
             height={128}
+            unoptimized
           />
           <p className="footer-corporation-name">
             <strong>TingTing Xu</strong>
