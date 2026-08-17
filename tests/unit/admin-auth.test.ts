@@ -137,6 +137,7 @@ describe("Supabase administrator API authentication", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     process.env = { ...originalEnvironment };
   });
 
@@ -154,6 +155,27 @@ describe("Supabase administrator API authentication", () => {
       "anon-test",
       expect.objectContaining({ cookies: expect.any(Object) })
     );
+  });
+
+  it("allows an AAL1 administrator only when the local MFA override is disabled", async () => {
+    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "false";
+    configureSupabaseSession({ aal: "aal1" });
+
+    await expect(requireAdminRequest(adminRequest())).resolves.toMatchObject({
+      assuranceLevel: "aal1",
+      displayName: "Test Admin"
+    });
+  });
+
+  it("keeps MFA mandatory in production even when the local override is disabled", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED = "false";
+    configureSupabaseSession({ aal: "aal1" });
+
+    await expect(requireAdminRequest(adminRequest())).rejects.toMatchObject({
+      status: 403,
+      code: "MFA_REQUIRED"
+    });
   });
 
   it("establishes the SSR Cookie Session from freshly verified MFA tokens", async () => {

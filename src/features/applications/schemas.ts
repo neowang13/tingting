@@ -70,6 +70,27 @@ export const applicationDraftSchema = z.object({
   emergency: emergencyDraftSchema.prefault({})
 }).strict();
 
+export const applicationTenantConversionSchema = z.object({
+  propertyLabel: requiredText(160, "Enter the leased property."),
+  unitLabel: z.string().trim().max(60).nullable().default(null),
+  moveInDate: z.iso.date("Enter the lease start date."),
+  leaseType: z.enum(["month_to_month", "fixed_term"]),
+  leaseEndDate: z.iso.date().nullable().default(null),
+  rentDueDay: z.number().int().min(1).max(31).default(1)
+}).strict().superRefine((value, context) => {
+  if (value.leaseType === "fixed_term" && !value.leaseEndDate) {
+    context.addIssue({ code: "custom", path: ["leaseEndDate"], message: "Enter the fixed-term lease end date." });
+  }
+  if (value.leaseType === "month_to_month" && value.leaseEndDate) {
+    context.addIssue({ code: "custom", path: ["leaseEndDate"], message: "A month-to-month lease cannot have an end date." });
+  }
+  if (value.leaseEndDate && value.leaseEndDate <= value.moveInDate) {
+    context.addIssue({ code: "custom", path: ["leaseEndDate"], message: "The lease end date must be after the start date." });
+  }
+});
+
+export type ApplicationTenantConversion = z.infer<typeof applicationTenantConversionSchema>;
+
 export type ApplicationDraft = z.infer<typeof applicationDraftSchema>;
 export type ApplicationDraftSection = keyof ApplicationDraft;
 

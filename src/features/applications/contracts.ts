@@ -3,9 +3,10 @@ import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 
 export const APPLICATION_FORM_KEY = "residential-rental-application";
 export const APPLICATION_FORM_VERSION = "2026-07-31.1";
-export const APPLICATION_TERMS_VERSION = "2026-08-06.1";
+export const APPLICATION_TERMS_VERSION = "2026-08-08.1";
 export const APPLICATION_UPLOAD_BUCKET = "client-applications";
 export const APPLICATION_MAX_FILE_BYTES = 10 * 1024 * 1024;
+export const APPLICATION_LEASE_MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const APPLICATION_RETENTION_MONTHS = 12;
 
 export const applicationFormText = `TING TING XU — RESIDENTIAL RENTAL APPLICATION
@@ -54,9 +55,7 @@ otherwise, then securely deleted or de-identified. To request access, correction
 withdrawal, or deletion review, contact ${PUBLIC_CONTACT_EMAIL}. Withdrawal may not
 require deletion where retention is legally required.
 
-Version ${APPLICATION_TERMS_VERSION}. Draft for final legal/privacy review before
-production launch. The controller identity, recipient details, screening provider,
-credit-check type, retention exceptions, and applicant rights must be confirmed.
+Version ${APPLICATION_TERMS_VERSION}.
 `;
 
 export type ApplicationStatus =
@@ -84,6 +83,14 @@ export interface ApplicationFileRecord {
   uploadedAt: string;
 }
 
+export interface ApplicationLeaseDocumentRecord {
+  id: string;
+  originalFilename: string;
+  mimeType: "application/pdf";
+  byteSize: number;
+  uploadedAt: string;
+}
+
 export interface ClientApplicationRecord {
   id: string;
   ownerUserId: string;
@@ -103,4 +110,16 @@ export interface ClientApplicationRecord {
   draft: ApplicationDraft;
   draftUpdatedAt: string | null;
   files: ApplicationFileRecord[];
+  leaseDocument: ApplicationLeaseDocumentRecord | null;
+  convertedTenantId: string | null;
+  convertedAt: string | null;
+}
+
+export type ApplicantNotificationStatus = "not_applicable" | "queued" | "sent" | "disabled" | "failed";
+
+export interface ApplicationStatusUpdateResult extends ClientApplicationRecord {
+  applicantNotification: {
+    status: ApplicantNotificationStatus;
+    providerMessageId: string | null;
+  };
 }

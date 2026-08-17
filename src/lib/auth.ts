@@ -44,6 +44,12 @@ function isProductionAdminMode() {
   return process.env.NODE_ENV === "production" || process.env.NEXT_PUBLIC_APP_MODE === "production";
 }
 
+function isAdminMfaRequired() {
+  if (process.env.NODE_ENV === "production") return true;
+  return process.env.NEXT_PUBLIC_APP_MODE === "production" &&
+    process.env.NEXT_PUBLIC_ADMIN_MFA_REQUIRED !== "false";
+}
+
 function latestAuthenticationTimestamp(claims: VerifiedClaims) {
   const methodTimestamps = (claims.amr ?? [])
     .map((method) => method.timestamp)
@@ -56,7 +62,7 @@ function assertValidClaims(claims: VerifiedClaims) {
   if (!claims.iat || (claims.exp && claims.exp <= nowSeconds)) {
     throw new ApiError(401, "UNAUTHORIZED", "The session is invalid or expired.");
   }
-  if (isProductionAdminMode() && claims.aal !== "aal2") {
+  if (isAdminMfaRequired() && claims.aal !== "aal2") {
     throw new ApiError(403, "MFA_REQUIRED", "Multi-factor authentication is required.");
   }
 }
@@ -272,7 +278,7 @@ export async function requireAdminPage(): Promise<AdminIdentity> {
   const claimsResult = await client.auth.getClaims();
   const claims = (claimsResult.data?.claims ?? {}) as VerifiedClaims;
   if (claimsResult.error || !claims.iat) redirect("/admin/login?error=session_expired");
-  if (isProductionAdminMode() && claims.aal !== "aal2") {
+  if (isAdminMfaRequired() && claims.aal !== "aal2") {
     redirect("/admin/login?error=mfa_required");
   }
 
@@ -313,7 +319,7 @@ export async function assertRecentAuthentication(admin: AdminIdentity, maximumAg
 }
 
 export async function assertRecentAal2(admin: AdminIdentity, maximumAgeMinutes = 10) {
-  if (admin.assuranceLevel !== "aal2") {
+  if (isAdminMfaRequired() && admin.assuranceLevel !== "aal2") {
     await writeRateLimitedAuthAudit(admin.userId, {
       actorUserId: admin.userId,
       action: "auth.mfa_required_denied",

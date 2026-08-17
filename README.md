@@ -118,8 +118,8 @@ tenant data, unpausing reminders, or deploying are explicit owner actions.
 See [Operations and Launch Runbook](./docs/OPERATIONS.md) and
 [PRD Completion Report](./docs/PRD-COMPLETION.md).
 
-The application form and consent seeded by migration 038 are deliberately marked
-pending legal/privacy review and must not be used with real applicants until approved.
+The reviewed application form and consent are activated by migrations 046–047.
+Application creation and submission still fail closed if approval is withdrawn.
 See [Client application operations and privacy runbook](./docs/client-application-operations.md).
 
 The implemented global reminder scheduling policy is documented in

@@ -1,5 +1,6 @@
 import { SiteHome } from "@/components/public/site-home";
 import { loadPublicHomepageData } from "@/features/content/public-homepage";
+import { loadGoogleReviewFeed } from "@/features/google-reviews";
 import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
@@ -8,5 +9,10 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  return <SiteHome {...(await loadPublicHomepageData())} />;
+  const [homepage, googleReviews] = await Promise.all([
+    loadPublicHomepageData(),
+    loadGoogleReviewFeed()
+  ]);
+
+  return <SiteHome {...homepage} googleReviews={googleReviews} />;
 }

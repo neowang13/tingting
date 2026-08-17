@@ -1,10 +1,8 @@
 # Client application operations and privacy runbook
 
-Status: implemented as a pre-production security/privacy foundation. The seeded
-form and consent version are `pending` legal review. Do not assign a real applicant
-or enable production use until counsel/privacy review records both versions as
-`approved` and confirms the controller identity, screening provider, credit-check
-type, intended landlord/recipient, applicant rights, and retention exceptions.
+Status: production enabled. The active form and consent were confirmed reviewed
+and recorded as `approved` on 2026-08-08. Application creation, editing, and
+submission continue to fail closed if either approval is withdrawn.
 
 ## Access and assignment
 
@@ -73,6 +71,28 @@ Allowed progression:
 The UI and server enforce transitions and append an audit event. Status means only
 the recorded operational state. `Submitted` is not approval, and screening-pending
 files must not be opened until the approved risk-control process clears them.
+
+Open `Review application` to inspect the complete application and private-file
+screening state. Approve and decline controls are available only inside that review
+dialog. Approval queues a separate email to the applicant stating that the application
+was approved and that the team will contact them; it also states that the email is not
+a tenancy agreement. The application decision remains recorded if the email provider
+fails, and the Admin UI shows a manual-contact warning.
+
+After both parties sign the tenancy agreement, use `Mark as tenant` on the approved
+application. Upload the final signed agreement as a PDF (maximum 20 MB); selection
+starts the upload immediately. The server verifies the extension, MIME type, PDF magic
+bytes, and rejects active-content markers. Agreements use random object keys in the
+private `client-applications` bucket and are downloadable only by an authenticated
+Admin with a `private, no-store` response. Replacing an agreement preserves the
+supersession audit trail while removing the old private object.
+
+Confirm the property, unit, lease dates/type, and rent due day from that signed
+agreement. Both the server and the database refuse conversion until a current signed
+agreement exists. The database transaction creates one active tenant, links it to the
+registered Client account, records the source application and exact agreement file,
+and prevents duplicate tenant creation if the action is retried. Do not use this action
+before both parties have signed.
 
 For corrections or missing information, contact the applicant without including
 sensitive content in URLs. The applicant should upload replacement information only

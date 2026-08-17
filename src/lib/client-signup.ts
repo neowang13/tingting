@@ -21,8 +21,13 @@ export function parseClientSignup(input: unknown): ClientSignupInput {
   return clientSignupSchema.parse(input);
 }
 
-export function clientEmailConfirmationRedirect(origin: string): string {
-  return new URL("/client/auth/confirm", origin).toString();
+export function clientEmailConfirmationRedirect(origin: string, nextPath?: string): string {
+  const destination = new URL("/client/auth/confirm", origin);
+  const safeNextPath = sanitizeClientNextPath(nextPath);
+  if (safeNextPath !== DEFAULT_CLIENT_NEXT_PATH) {
+    destination.searchParams.set("next", safeNextPath);
+  }
+  return destination.toString();
 }
 
 export function clientSignupErrorMessage(error: ClientSignupError): string {
@@ -42,8 +47,9 @@ export function clientSignupErrorMessage(error: ClientSignupError): string {
   return "The registration request could not be completed. Check the details and try again.";
 }
 
-export function sanitizeClientNextPath(candidate: string | null | undefined): string {
+export function sanitizeClientNextPath(candidate: unknown): string {
   if (
+    typeof candidate !== "string" ||
     !candidate ||
     candidate.length > 2_048 ||
     !candidate.startsWith("/") ||

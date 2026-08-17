@@ -10,7 +10,7 @@ import {
 } from "@/lib/client-signup";
 import { getClientAuthBrowserClient } from "@/lib/client-auth-browser";
 
-export function ClientSignupForm({ authMode }: { authMode: "local" | "supabase" }) {
+export function ClientSignupForm({ authMode, nextPath = "/" }: { authMode: "local" | "supabase"; nextPath?: string }) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = useMemo(
@@ -22,7 +22,10 @@ export function ClientSignupForm({ authMode }: { authMode: "local" | "supabase" 
   const [pendingEmail, setPendingEmail] = useState("");
   const [resendMessage, setResendMessage] = useState("");
 
-  const redirectTo = () => clientEmailConfirmationRedirect(window.location.origin);
+  const redirectTo = () => clientEmailConfirmationRedirect(window.location.origin, nextPath);
+  const loginPath = nextPath === "/"
+    ? "/client/login"
+    : `/client/login?${new URLSearchParams({ next: nextPath })}`;
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -110,7 +113,7 @@ export function ClientSignupForm({ authMode }: { authMode: "local" | "supabase" 
         </button>
         {resendMessage && <p className="form-status success" role="status">{resendMessage}</p>}
         {error && <p className="form-status error" role="alert">{error}</p>}
-        <Link className="text-link" href="/client/login">Back to Client Login</Link>
+        <Link className="text-link" href={loginPath}>Back to Client Login</Link>
       </div>
     );
   }

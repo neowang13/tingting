@@ -61,25 +61,23 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByLabel("Phone number *").fill("604-555-0144");
   await page.getByRole("button", { name: "Save and continue" }).click();
 
-  await page.getByText("Need the paper fallback?").click();
+  await page.getByText("Need a paper application instead?").click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: "Download fallback application form" }).click();
   expect((await downloadPromise).suggestedFilename()).toContain("2026-07-31.1");
 
-  await page.getByLabel("Choose a supporting document").setInputFiles({
+  await page.getByLabel("Choose an income verification document").setInputFiles({
     name: "unsafe.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.7\n/OpenAction /JavaScript")
   });
-  await page.getByRole("button", { name: "Upload securely" }).click();
   await expect(page.locator(".client-application-flow .form-status.error")).toContainText("scripts");
 
-  await page.getByLabel("Choose a supporting document").setInputFiles({
+  await page.getByLabel("Choose an income verification document").setInputFiles({
     name: "completed-application.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF")
   });
-  await page.getByRole("button", { name: "Upload securely" }).click();
   await expect(page.getByRole("status")).toContainText("private storage");
   await expect(page.getByText("completed-application.pdf")).toBeVisible();
 
@@ -108,15 +106,44 @@ test("client login, saved online application, validated upload, affirmative cons
   await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
   await page.goto("/admin/applications");
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
-  await expect(page.getByText("completed-application.pdf")).not.toBeVisible();
-  await expect(page.getByText("screening required")).toBeVisible();
-  await page.getByText("screening required").click();
+  await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
+  await page.getByRole("button", { name: "Review application" }).click();
+  const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
+  await expect(reviewDialog).toBeVisible();
   await expect(page.getByText("completed-application.pdf")).toBeVisible();
   const staffDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Download for secure scan" }).click();
+  await page.getByRole("link", { name: "Secure download" }).click();
   expect((await staffDownloadPromise).suggestedFilename()).toBe("completed-application.pdf");
   await page.getByRole("button", { name: "Mark cleared" }).click();
-  await expect(page.getByText("cleared", { exact: true }).first()).toBeVisible();
+  await expect(reviewDialog.getByText(/cleared/).first()).toBeVisible();
   await page.getByRole("button", { name: "Mark received" }).click();
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();
+  await page.getByRole("button", { name: "Start review" }).click();
+  await expect(page.getByRole("button", { name: "Approve & email client" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Decline" })).toBeVisible();
+  await page.getByRole("button", { name: "Approve & email client" }).click();
+  await expect(reviewDialog.getByText(/approval email was queued/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark as tenant" })).toBeVisible();
+  await page.getByRole("button", { name: "Mark as tenant" }).click();
+  const createTenant = reviewDialog.getByRole("button", { name: "Create & link tenant" });
+  await expect(createTenant).toBeDisabled();
+  await reviewDialog.getByLabel("Choose signed tenancy agreement PDF").setInputFiles({
+    name: "signed-tenancy-agreement.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF")
+  });
+  await expect(reviewDialog.getByText("Signed tenancy agreement uploaded to private storage.")).toBeVisible();
+  await expect(reviewDialog.getByText("signed-tenancy-agreement.pdf")).toBeVisible();
+  await reviewDialog.getByLabel("Lease end date").fill("2027-08-31");
+  await reviewDialog.getByLabel(/I confirm the tenancy agreement has been signed/).check();
+  await expect(createTenant).toBeEnabled();
+  await createTenant.click();
+  await expect(reviewDialog.getByText("Tenant created and linked to this Client account.")).toBeVisible();
+  await expect(reviewDialog.getByRole("link", { name: "Manage tenant" })).toBeVisible();
+
+  const modalResults = await new AxeBuilder({ page })
+    .include(".application-review-dialog")
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .analyze();
+  expect(modalResults.violations.map(({ id }) => id)).toEqual([]);
 });

@@ -16,10 +16,12 @@ import {
   Wrench
 } from "lucide-react";
 import { ContactForm } from "@/components/public/contact-form";
+import { GoogleReviewCard } from "@/components/public/google-review-card";
 import { ServiceDetails } from "@/components/public/service-details";
 import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import { resolveSeededPublicMedia } from "@/features/content/public-media";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
+import { googleReviewDemoFeed, type GoogleReviewFeed } from "@/features/google-reviews";
 
 const serviceIcons = {
   rental_management: KeyRound,
@@ -41,11 +43,20 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
+export function SiteHome({
+  sections,
+  rentals,
+  mediaUrls,
+  googleReviews
+}: PublicHomepageData & { googleReviews?: GoogleReviewFeed }) {
   const { header, hero, property_services: services } = sections;
   const { featured_rentals: featured, about, contact, footer } = sections;
   const heroImage = mediaUrls[hero.background.mediaAssetId] ?? resolveSeededPublicMedia(hero.background.mediaAssetId);
   const portraitImage = mediaUrls[about.portrait.mediaAssetId] ?? resolveSeededPublicMedia(about.portrait.mediaAssetId);
+  const googleBusinessUrl = process.env.NEXT_PUBLIC_GOOGLE_BUSINESS_URL
+    ?? "https://www.google.com/search?q=Ting+Ting+Xu+Personal+Real+Estate+Corporation+Vancouver";
+  const googleReviewUrl = process.env.NEXT_PUBLIC_GOOGLE_REVIEW_URL ?? googleBusinessUrl;
+  const reviewFeed = googleReviews ?? googleReviewDemoFeed;
   return (
     <>
       <SiteHeader header={header} />
@@ -65,14 +76,33 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
             <div className="hero-media-placeholder" role="img" aria-label={hero.background.alt} />
           )}
           <div className="hero-scrim" aria-hidden />
-          <div className="container hero-copy">
-            <div className="eyebrow">{hero.eyebrow}</div>
-            <h1 id="hero-heading">{hero.heading}</h1>
-            <p>{hero.body}</p>
-            <Link className="button hero-cta" href={hero.primaryCta.href}>
-              {hero.primaryCta.label}
-              <ArrowRight size={18} aria-hidden />
-            </Link>
+          <div className="container hero-layout">
+            <div className="hero-copy">
+              <div className="eyebrow">{hero.eyebrow}</div>
+              <h1 id="hero-heading">{hero.heading}</h1>
+              <p>{hero.body}</p>
+              <div className="hero-brokerage">
+                <Image
+                  src="/images/remax-city-realty-logo-white-v2.png"
+                  alt="RE/MAX City Realty"
+                  width={1164}
+                  height={1000}
+                  sizes="132px"
+                />
+              </div>
+              <Link className="button hero-cta" href={hero.primaryCta.href}>
+                {hero.primaryCta.label}
+                <ArrowRight size={18} aria-hidden />
+              </Link>
+            </div>
+            <GoogleReviewCard
+              businessUrl={googleBusinessUrl}
+              reviewUrl={googleReviewUrl}
+              reviews={reviewFeed.reviews}
+              rating={reviewFeed.rating}
+              reviewCount={reviewFeed.reviewCount}
+              isDemo={reviewFeed.isDemo}
+            />
           </div>
         </section>
 
@@ -200,8 +230,8 @@ export function SiteHome({ sections, rentals, mediaUrls }: PublicHomepageData) {
               <h2>{about.heading}</h2>
               {about.paragraphs.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
               {about.cta && (
-                <Link className="text-link" href={about.cta.href}>
-                  {about.cta.label}
+                <Link className="text-link" href="/about">
+                  Learn more about Ting Ting
                   <ArrowRight size={16} aria-hidden />
                 </Link>
               )}

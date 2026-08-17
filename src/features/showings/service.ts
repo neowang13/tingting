@@ -176,7 +176,8 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
       requestId,
       request: input,
       property,
-      requestedStartAt: slot.requestedStartAt
+      requestedStartAt: slot.requestedStartAt,
+      appBaseUrl: process.env.APP_BASE_URL
     });
     try {
       await notifier.send({

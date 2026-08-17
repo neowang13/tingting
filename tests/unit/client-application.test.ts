@@ -1,9 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  APPLICATION_TERMS_VERSION,
+  applicationTermsText
+} from "@/features/applications/contracts";
+import {
   applicationReceipt,
   assertApplicationMaterialsApproved,
+  convertApprovedApplicationToTenant,
   getApplicationForm,
   getApplicationFileForStaff,
+  getSignedLeaseForStaff,
   getClientApplication,
   listClientApplications,
   resetDemoApplicationsForTests,
@@ -12,7 +18,8 @@ import {
   startOrReuseClientApplication,
   submitClientApplication,
   updateApplicationStatus,
-  uploadApplicationFile
+  uploadApplicationFile,
+  uploadSignedLeaseForStaff
 } from "@/features/applications/service";
 import type { ClientIdentity } from "@/features/applications/contracts";
 import { applicationDraftSchema } from "@/features/applications/schemas";
@@ -50,6 +57,12 @@ beforeEach(() => {
 });
 
 describe("client application workflow", () => {
+  it("uses the finalized approved consent copy", () => {
+    expect(APPLICATION_TERMS_VERSION).toBe("2026-08-08.1");
+    expect(applicationTermsText).not.toMatch(/draft|pre-production|before production/i);
+    expect(applicationTermsText).toContain("info@silverkey.ca");
+  });
+
   it("fails closed for unapproved application materials in durable mode", () => {
     expect(() => assertApplicationMaterialsApproved({ legalReviewStatus: "pending" }, true))
       .toThrow(expect.objectContaining({ status: 409, code: "APPLICATION_LEGAL_REVIEW_REQUIRED" }));
@@ -208,5 +221,77 @@ describe("client application workflow", () => {
     expect((await getApplicationFileForStaff(admin, fileId)).bytes.toString("utf8")).toContain("%PDF");
     expect((await reviewApplicationFile(admin, fileId, "cleared")).scanStatus).toBe("cleared");
     expect((await updateApplicationStatus(admin, applicationId, "under_review")).status).toBe("under_review");
+
+    const approvalSend = vi.fn<EmailProvider["send"]>().mockResolvedValue({
+      providerMessageId: "resend-approval-test",
+      status: "queued"
+    });
+    const approved = await updateApplicationStatus(admin, applicationId, "approved", {
+      notifier: { send: approvalSend }
+    });
+    expect(approved.status).toBe("approved");
+    expect(approved.applicantNotification.status).toBe("queued");
+    expect(approvalSend).toHaveBeenCalledWith(expect.objectContaining({
+      to: "client@example.test",
+      idempotencyKey: `application-approved-${applicationId}`,
+      subject: expect.stringContaining("approved")
+    }));
+    expect(approvalSend.mock.calls[0][0].text).toContain("will contact you");
+    expect(approvalSend.mock.calls[0][0].text).toContain("does not create a tenancy");
+
+    const conversionInput = {
+      propertyLabel: "1231 Howe Street",
+      unitLabel: "1104",
+      moveInDate: "2026-09-01",
+      leaseType: "fixed_term" as const,
+      leaseEndDate: "2027-08-31",
+      rentDueDay: 1
+    };
+    await expect(convertApprovedApplicationToTenant(admin, applicationId, conversionInput))
+      .rejects.toMatchObject({ code: "SIGNED_LEASE_REQUIRED" });
+    await expect(uploadSignedLeaseForStaff(
+      admin,
+      applicationId,
+      pdfFile("%PDF-1.7\n/OpenAction /JavaScript")
+    )).rejects.toMatchObject({ code: "UNSAFE_LEASE_FILE" });
+    const signedLease = await uploadSignedLeaseForStaff(
+      admin,
+      applicationId,
+      new File(["%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF"], "signed-tenancy-agreement.pdf", { type: "application/pdf" })
+    );
+    expect((await getSignedLeaseForStaff(admin, signedLease.id)).bytes.toString("utf8"))
+      .toContain("%PDF-1.7");
+
+    const converted = await convertApprovedApplicationToTenant(admin, applicationId, conversionInput);
+    expect(converted.application.convertedTenantId).toBe(converted.tenant.id);
+    expect(converted.tenant).toMatchObject({
+      fullName: "Demo Applicant",
+      email: "client@example.test",
+      phoneE164: "+16045550182",
+      leaseType: "fixed_term",
+      isActive: true
+    });
+    expect((await convertApprovedApplicationToTenant(admin, applicationId, conversionInput)).tenant.id)
+      .toBe(converted.tenant.id);
+  });
+
+  it("keeps approval recorded when applicant email delivery fails", async () => {
+    await saveCompleteDraft();
+    const uploaded = await uploadApplicationFile(client, applicationId, pdfFile());
+    const application = await getClientApplication(client, applicationId);
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" });
+    const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
+    await reviewApplicationFile(admin, uploaded.id, "cleared");
+    await updateApplicationStatus(admin, applicationId, "received");
+    await updateApplicationStatus(admin, applicationId, "under_review");
+    const approved = await updateApplicationStatus(admin, applicationId, "approved", {
+      notifier: { send: vi.fn().mockRejectedValue(new Error("provider unavailable")) }
+    });
+    expect(approved.status).toBe("approved");
+    expect(approved.applicantNotification.status).toBe("failed");
   });
 });

@@ -98,6 +98,19 @@ describe("client-only redirect paths", () => {
       .toBe("http://127.0.0.1:3300/client/auth/confirm");
   });
 
+  it("carries only a safe client next path into the email confirmation callback", () => {
+    expect(clientEmailConfirmationRedirect(
+      "https://tingting.example",
+      "/client/apply/howe-street-one-bedroom"
+    )).toBe(
+      "https://tingting.example/client/auth/confirm?next=%2Fclient%2Fapply%2Fhowe-street-one-bedroom"
+    );
+    expect(clientEmailConfirmationRedirect(
+      "https://tingting.example",
+      "https://evil.example/client/apply/stolen"
+    )).toBe("https://tingting.example/client/auth/confirm");
+  });
+
   it("preserves a local client path, query, and fragment", () => {
     expect(sanitizeClientNextPath("/client/applications?property=home#form"))
       .toBe("/client/applications?property=home#form");
@@ -108,6 +121,11 @@ describe("client-only redirect paths", () => {
   it("returns generic client sign-ins to the public homepage", () => {
     expect(sanitizeClientNextPath(undefined)).toBe("/");
     expect(sanitizeClientNextPath(null)).toBe("/");
+  });
+
+  it("rejects repeated next parameters instead of throwing", () => {
+    const repeatedNext = ["/client/applications", "https://evil.example/client/applications"];
+    expect(sanitizeClientNextPath(repeatedNext)).toBe("/");
   });
 
   it.each([
@@ -158,6 +176,23 @@ describe("client email confirmation callback", () => {
     expect(response.status).toBe(303);
     expect(response.headers.get("location"))
       .toBe("https://tingting.example/client/login?verification=success");
+  });
+
+  it("preserves a safe client next path after email confirmation", async () => {
+    mocks.createServerClient.mockReturnValue({
+      auth: {
+        exchangeCodeForSession: vi.fn().mockResolvedValue({ error: null }),
+        signOut: vi.fn().mockResolvedValue({ error: null })
+      }
+    });
+
+    const response = await confirmClientEmail(new Request(
+      "https://tingting.example/client/auth/confirm?code=one-time-code&next=%2Fclient%2Fapply%2Fhowe-street-one-bedroom"
+    ));
+
+    expect(response.headers.get("location")).toBe(
+      "https://tingting.example/client/login?verification=success&next=%2Fclient%2Fapply%2Fhowe-street-one-bedroom"
+    );
   });
 
   it("passes cleared Supabase session cookies to the response cookie store", async () => {

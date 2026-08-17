@@ -32,7 +32,7 @@ const content: Record<SiteSection["key"], unknown> = {
     contactCta: { label: "Log in", href: "/client/login" }
   },
   hero: {
-    eyebrow: "GREATER VANCOUVER RENTALS",
+    eyebrow: "Managed by TingTing Xu Personal Real Estate Corporation",
     heading: "Find Your Perfect Rental",
     body: "Vancouver rental expertise with local knowledge, fast response and personalized service.",
     background: { mediaAssetId: mediaHero, alt: "Vancouver skyline viewed from a modern home" },

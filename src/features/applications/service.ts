@@ -3,9 +3,11 @@ import { createClient } from "@supabase/supabase-js";
 import { getRepository } from "@/data/repository";
 import { ApiError } from "@/lib/api";
 import type { AdminIdentity } from "@/lib/auth";
+import { tenantCreateInputSchema } from "@/lib/schemas";
 import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 import {
   APPLICATION_FORM_VERSION,
+  APPLICATION_LEASE_MAX_FILE_BYTES,
   APPLICATION_MAX_FILE_BYTES,
   APPLICATION_RETENTION_MONTHS,
   APPLICATION_TERMS_VERSION,
@@ -13,16 +15,23 @@ import {
   applicationFormText,
   applicationTermsText,
   type ApplicationFileRecord,
+  type ApplicationLeaseDocumentRecord,
+  type ApplicantNotificationStatus,
   type ApplicationStatus,
+  type ApplicationStatusUpdateResult,
   type ClientApplicationRecord,
   type ClientIdentity
 } from "@/features/applications/contracts";
 import {
   applicationDraftSchema,
   validateCompleteApplicationDraft,
-  type ApplicationDraft
+  type ApplicationDraft,
+  type ApplicationTenantConversion
 } from "@/features/applications/schemas";
-import { renderApplicationSubmittedNotification } from "@/features/applications/notification";
+import {
+  renderApplicationApprovedNotification,
+  renderApplicationSubmittedNotification
+} from "@/features/applications/notification";
 import {
   createNotificationProviders,
   resolveEmailProviderMode
@@ -32,11 +41,12 @@ import type { EmailProvider } from "@/features/notifications/providers/types";
 const DEMO_APPLICATION_ID = "30000000-0000-4000-8000-000000000009";
 const APPLICATION_SELECT = `
   id,owner_user_id,property_title,property_address,status,assigned_at,submitted_at,
-  consented_at,retain_until,draft_payload,draft_updated_at,
+  consented_at,retain_until,draft_payload,draft_updated_at,converted_tenant_id,converted_at,
   rental_listings(slug),
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
   application_terms_versions!inner(version,sha256,legal_review_status,displayed_text),
-  client_application_files(id,original_filename,mime_type,byte_size,scan_status,uploaded_at)
+  client_application_files(id,original_filename,mime_type,byte_size,scan_status,uploaded_at),
+  client_application_lease_files(id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at)
 `;
 
 interface DemoApplication extends ClientApplicationRecord {
@@ -47,6 +57,7 @@ interface DemoApplication extends ClientApplicationRecord {
 declare global {
   var __tingtingClientApplications: Map<string, DemoApplication> | undefined;
   var __tingtingClientApplicationFileBytes: Map<string, Uint8Array> | undefined;
+  var __tingtingClientApplicationLeaseBytes: Map<string, Uint8Array> | undefined;
 }
 
 function sha256(value: string | Uint8Array) {
@@ -76,6 +87,9 @@ function demoStore() {
       draft: applicationDraftSchema.parse({}),
       draftUpdatedAt: null,
       files: [],
+      leaseDocument: null,
+      convertedTenantId: null,
+      convertedAt: null,
       consentText: null,
       audit: [{ action: "application.assigned", createdAt: now }]
     });
@@ -105,6 +119,8 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
   const terms = relation(row.application_terms_versions) as Record<string, unknown>;
   const rental = relation(row.rental_listings) as Record<string, unknown> | undefined;
   const files = (row.client_application_files ?? []) as Array<Record<string, unknown>>;
+  const leaseFiles = (row.client_application_lease_files ?? []) as Array<Record<string, unknown>>;
+  const leaseFile = leaseFiles.find((file) => !file.superseded_at && !file.deleted_at);
   const draft = applicationDraftSchema.safeParse(row.draft_payload ?? {});
   if (!draft.success) {
     throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "The saved application draft could not be loaded.");
@@ -134,7 +150,16 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
       byteSize: Number(file.byte_size),
       scanStatus: file.scan_status as ApplicationFileRecord["scanStatus"],
       uploadedAt: String(file.uploaded_at)
-    })).sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt))
+    })).sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt)),
+    leaseDocument: leaseFile ? {
+      id: String(leaseFile.id),
+      originalFilename: String(leaseFile.original_filename),
+      mimeType: "application/pdf",
+      byteSize: Number(leaseFile.byte_size),
+      uploadedAt: String(leaseFile.uploaded_at)
+    } : null,
+    convertedTenantId: row.converted_tenant_id ? String(row.converted_tenant_id) : null,
+    convertedAt: row.converted_at ? String(row.converted_at) : null
   };
 }
 
@@ -294,6 +319,9 @@ export async function startOrReuseClientApplication(identity: ClientIdentity, pr
       draft: applicationDraftSchema.parse({}),
       draftUpdatedAt: null,
       files: [],
+      leaseDocument: null,
+      convertedTenantId: null,
+      convertedAt: null,
       consentText: null,
       audit: [{ action: "application.client_started", createdAt: now }]
     };
@@ -515,7 +543,7 @@ export async function submitClientApplication(
   if (draftIssues.length > 0) {
     throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${draftIssues[0].section.replaceAll("_", " ")} before submitting.`);
   }
-  if (application.files.length === 0) throw new ApiError(400, "APPLICATION_FILE_REQUIRED", "Upload at least one supporting document before submitting.");
+  if (application.files.length === 0) throw new ApiError(400, "APPLICATION_FILE_REQUIRED", "Upload one of the accepted income verification options before submitting.");
   if (application.files.some((file) => file.scanStatus === "rejected")) {
     throw new ApiError(400, "APPLICATION_FILE_REJECTED", "Remove or replace the rejected file before submitting.");
   }
@@ -714,13 +742,233 @@ export async function reviewApplicationFile(
   };
 }
 
+function inspectLeaseUpload(file: File, bytes: Uint8Array) {
+  if (bytes.length < 5 || bytes.length > APPLICATION_LEASE_MAX_FILE_BYTES) {
+    throw new ApiError(400, "INVALID_LEASE_FILE_SIZE", "The signed tenancy agreement must be a PDF no larger than 20 MB.");
+  }
+  const name = safeFilename(file.name);
+  if (!name.toLowerCase().endsWith(".pdf")) {
+    throw new ApiError(400, "UNSUPPORTED_LEASE_FILE", "Upload the signed tenancy agreement as a PDF file.");
+  }
+  if (!(bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+    throw new ApiError(400, "LEASE_FILE_TYPE_MISMATCH", "The selected file is not a valid PDF.");
+  }
+  if (file.type && file.type !== "application/octet-stream" && file.type !== "application/pdf") {
+    throw new ApiError(400, "LEASE_FILE_TYPE_MISMATCH", "The selected file is not a valid PDF.");
+  }
+  const searchable = Buffer.from(bytes).toString("latin1");
+  if (/\/(?:JavaScript|JS|OpenAction|Launch|EmbeddedFile)\b/i.test(searchable)) {
+    throw new ApiError(400, "UNSAFE_LEASE_FILE", "PDFs with scripts, launch actions, or embedded files are not accepted.");
+  }
+  return { name };
+}
+
+async function loadApplicationForStaff(id: string) {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const application = demoStore().get(id);
+    return application ? structuredClone(application) : null;
+  }
+  const result = await supabaseService().from("client_applications")
+    .select(APPLICATION_SELECT)
+    .eq("id", id)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
+  return result.data ? mapApplication(result.data as unknown as Record<string, unknown>) : null;
+}
+
+export async function uploadSignedLeaseForStaff(admin: AdminIdentity, applicationId: string, file: File) {
+  const application = await loadApplicationForStaff(applicationId);
+  if (!application) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  if (application.status !== "approved") {
+    throw new ApiError(409, "APPLICATION_NOT_APPROVED", "Approve the application before uploading a signed tenancy agreement.");
+  }
+  if (application.convertedTenantId) {
+    throw new ApiError(409, "APPLICATION_ALREADY_CONVERTED", "The application has already been converted to a tenant.");
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const inspected = inspectLeaseUpload(file, bytes);
+  const uploadedAt = new Date().toISOString();
+  const record: ApplicationLeaseDocumentRecord = {
+    id: crypto.randomUUID(),
+    originalFilename: inspected.name,
+    mimeType: "application/pdf",
+    byteSize: bytes.length,
+    uploadedAt
+  };
+
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const stored = demoStore().get(applicationId)!;
+    if (stored.leaseDocument) {
+      globalThis.__tingtingClientApplicationLeaseBytes?.delete(stored.leaseDocument.id);
+    }
+    stored.leaseDocument = record;
+    globalThis.__tingtingClientApplicationLeaseBytes ??= new Map();
+    globalThis.__tingtingClientApplicationLeaseBytes.set(record.id, bytes);
+    stored.audit.push({ action: "application.lease_document_uploaded", createdAt: uploadedAt });
+    return structuredClone(record);
+  }
+
+  const storagePath = `leases/${applicationId}/${record.id}.pdf`;
+  const service = supabaseService();
+  const uploaded = await service.storage.from(applicationBucket()).upload(storagePath, bytes, {
+    contentType: "application/pdf",
+    upsert: false
+  });
+  if (uploaded.error) {
+    throw new ApiError(503, "LEASE_UPLOAD_UNAVAILABLE", "The signed tenancy agreement could not be stored securely.");
+  }
+
+  const registered = await service.rpc("register_application_lease_file", {
+    p_application_id: applicationId,
+    p_file: {
+      id: record.id,
+      storagePath,
+      originalFilename: record.originalFilename,
+      mimeType: record.mimeType,
+      byteSize: record.byteSize,
+      sha256: sha256(bytes),
+      uploadedAt
+    },
+    p_actor_id: admin.userId
+  });
+  if (registered.error || !registered.data) {
+    await service.storage.from(applicationBucket()).remove([storagePath]);
+    if (registered.error?.code === "TT409") {
+      throw new ApiError(409, "LEASE_UPLOAD_CONFLICT", registered.error.message);
+    }
+    throw new ApiError(503, "LEASE_UPLOAD_UNAVAILABLE", "The signed tenancy agreement could not be recorded securely.");
+  }
+  const previousStoragePath = typeof registered.data === "object"
+    && registered.data
+    && "previousStoragePath" in registered.data
+    && typeof registered.data.previousStoragePath === "string"
+    ? registered.data.previousStoragePath
+    : null;
+  if (previousStoragePath) {
+    await service.storage.from(applicationBucket()).remove([previousStoragePath]);
+  }
+  return record;
+}
+
+export async function getSignedLeaseForStaff(admin: AdminIdentity, leaseFileId: string) {
+  void admin;
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const application = [...demoStore().values()].find((item) => item.leaseDocument?.id === leaseFileId);
+    const bytes = globalThis.__tingtingClientApplicationLeaseBytes?.get(leaseFileId);
+    if (!application?.leaseDocument || !bytes) {
+      throw new ApiError(404, "LEASE_FILE_NOT_FOUND", "Signed tenancy agreement not found.");
+    }
+    return { file: structuredClone(application.leaseDocument), bytes: Buffer.from(bytes) };
+  }
+  const service = supabaseService();
+  const result = await service.from("client_application_lease_files")
+    .select("id,original_filename,mime_type,byte_size,uploaded_at,storage_path")
+    .eq("id", leaseFileId)
+    .is("superseded_at", null)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (result.error) throw new ApiError(503, "LEASE_FILE_UNAVAILABLE", "The signed tenancy agreement could not be loaded.");
+  if (!result.data) throw new ApiError(404, "LEASE_FILE_NOT_FOUND", "Signed tenancy agreement not found.");
+  const download = await service.storage.from(applicationBucket()).download(result.data.storage_path);
+  if (download.error || !download.data) {
+    throw new ApiError(503, "LEASE_FILE_UNAVAILABLE", "The signed tenancy agreement is temporarily unavailable.");
+  }
+  return {
+    file: {
+      id: result.data.id,
+      originalFilename: result.data.original_filename,
+      mimeType: "application/pdf" as const,
+      byteSize: result.data.byte_size,
+      uploadedAt: result.data.uploaded_at
+    },
+    bytes: Buffer.from(await download.data.arrayBuffer())
+  };
+}
+
 const staffTransitions: Record<ApplicationStatus, ApplicationStatus[]> = {
   draft: [], submitted: ["received", "withdrawn"], received: ["needs_information", "under_review", "withdrawn"],
   needs_information: ["received", "withdrawn"], under_review: ["needs_information", "approved", "declined", "withdrawn"],
   approved: [], declined: [], withdrawn: []
 };
 
-export async function updateApplicationStatus(admin: AdminIdentity, id: string, next: ApplicationStatus) {
+async function recordApplicationAudit(
+  applicationId: string,
+  action: string,
+  input: { actorUserId?: string; actorType: "staff" | "system"; requestContext?: Record<string, unknown> }
+) {
+  const createdAt = new Date().toISOString();
+  if (process.env.DATA_BACKEND !== "supabase") {
+    demoStore().get(applicationId)?.audit.push({ action, createdAt });
+    return;
+  }
+  await supabaseService().from("client_application_audit_events").insert({
+    application_id: applicationId,
+    actor_user_id: input.actorUserId ?? null,
+    actor_type: input.actorType,
+    action,
+    request_context: input.requestContext ?? {}
+  });
+}
+
+async function notifyApplicantOfApproval(
+  application: ClientApplicationRecord,
+  options: { notifier?: EmailProvider; recipient?: string | null }
+): Promise<ApplicationStatusUpdateResult["applicantNotification"]> {
+  const recipient = options.recipient === undefined
+    ? application.draft.personal.email.trim()
+    : options.recipient;
+  if (!recipient) {
+    await recordApplicationAudit(application.id, "application.applicant_approval_notification_failed", {
+      actorType: "system",
+      requestContext: { safeErrorCode: "APPLICATION_APPLICANT_EMAIL_MISSING" }
+    });
+    return { status: "failed", providerMessageId: null };
+  }
+
+  const emailMode = resolveEmailProviderMode();
+  if (!options.notifier && emailMode === "disabled") {
+    await recordApplicationAudit(application.id, "application.applicant_approval_notification_disabled", {
+      actorType: "system"
+    });
+    return { status: "disabled", providerMessageId: null };
+  }
+
+  try {
+    const notifier = options.notifier
+      ?? createNotificationProviders({ email: emailMode, sms: "disabled" }).email;
+    const notification = renderApplicationApprovedNotification({ application });
+    const delivery = await notifier.send({
+      to: recipient,
+      subject: notification.subject,
+      text: notification.text,
+      html: notification.html,
+      idempotencyKey: `application-approved-${application.id}`
+    });
+    await recordApplicationAudit(application.id, "application.applicant_approval_notification_queued", {
+      actorType: "system",
+      requestContext: {
+        providerMessageId: delivery.providerMessageId,
+        status: delivery.status
+      }
+    });
+    return { status: delivery.status, providerMessageId: delivery.providerMessageId };
+  } catch {
+    await recordApplicationAudit(application.id, "application.applicant_approval_notification_failed", {
+      actorType: "system",
+      requestContext: { safeErrorCode: "APPLICATION_APPLICANT_EMAIL_DELIVERY_FAILED" }
+    });
+    return { status: "failed", providerMessageId: null };
+  }
+}
+
+export async function updateApplicationStatus(
+  admin: AdminIdentity,
+  id: string,
+  next: ApplicationStatus,
+  options: { notifier?: EmailProvider; recipient?: string | null } = {}
+): Promise<ApplicationStatusUpdateResult> {
   let current: ClientApplicationRecord | undefined;
   if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
   else {
@@ -734,21 +982,128 @@ export async function updateApplicationStatus(admin: AdminIdentity, id: string, 
     throw new ApiError(409, "APPLICATION_FILES_NOT_CLEARED", "All application files must pass the approved screening process before review.");
   }
   const now = new Date().toISOString();
+  let application: ClientApplicationRecord;
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
     stored.status = next;
     stored.audit.push({ action: `application.status.${next}`, createdAt: now });
-    return structuredClone(stored);
+    application = structuredClone(stored);
+  } else {
+    const service = supabaseService();
+    const updated = await service.from("client_applications").update({ status: next, updated_at: now })
+      .eq("id", id).eq("status", current.status).select("id").maybeSingle();
+    if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application status changed. Reload and try again.");
+    await recordApplicationAudit(id, `application.status.${next}`, {
+      actorUserId: admin.userId,
+      actorType: "staff"
+    });
+    application = { ...current, status: next };
   }
-  const service = supabaseService();
-  const updated = await service.from("client_applications").update({ status: next, updated_at: now })
-    .eq("id", id).eq("status", current.status).select("id").maybeSingle();
-  if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application status changed. Reload and try again.");
-  await service.from("client_application_audit_events").insert({ application_id: id, actor_user_id: admin.userId, actor_type: "staff", action: `application.status.${next}` });
-  return { ...current, status: next };
+
+  const applicantNotification = next === "approved"
+    ? await notifyApplicantOfApproval(application, options)
+    : { status: "not_applicable" as ApplicantNotificationStatus, providerMessageId: null };
+  return { ...application, applicantNotification };
+}
+
+export async function convertApprovedApplicationToTenant(
+  admin: AdminIdentity,
+  id: string,
+  conversion: ApplicationTenantConversion
+) {
+  let current: ClientApplicationRecord | undefined;
+  if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
+  else {
+    const result = await supabaseService().from("client_applications")
+      .select(APPLICATION_SELECT)
+      .eq("id", id)
+      .maybeSingle();
+    if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
+    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>);
+  }
+  if (!current) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  if (current.status !== "approved") {
+    throw new ApiError(409, "APPLICATION_NOT_APPROVED", "Approve the application before creating a tenant.");
+  }
+  if (!current.leaseDocument) {
+    throw new ApiError(409, "SIGNED_LEASE_REQUIRED", "Upload the signed tenancy agreement before creating a tenant.");
+  }
+  if (current.convertedTenantId) {
+    const existing = await getRepository().getTenant(current.convertedTenantId);
+    return { application: current, tenant: existing.tenant };
+  }
+
+  const applicantName = [
+    current.draft.personal.legalFirstName,
+    current.draft.personal.legalLastName
+  ].filter(Boolean).join(" ").trim();
+  const tenantPayload = tenantCreateInputSchema.parse({
+    fullName: applicantName,
+    propertyLabel: conversion.propertyLabel,
+    unitLabel: conversion.unitLabel,
+    moveInDate: conversion.moveInDate,
+    leaseType: conversion.leaseType,
+    leaseEndDate: conversion.leaseEndDate,
+    rentDueDay: conversion.rentDueDay,
+    email: current.draft.personal.email,
+    phoneE164: current.draft.personal.phone,
+    preferredChannels: ["email"],
+    emailContactStatus: "allowed",
+    smsContactStatus: "unconfirmed",
+    emailContactStatusReason: null,
+    smsContactStatusReason: null,
+    emailContactStatusSource: "signed_tenancy_agreement",
+    smsContactStatusSource: null,
+    contactPermissionNote: `Created from approved application ${current.id} after staff confirmed the tenancy agreement was signed.`,
+    contactPermissionUpdatedAt: new Date().toISOString(),
+    timezone: "America/Vancouver",
+    internalNotes: `Created from rental application ${current.id}.`,
+    isActive: true
+  });
+
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const repository = getRepository();
+    const tenant = await repository.createTenant(tenantPayload, admin.userId);
+    const matchingClient = (await repository.listClientAccounts())
+      .find((client) => client.userId === current!.ownerUserId);
+    if (matchingClient) {
+      await repository.linkClientToTenant(current.ownerUserId, { tenantId: tenant.id }, admin.userId);
+    }
+    const convertedAt = new Date().toISOString();
+    const stored = demoStore().get(id)!;
+    stored.convertedTenantId = tenant.id;
+    stored.convertedAt = convertedAt;
+    stored.audit.push({ action: "application.converted_to_tenant", createdAt: convertedAt });
+    return { application: structuredClone(stored), tenant };
+  }
+
+  const converted = await supabaseService().rpc("convert_approved_application_to_tenant", {
+    p_application_id: id,
+    p_tenant_payload: tenantPayload,
+    p_actor_id: admin.userId
+  });
+  if (converted.error || !converted.data) {
+    if (converted.error?.code === "TT409") {
+      throw new ApiError(409, "APPLICATION_TENANT_CONVERSION_CONFLICT", converted.error.message);
+    }
+    throw new ApiError(503, "APPLICATION_TENANT_CONVERSION_FAILED", "The tenant could not be created from this application.");
+  }
+  const tenant = (await getRepository().getTenant(String(converted.data))).tenant;
+  const application = await supabaseService().from("client_applications")
+    .select(APPLICATION_SELECT)
+    .eq("id", id)
+    .single();
+  if (application.error || !application.data) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The converted application could not be reloaded.");
+  }
+  return {
+    application: mapApplication(application.data as unknown as Record<string, unknown>),
+    tenant
+  };
 }
 
 export function resetDemoApplicationsForTests() {
   globalThis.__tingtingClientApplications = undefined;
   globalThis.__tingtingClientApplicationFileBytes = undefined;
+  globalThis.__tingtingClientApplicationLeaseBytes = undefined;
 }

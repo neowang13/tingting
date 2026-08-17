@@ -72,6 +72,11 @@ describe("showing request service", () => {
     }));
     expect(send.mock.calls[0][0].text).toContain("604-555-0182");
     expect(send.mock.calls[0][0].text).toContain("Monday, August 3, 2026 at 10:30 a.m. PDT");
+    expect(send.mock.calls[0][0].text).toContain("Contact requester: sms:+16045550182");
+    expect(send.mock.calls[0][0].text).toContain("Call requester: tel:+16045550182");
+    expect(send.mock.calls[0][0].html).toContain('href="sms:+16045550182"');
+    expect(send.mock.calls[0][0].html).toContain("Direct phone number");
+    expect(send.mock.calls[0][0].html).toContain('href="tel:+16045550182"');
   });
 
   it("does not persist honeypot submissions", async () => {
@@ -100,5 +105,7 @@ describe("showing request service", () => {
     });
     expect(notification.html).not.toContain("<script>");
     expect(notification.html).toContain("&lt;script&gt;");
+    expect(notification.actions.message).toBe("sms:+16045550182");
+    expect(notification.actions.call).toBe("tel:+16045550182");
   });
 });

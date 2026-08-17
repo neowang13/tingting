@@ -90,7 +90,7 @@ export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local
         const result = await supabase.auth.resend({
           type: "signup",
           email: unverifiedEmail,
-          options: { emailRedirectTo: clientEmailConfirmationRedirect(window.location.origin) }
+          options: { emailRedirectTo: clientEmailConfirmationRedirect(window.location.origin, nextPath) }
         });
         setBusy(false);
         if (result.error) setError("A verification email could not be requested yet. Wait a moment and try again.");

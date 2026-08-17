@@ -373,14 +373,19 @@ begin
   then
     raise exception 'authenticated application grants do not enforce server-mediated writes';
   end if;
-  if exists (
+  if not exists (
     select 1 from public.application_form_versions
-    where is_active and legal_review_status <> 'pending'
-  ) or exists (
+    where form_key = 'residential-rental-application'
+      and version = '2026-07-31.1'
+      and is_active
+      and legal_review_status = 'approved'
+  ) or not exists (
     select 1 from public.application_terms_versions
-    where is_active and legal_review_status <> 'pending'
+    where version = '2026-08-08.1'
+      and is_active
+      and legal_review_status = 'approved'
   ) then
-    raise exception 'seeded application legal material was incorrectly approved';
+    raise exception 'reviewed application legal material was not approved';
   end if;
 
   perform set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000009', true);

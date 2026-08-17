@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useMemo, useState } from "react";
 import type { ApplicationFileRecord, ClientApplicationRecord } from "@/features/applications/contracts";
 import {
   applicationDraftStepComplete,
@@ -103,7 +103,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       }
     }
     if (options.validate && step === 7 && files.length === 0) {
-      setError("Upload at least one supporting document before continuing.");
+      setError("Upload one of the accepted income verification options before continuing.");
       return false;
     }
     setBusy(true);
@@ -136,20 +136,28 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     }
   }
 
-  async function uploadFile(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
+  async function uploadSelectedFile(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    const data = new FormData();
+    data.set("file", file);
     setBusy(true); setError(""); setMessage("");
-    const response = await fetch(`/api/client/applications/${application.id}/files`, { method: "POST", body: new FormData(form) });
-    if (!response.ok) {
-      setError(await responseMessage(response));
-    } else {
-      const body = await response.json() as { data: ApplicationFileRecord };
-      setFiles((current) => [...current, body.data]);
-      form.reset();
-      setMessage("Document uploaded to private storage. Staff screening is required before processing.");
+    try {
+      const response = await fetch(`/api/client/applications/${application.id}/files`, { method: "POST", body: data });
+      if (!response.ok) {
+        setError(await responseMessage(response));
+      } else {
+        const body = await response.json() as { data: ApplicationFileRecord };
+        setFiles((current) => [...current, body.data]);
+        setMessage("Income verification file uploaded to private storage. Staff screening is required before processing.");
+      }
+    } catch {
+      setError("The file upload could not be completed. Check your connection and try again.");
+    } finally {
+      input.value = "";
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function submitApplication(event: FormEvent<HTMLFormElement>) {
@@ -244,7 +252,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <Field label="Email address"><input type="email" value={draft.emergency.email} onChange={(event) => updateSection("emergency", { email: event.target.value })} /></Field>
         </div><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(5)} onExit={() => void persistDraft({ exit: true })} /></form>}
 
-        {activeStep === 7 && <div><h2 id="application-step-title">Supporting documents</h2><p>Upload only documents requested for this application. PDF, JPEG, or PNG; maximum 10 MB each and 8 files.</p>{files.length > 0 && <ul className="application-file-list">{files.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}<form onSubmit={uploadFile}><Field label="Choose a supporting document"><input name="file" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required /></Field><button className="button secondary" type="submit" disabled={busy}>{busy ? "Uploading…" : "Upload securely"}</button></form><details className="application-paper-fallback"><summary>Need the paper fallback?</summary><p>Download the assigned form only if you cannot complete the online fields. Upload the completed copy here rather than emailing it.</p><a className="text-link" href={`/api/client/applications/${application.id}/form`}>Download fallback application form</a></details><form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form></div>}
+        {activeStep === 7 && <div><h2 id="application-step-title">Income verification</h2><p>Upload one of the following options. Only one type of income proof is required.</p><div className="application-document-guidance"><strong>Accepted income proof</strong><ul><li>Your two most recent pay stubs;</li><li>an employment letter confirming your position and income; or</li><li>if self-employed, your most recent Notice of Assessment.</li></ul><p>Before uploading, redact your SIN, bank or account numbers, and any unrelated personal information. Do not upload photo ID, full bank statements, or credit card information.</p></div><p>Accepted formats: PDF, JPEG, or PNG. Maximum 10 MB per file and 8 files total.</p>{files.length > 0 && <ul className="application-file-list">{files.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}<label className={`application-file-picker${busy ? " is-disabled" : ""}`}><input aria-label="Choose an income verification document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadSelectedFile(event)} disabled={busy} /><span className="application-file-picker-icon" aria-hidden="true">↑</span><span><strong>{busy ? "Uploading securely…" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span></label><details className="application-paper-fallback"><summary>Need a paper application instead?</summary><p>The paper application is separate from the income proof above. Download it only if you cannot complete the online fields, then upload the completed form here with one accepted income proof. Do not email either document.</p><a className="text-link" href={`/api/client/applications/${application.id}/form`}>Download fallback application form</a></details><form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form></div>}
 
         {activeStep === 8 && <form onSubmit={submitApplication}><h2 id="application-step-title">Review and submit</h2><p>Review every section before giving the required authorizations. You cannot edit the application after submission.</p><div className="application-review-list">
           <ReviewGroup title="Personal details" onEdit={() => setActiveStep(1)} rows={[["Legal name", `${draft.personal.legalFirstName} ${draft.personal.legalLastName}`], ["Phone", draft.personal.phone], ["Email", draft.personal.email]]} />
@@ -273,7 +281,7 @@ function ReferenceFields({ title, value, required = false, onChange }: { title: 
 }
 
 function DisclosureNotice() {
-  return <div className="application-disclosure-note"><strong>Representation disclosure</strong><p>Before providing housing needs or financial qualifications, review the current BCFSA <a href="https://www.bcfsa.ca/public-resources/real-estate/mandatory-disclosure" target="_blank" rel="noreferrer">Disclosure for Residential Tenancies</a>. Ting Ting’s exact role and the approved disclosure delivery process must be confirmed before production use.</p></div>;
+  return <div className="application-disclosure-note"><strong>Representation disclosure</strong><p>Before providing housing needs or financial qualifications, review the current BCFSA <a href="https://www.bcfsa.ca/public-resources/real-estate/mandatory-disclosure" target="_blank" rel="noreferrer">Disclosure for Residential Tenancies</a>.</p></div>;
 }
 
 function ApplicationHelp() {
