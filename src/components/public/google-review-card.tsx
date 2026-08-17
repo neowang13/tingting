@@ -23,7 +23,7 @@ function reviewerInitials(name: string) {
 
 function StarRow({ rating, label }: { rating: number; label: string }) {
   return (
-    <span className="google-review-stars" aria-label={label}>
+    <span className="google-review-stars" role="img" aria-label={label}>
       {[1, 2, 3, 4, 5].map((value) => (
         <Star key={value} className={value <= Math.round(rating) ? "is-filled" : undefined} aria-hidden />
       ))}
