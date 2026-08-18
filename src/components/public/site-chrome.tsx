@@ -11,9 +11,12 @@ type FooterContent = PublicHomepageData["sections"]["footer"];
 
 export async function SiteHeader({ header }: { header: HeaderContent }) {
   const client = await getOptionalClientIdentity();
-  const navigation = header.navigation.map((item) =>
-    item.key === "about" ? { ...item, href: "/about" } : item
-  );
+  const navigation = [
+    { key: "home", label: "Home", href: "/" },
+    ...header.navigation.map((item) =>
+      item.key === "about" ? { ...item, href: "/about" } : item
+    )
+  ];
   return (
     <header className="site-header">
       <div className="container header-inner">

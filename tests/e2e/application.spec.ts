@@ -48,7 +48,7 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   const tingTingPortrait = page.getByAltText("Real estate professional Ting Ting Xu");
   await tingTingPortrait.scrollIntoViewIfNeeded();
   await expect(tingTingPortrait).toBeVisible();
-  await expect(tingTingPortrait).toHaveAttribute("src", /ting-ting-xu-portrait\.jpg/);
+  await expect(tingTingPortrait).toHaveAttribute("src", /ting-ting-xu-home-portrait-2026\.jpg/);
   await expectNoSeriousAccessibilityViolations(page);
 
   for (const viewport of [

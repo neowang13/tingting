@@ -19,7 +19,7 @@ describe("seeded public media", () => {
 
   it("resolves the approved Ting Ting portrait", () => {
     expect(resolveSeededPublicMedia("10000000-0000-4000-8000-000000000002"))
-      .toBe("/images/ting-ting-xu-portrait.jpg");
+      .toBe("/images/ting-ting-xu-home-portrait-2026.jpg");
   });
 
   it("resolves seeded service-page media", () => {

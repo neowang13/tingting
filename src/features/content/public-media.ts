@@ -4,7 +4,7 @@ const publicMedia: Record<string, string | null> = {
   "10000000-0000-4000-8000-000000000001":
     "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1800&q=78",
   "10000000-0000-4000-8000-000000000002":
-    "/images/ting-ting-xu-portrait.jpg",
+    "/images/ting-ting-xu-home-portrait-2026.jpg",
   "11000000-0000-4000-8000-000000000001":
     "https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1800&q=78",
   "11000000-0000-4000-8000-000000000002":

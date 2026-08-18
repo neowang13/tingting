@@ -176,8 +176,8 @@ export function AboutPageExperience() {
       <section className="about-redesign-hero" aria-labelledby="about-page-heading">
         <Image
           className="about-redesign-hero-image"
-          src="/images/silverkey-team-banner-placeholder.jpg"
-          alt="Temporary Silverkey banner portrait; to be replaced by the approved four-person team photo"
+          src="/images/silverkey-about-team-banner-2026.png"
+          alt="Three members of the Silverkey team in a professional office portrait"
           fill
           priority
           loading="eager"
@@ -196,10 +196,6 @@ export function AboutPageExperience() {
               Meet the team
               <ArrowDown size={17} aria-hidden />
             </a>
-          </div>
-          <div className="about-redesign-hero-team-mark" aria-label="Current team of four">
-            <strong>04</strong>
-            <span>People.<br />One standard of care.</span>
           </div>
         </div>
       </section>
