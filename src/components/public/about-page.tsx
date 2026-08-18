@@ -11,7 +11,7 @@ const teamMembers = [
     name: "Ting Ting Xu",
     role: "Founder & Real Estate Advisor",
     description: "Leads every client relationship with clear advice, responsive communication, and practical Greater Vancouver market knowledge.",
-    image: "/images/ting-ting-xu-team.jpg",
+    image: "/images/ting-ting-xu-team-2026.jpg",
     imageAlt: "Ting Ting Xu, founder and real estate advisor at Silverkey"
   },
   {
@@ -19,7 +19,7 @@ const teamMembers = [
     name: "Neo Wang",
     role: "Marketing & Digital Strategy",
     description: "Shapes how Silverkey presents properties, communicates value, and builds a consistent client experience across digital channels.",
-    image: "/images/neo-wang-portrait.jpg",
+    image: "/images/neo-wang-portrait-2026.jpg",
     imageAlt: "Neo Wang, marketing and digital strategy at Silverkey"
   },
   {
@@ -27,8 +27,8 @@ const teamMembers = [
     name: "Team Member 03",
     role: "Profile to be supplied",
     description: "This position is reserved for the third member of Silverkey's current four-person team.",
-    image: null,
-    imageAlt: ""
+    image: "/images/team-member-03-portrait-2026.jpg",
+    imageAlt: "Silverkey team member; name and profile details to be confirmed"
   },
   {
     index: "04",
