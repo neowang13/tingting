@@ -51,6 +51,14 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_PLACE_ID
+        sync: false
+      - key: NEXT_PUBLIC_GOOGLE_BUSINESS_URL
+        value: "https://maps.google.com/?cid=2476808551384498873"
+      - key: NEXT_PUBLIC_GOOGLE_REVIEW_URL
+        value: "https://www.google.com/maps/place//data=!4m3!3m2!1s0x6cd8b047951f8987:0x225f644139ec42b9!12e1"
       - key: AUTOMATION_TOKEN_PEPPER
         sync: false
       - key: REMINDER_CRON_SECRET
