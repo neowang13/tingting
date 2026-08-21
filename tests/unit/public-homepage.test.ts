@@ -33,9 +33,9 @@ describe("public homepage boundary", () => {
     });
   });
 
-  it("returns only published rentals and caps the homepage at three", async () => {
+  it("returns only published rentals and caps the homepage at ten", async () => {
     const rentals = (await loadPublicHomepageData()).rentals;
-    expect(rentals.length).toBeLessThanOrEqual(3);
+    expect(rentals.length).toBeLessThanOrEqual(10);
     expect(rentals.length).toBeGreaterThan(0);
     expect(rentals.every((rental) => rental.status === "published")).toBe(true);
   });

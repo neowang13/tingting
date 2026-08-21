@@ -12,7 +12,6 @@ export interface GoogleReviewFeed {
   reviews: GooglePlaceReview[];
   rating: number | null;
   reviewCount: number;
-  isDemo: boolean;
 }
 
 interface PlacesReviewResponse {
@@ -32,26 +31,17 @@ interface PlacesReviewResponse {
   }>;
 }
 
-const demoReview: GooglePlaceReview = {
-  id: "demo-humidity-review",
-  authorName: "Xiaochen W.",
-  rating: 5,
-  relativeTime: "Just now",
-  text: "We had a serious humidity problem in our apartment, and some of our clothes were even starting to develop mould. Ting Ting patiently helped us investigate the possible causes and worked through the issues until everything was resolved. She was thorough, responsive, and extremely responsible throughout the entire process. 10/10—highly recommended!"
-};
-
-export const googleReviewDemoFeed: GoogleReviewFeed = {
-  reviews: [demoReview],
+export const googleReviewEmptyFeed: GoogleReviewFeed = {
+  reviews: [],
   rating: null,
-  reviewCount: 0,
-  isDemo: true
+  reviewCount: 0
 };
 
 export async function loadGoogleReviewFeed(): Promise<GoogleReviewFeed> {
   const apiKey = process.env.GOOGLE_PLACES_API_KEY?.trim();
   const placeId = process.env.GOOGLE_PLACES_PLACE_ID?.trim();
 
-  if (!apiKey || !placeId) return googleReviewDemoFeed;
+  if (!apiKey || !placeId) return googleReviewEmptyFeed;
 
   try {
     const response = await fetch(
@@ -65,11 +55,11 @@ export async function loadGoogleReviewFeed(): Promise<GoogleReviewFeed> {
       }
     );
 
-    if (!response.ok) return googleReviewDemoFeed;
+    if (!response.ok) return googleReviewEmptyFeed;
 
     const data = await response.json() as PlacesReviewResponse;
     const reviews = (data.reviews ?? []).flatMap((review, index) => {
-      const reviewText = review.text?.text?.trim() || review.originalText?.text?.trim();
+      const reviewText = review.originalText?.text?.trim() || review.text?.text?.trim();
       if (!reviewText) return [];
 
       return [{
@@ -83,15 +73,14 @@ export async function loadGoogleReviewFeed(): Promise<GoogleReviewFeed> {
       } satisfies GooglePlaceReview];
     });
 
-    if (!reviews.length) return googleReviewDemoFeed;
+    if (!reviews.length) return googleReviewEmptyFeed;
 
     return {
       reviews,
       rating: typeof data.rating === "number" ? data.rating : null,
-      reviewCount: typeof data.userRatingCount === "number" ? data.userRatingCount : reviews.length,
-      isDemo: false
+      reviewCount: typeof data.userRatingCount === "number" ? data.userRatingCount : reviews.length
     };
   } catch {
-    return googleReviewDemoFeed;
+    return googleReviewEmptyFeed;
   }
 }

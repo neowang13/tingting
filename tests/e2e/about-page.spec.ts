@@ -1,21 +1,39 @@
 import { expect, test } from "@playwright/test";
 
-test("About page separates the current team from historical work", async ({ page }) => {
+test("About page follows the supplied team design", async ({ page }) => {
   await page.goto("/about");
 
   await expect(page.getByRole("heading", { level: 1, name: "Real estate, handled with care." })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Four people. One standard of care." })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Ting Ting Xu" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Neo Wang" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Team Member 03" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Team Member 04" })).toBeVisible();
-  await expect(page.locator(".about-redesign-team-member")).toHaveCount(4);
-
   await expect(page.getByRole("heading", { level: 2, name: "A record built through consistent contribution." })).toBeVisible();
-  await expect(page.getByText("They are not presented as awards earned by Silverkey’s current four-person team.")).toBeVisible();
-  await expect(page.getByRole("heading", { level: 2, name: "Every documented sale, kept in view." })).toBeVisible();
-  await expect(page.locator(".about-redesign-sales-dots button")).toHaveCount(10);
-  await expect(page.locator(".about-redesign-sales-locations span")).toHaveText(["Vancouver"]);
-  await page.getByRole("button", { name: "Next sales archive slide" }).click();
-  await expect(page.locator(".about-redesign-sales-locations span")).toHaveText(["Vancouver", "Richmond"]);
+  await expect(page.locator(".about-design-recognition-grid article")).toHaveCount(4);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Who you will actually talk to." })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "TingTing Xu" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Neo Wang" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Hudson Dong" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 3, name: "Tina Hu" })).toBeVisible();
+  await expect(page.locator(".about-design-team-card")).toHaveCount(3);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Want to talk it through first?" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Contact us" })).toHaveAttribute("href", "/#contact");
+  await expect(page.getByRole("link", { name: "See services" })).toHaveAttribute("href", "/#services");
+  await expect(page.locator(".about-redesign-sales-slider")).toHaveCount(0);
+});
+
+test("About page remains usable on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/about");
+
+  await expect(page.getByRole("heading", { level: 1, name: "Real estate, handled with care." })).toBeVisible();
+  await expect(page.locator(".about-design-team-card")).toHaveCount(3);
+  await expect(page.getByRole("link", { name: "Contact us" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test("Public pages share the homepage footer", async ({ page }) => {
+  for (const path of ["/", "/about", "/rentals", "/services/property-care", "/privacy", "/terms/application"]) {
+    await page.goto(path);
+    await expect(page.locator(".home-footer"), `${path} should use the homepage footer`).toBeVisible();
+    await expect(page.locator(".home-footer nav")).toHaveAttribute("aria-label", "Footer navigation");
+  }
 });

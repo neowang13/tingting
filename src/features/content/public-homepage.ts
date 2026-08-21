@@ -50,7 +50,7 @@ export async function loadPublicHomepageData(): Promise<PublicHomepageData> {
   const rentals = (await repository
     .listRentals(false))
     .filter((rental) => rental.status === "published" && rental.publishedAt)
-    .slice(0, 3)
+    .slice(0, 10)
     .map(sanitizePublicRentalImages);
   const mediaIds = collectMediaAssetIds(sections);
   return {

@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "About Ting Ting Xu | Silverkey Real Estate",
   description:
-    "Meet Ting Ting Xu and Silverkey's current four-person team, then explore TingTing's historical recognition and Greater Vancouver sales archive.",
+    "Meet TingTing Xu and Silverkey's four-person team, serving Greater Vancouver with rental, property management, and real estate support.",
   alternates: { canonical: "/about" }
 };
 
@@ -17,7 +17,7 @@ export default async function AboutPage() {
 
   return (
     <>
-      <SiteHeader header={sections.header} />
+      <SiteHeader header={sections.header} variant="home" />
       <AboutPageExperience />
       <SiteFooter footer={sections.footer} />
     </>

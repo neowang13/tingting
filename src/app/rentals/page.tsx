@@ -4,6 +4,8 @@ import { getRepository } from "@/data/repository";
 import { rentalSearchQuerySchema } from "@/lib/schemas";
 import type { Metadata } from "next";
 import { sanitizePublicRentalImages } from "@/lib/public-image-url";
+import { SiteFooter } from "@/components/public/site-chrome";
+import { loadPublicHomepageData } from "@/features/content/public-homepage";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -17,6 +19,7 @@ interface Props {
 }
 
 export default async function RentalsPage({ searchParams }: Props) {
+  const { sections } = await loadPublicHomepageData();
   const raw = await searchParams;
   const parsed = rentalSearchQuerySchema.safeParse(
     Object.fromEntries(
@@ -52,8 +55,9 @@ export default async function RentalsPage({ searchParams }: Props) {
     });
 
   return (
-    <main className="section">
-      <div className="container">
+    <>
+      <main className="section">
+        <div className="container">
         <Link className="text-link" href="/">← Back to home</Link>
         <h1 style={{ fontSize: "3.5rem" }}>Greater Vancouver Rentals</h1>
         <form className="rental-list-filters" role="search">
@@ -93,7 +97,9 @@ export default async function RentalsPage({ searchParams }: Props) {
             <Link className="button" href="/#contact">Contact Ting Ting</Link>
           </div>
         )}
-      </div>
-    </main>
+        </div>
+      </main>
+      <SiteFooter footer={sections.footer} />
+    </>
   );
 }

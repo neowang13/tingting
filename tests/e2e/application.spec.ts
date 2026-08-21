@@ -33,22 +33,20 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   });
 
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Find Your Perfect Rental" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Property, managed like a modern service." })).toBeVisible();
   await expect(page.getByRole("search")).toHaveCount(0);
   await expect(page.getByLabel("Location", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Rental Management" })).toBeVisible();
   await expect(page.getByText(
-    "Tenant placement, rent collection, inspections, and day-to-day coordination."
+    "Leasing, rent collection, inspections and maintenance."
   )).toBeVisible();
   await expect(page.getByRole("heading", { level: 3, name: "Trade Services" })).toBeVisible();
-  await expect(page.getByRole("heading", { level: 3, name: "Property Management" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { level: 3, name: "Property Care" })).toHaveCount(1);
   await expect(page.getByRole("heading", { level: 3, name: "Handyman Services" })).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 3, name: "Property Maintenance" })).toHaveCount(0);
-  await expect(page.locator(".service-card").first()).toContainText("Rental Management");
-  const tingTingPortrait = page.getByAltText("Real estate professional Ting Ting Xu");
-  await tingTingPortrait.scrollIntoViewIfNeeded();
-  await expect(tingTingPortrait).toBeVisible();
-  await expect(tingTingPortrait).toHaveAttribute("src", /ting-ting-xu-home-portrait-2026\.jpg/);
+  await expect(page.locator(".home-service-card").first()).toContainText("Rental Management");
+  await expect(page.getByAltText("The four-person Silverkey real estate team"))
+    .toHaveAttribute("src", /silverkey-home-hero-2026\.webp/);
   await expectNoSeriousAccessibilityViolations(page);
 
   for (const viewport of [

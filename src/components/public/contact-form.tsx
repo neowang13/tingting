@@ -5,6 +5,7 @@ import { FormEvent, useState } from "react";
 import { buildContactActionUris } from "@/features/contact/follow-up";
 
 interface Props {
+  appearance?: "default" | "home-dark";
   idPrefix?: string;
   labels: {
     name: string;
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function ContactForm({
+  appearance = "default",
   idPrefix = "contact",
   labels,
   options,
@@ -77,19 +79,19 @@ export function ContactForm({
   }
 
   return (
-    <form className="contact-form" onSubmit={submit} noValidate>
+    <form className={`contact-form${appearance === "home-dark" ? " contact-form-home-dark" : ""}`} onSubmit={submit} noValidate>
       <div className="contact-form-grid">
         <div className="field">
           <label htmlFor={`${idPrefix}-name`}>{labels.name} *</label>
-          <input id={`${idPrefix}-name`} name="name" required autoComplete="name" />
+          <input id={`${idPrefix}-name`} name="name" required autoComplete="name" placeholder="Full name" />
         </div>
         <div className="field">
           <label htmlFor={`${idPrefix}-email`}>{labels.email}</label>
-          <input id={`${idPrefix}-email`} name="email" type="email" autoComplete="email" />
+          <input id={`${idPrefix}-email`} name="email" type="email" autoComplete="email" placeholder="you@email.com" />
         </div>
         <div className="field">
           <label htmlFor={`${idPrefix}-phone`}>{labels.phone}</label>
-          <input id={`${idPrefix}-phone`} name="phone" type="tel" autoComplete="tel" />
+          <input id={`${idPrefix}-phone`} name="phone" type="tel" autoComplete="tel" placeholder="604-000-0000" />
         </div>
         <div className="field">
           <label htmlFor={`${idPrefix}-preferred-contact`}>{labels.preferredContact}</label>
@@ -102,7 +104,7 @@ export function ContactForm({
       </div>
       <div className="field">
         <label htmlFor={`${idPrefix}-message`}>{labels.message} *</label>
-        <textarea id={`${idPrefix}-message`} name="message" rows={5} required defaultValue={defaultMessage} />
+        <textarea id={`${idPrefix}-message`} name="message" rows={5} required defaultValue={defaultMessage} placeholder="What do you need help with?" />
       </div>
       <div className="honeypot" aria-hidden="true">
         <label htmlFor={`${idPrefix}-website`}>Website</label>

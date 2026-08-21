@@ -6,9 +6,9 @@ test("Trade Services is consistent across homepage, detail, redirect, metadata, 
     has: page.getByRole("heading", { level: 3, name: "Trade Services" })
   });
   await expect(serviceCard).toContainText(
-    "Assessment and coordination for approved property projects, with qualified trades engaged where required."
+    "Repairs, renovations and trusted trade coordination."
   );
-  await serviceCard.getByRole("link", { name: "Explore Trade Services" }).click();
+  await serviceCard.getByRole("link", { name: "Learn more" }).click();
   await expect(page).toHaveURL(/\/services\/trade-services$/);
   await expect(page.getByRole("heading", { level: 1, name: "A Clear First Step for Property Projects." }))
     .toBeVisible();
