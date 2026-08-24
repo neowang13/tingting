@@ -1111,8 +1111,7 @@ export async function convertApprovedApplicationToTenant(
       level: "error",
       message: "Application tenant conversion failed",
       applicationId: id,
-      databaseCode: converted.error?.code ?? null,
-      databaseMessage: converted.error?.message ?? "empty conversion result"
+      databaseCode: converted.error?.code ?? null
     }));
     if (converted.error?.code === "TT409") {
       throw new ApiError(409, "APPLICATION_TENANT_CONVERSION_CONFLICT", converted.error.message);
