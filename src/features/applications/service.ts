@@ -1107,8 +1107,21 @@ export async function convertApprovedApplicationToTenant(
     p_actor_id: admin.userId
   });
   if (converted.error || !converted.data) {
+    console.error(JSON.stringify({
+      level: "error",
+      message: "Application tenant conversion failed",
+      applicationId: id,
+      databaseCode: converted.error?.code ?? null
+    }));
     if (converted.error?.code === "TT409") {
       throw new ApiError(409, "APPLICATION_TENANT_CONVERSION_CONFLICT", converted.error.message);
+    }
+    if (["42P01", "42883", "PGRST202", "PGRST205"].includes(converted.error?.code ?? "")) {
+      throw new ApiError(
+        503,
+        "APPLICATION_TENANT_CONVERSION_MIGRATION_REQUIRED",
+        "Tenant conversion is unavailable because the database setup is incomplete. Apply the latest database migrations and try again."
+      );
     }
     throw new ApiError(503, "APPLICATION_TENANT_CONVERSION_FAILED", "The tenant could not be created from this application.");
   }
