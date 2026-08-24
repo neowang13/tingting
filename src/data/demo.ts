@@ -170,6 +170,7 @@ export const demoSections: SiteSection[] = Object.entries(content).map(([key, va
 export const demoRentals: RentalListing[] = [
   {
     id: "20000000-0000-4000-8000-000000000001",
+    propertyNumber: "P-000001",
     slug: "howe-street-one-bedroom",
     title: "Bright Downtown One Bedroom",
     addressLine: "1104 – 1231 Howe Street",
@@ -192,6 +193,7 @@ export const demoRentals: RentalListing[] = [
   },
   {
     id: "20000000-0000-4000-8000-000000000002",
+    propertyNumber: "P-000002",
     slug: "melville-street-two-bedroom",
     title: "West End Two Bedroom",
     addressLine: "2605 – 1238 Melville Street",

@@ -1,63 +1,40 @@
 "use client";
 
+import { Building2, FileText, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const navigationGroups = [
-  {
-    label: "Overview",
-    links: [
-      { label: "Home", href: "/admin", exact: true }
-    ]
-  },
-  {
-    label: "Website",
-    links: [
-      { label: "Website content", href: "/admin/content", exact: false },
-      { label: "Rental listings", href: "/admin/rentals", exact: false },
-      { label: "Client applications", href: "/admin/applications", exact: false }
-    ]
-  },
-  {
-    label: "Rent management",
-    links: [
-      { label: "Client accounts", href: "/admin/clients", exact: false },
-      { label: "Tenants & schedules", href: "/admin/tenants", exact: false },
-      { label: "Email activity", href: "/admin/notifications/history", exact: false },
-      { label: "Email templates", href: "/admin/notifications/templates", exact: false }
-    ]
-  },
-  {
-    label: "System",
-    links: [
-      { label: "Reminder settings", href: "/admin/settings", exact: false }
-    ]
-  }
+const navigation = [
+  { label: "Properties", href: "/admin/properties", icon: Building2 },
+  { label: "Applications", href: "/admin/applications", icon: FileText },
+  { label: "Tenants", href: "/admin/tenants", icon: Users }
+] as const;
+
+const applicationViews = [
+  { label: "Open applications", href: "/admin/applications?view=open" },
+  { label: "Under review", href: "/admin/applications?view=under_review" },
+  { label: "Approved", href: "/admin/applications?view=approved" },
+  { label: "Rejected", href: "/admin/applications?view=rejected" },
+  { label: "Contract signed", href: "/admin/applications?view=contract_signed" }
 ] as const;
 
 export function AdminNavigation() {
   const pathname = usePathname();
   return (
     <nav aria-label="Admin navigation">
-      {navigationGroups.map((group) => (
-        <div className="admin-nav-group" key={group.label}>
-          <span>{group.label}</span>
-          {group.links.map((link) => {
-            const active = link.exact
-              ? pathname === link.href
-              : pathname === link.href || pathname.startsWith(`${link.href}/`);
-            return (
-              <Link
-                aria-current={active ? "page" : undefined}
-                href={link.href}
-                key={link.href}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </div>
-      ))}
+      {navigation.map((link) => {
+        const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+        const Icon = link.icon;
+        return <div className="admin-navigation-item" key={link.href}>
+          <Link aria-current={active ? "page" : undefined} href={link.href}>
+            <Icon size={16} strokeWidth={1.8} aria-hidden />
+            <span>{link.label}</span>
+          </Link>
+          {link.href === "/admin/applications" && <div className="admin-navigation-submenu">
+            {applicationViews.map((view) => <Link href={view.href} key={view.href}>{view.label}</Link>)}
+          </div>}
+        </div>;
+      })}
     </nav>
   );
 }

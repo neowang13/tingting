@@ -29,15 +29,4 @@ test("Property Care card leads to the canonical Property Care page", async ({ pa
   expect(sitemapText).not.toContain("/services/handyman-service");
   expect(sitemapText).not.toContain("/services/property-maintenance");
 
-  await page.goto("/admin");
-  await page.getByLabel("Email").fill("admin@example.test");
-  await page.getByLabel("Password").fill("test-admin-password");
-  await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
-  await page.goto("/admin/content");
-  const propertyCareRow = page.locator(".content-section-row").filter({ hasText: "Property care: handyman + maintenance" });
-  await expect(propertyCareRow).toHaveCount(1);
-  await expect(propertyCareRow).toContainText("/services/property-care");
-  await expect(page.locator(".content-section-row").filter({ hasText: "/services/handyman-service" })).toHaveCount(0);
-  await expect(page.locator(".content-section-row").filter({ hasText: "/services/property-maintenance" })).toHaveCount(0);
 });

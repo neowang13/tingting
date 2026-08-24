@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { CheckCircle2, FileText, UserRoundCheck, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import type {
-  ApplicationStatus,
-  ApplicationStatusUpdateResult,
-  ClientApplicationRecord
+import {
+  APPLICATION_DOCUMENT_LABELS,
+  type ApplicationStatus,
+  type ApplicationStatusUpdateResult,
+  type ClientApplicationRecord
 } from "@/features/applications/contracts";
 
 function applicantName(application: ClientApplicationRecord) {
@@ -30,8 +31,12 @@ function readableError(body: unknown, fallback: string) {
   return fallback;
 }
 
-export function ApplicationQueue({ initial }: { initial: ClientApplicationRecord[] }) {
+type ApplicationQueueFilter = "open" | ApplicationStatus | "decided" | "rejected" | "contract_signed";
+
+export function ApplicationQueue({ initial, initialFilter = "open" }: { initial: ClientApplicationRecord[]; initialFilter?: ApplicationQueueFilter }) {
   const [applications, setApplications] = useState(initial);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<ApplicationQueueFilter>(initialFilter);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -44,6 +49,34 @@ export function ApplicationQueue({ initial }: { initial: ClientApplicationRecord
     () => applications.find((application) => application.id === selectedId) ?? null,
     [applications, selectedId]
   );
+  const visibleApplications = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return applications.filter((application) => {
+      const decided = ["approved", "declined", "withdrawn"].includes(application.status);
+      const inFilter = filter === "open"
+        ? !decided && application.status !== "draft"
+        : filter === "rejected"
+          ? application.status === "declined"
+          : filter === "contract_signed"
+            ? application.status === "approved" && Boolean(application.leaseDocument)
+        : filter === "decided"
+          ? decided
+          : application.status === filter;
+      if (!inFilter) return false;
+      if (!term) return true;
+      return [application.id, applicantName(application), application.propertyTitle, application.propertyAddress]
+        .some((value) => value.toLowerCase().includes(term));
+    });
+  }, [applications, filter, query]);
+
+  const filterCount = (value: typeof filter) => applications.filter((application) => {
+    const decided = ["approved", "declined", "withdrawn"].includes(application.status);
+    if (value === "open") return !decided && application.status !== "draft";
+    if (value === "rejected") return application.status === "declined";
+    if (value === "contract_signed") return application.status === "approved" && Boolean(application.leaseDocument);
+    if (value === "decided") return decided;
+    return application.status === value;
+  }).length;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -188,21 +221,41 @@ export function ApplicationQueue({ initial }: { initial: ClientApplicationRecord
 
   return (
     <div className="prototype-page application-queue-page">
+      <div className="application-queue-toolbar">
+        <div>
+          <strong>{filterCount("open")} open applications</strong>
+          <span>{filterCount("submitted")} waiting to be received · {applications.filter((application) => application.files.some((file) => file.scanStatus !== "cleared")).length} with unscreened files</span>
+        </div>
+        <label className="application-queue-search">
+          <span className="sr-only">Search applications</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} type="search" placeholder="Search reference, applicant, property" />
+        </label>
+      </div>
+      <div className="application-filter-pills" aria-label="Filter applications">
+        {([
+          ["open", "All open"],
+          ["under_review", "Under review"],
+          ["approved", "Approved"],
+          ["rejected", "Rejected"],
+          ["contract_signed", "Contract signed"]
+        ] as const).map(([value, label]) => <button key={value} type="button" className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}>{label} · {filterCount(value)}</button>)}
+      </div>
       <p className="legal-review-warning">
         Applicant records are need-to-know data. Download documents only for approved screening,
         record the decision here, and never copy private files into email or public links.
       </p>
       <div className="table-scroll" tabIndex={0}>
         <table className="admin-table application-queue-table">
-          <thead><tr><th>Applicant / property</th><th>Status</th><th>Documents</th><th>Submitted</th><th>Action</th></tr></thead>
-          <tbody>{applications.map((application) => {
+          <thead><tr><th>Applicant</th><th>Property</th><th>Status</th><th>Submitted</th><th>Documents</th><th>Action</th></tr></thead>
+          <tbody>{visibleApplications.map((application) => {
             const filesCleared = application.files.length > 0 && application.files.every((file) => file.scanStatus === "cleared");
             return (
               <tr key={application.id}>
-                <td><strong>{applicantName(application)}</strong><br /><span>{application.propertyTitle}</span><small>{application.propertyAddress}</small></td>
+                <td><strong>{applicantName(application)}</strong><small>{application.id}</small></td>
+                <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
                 <td><span className={`application-status application-status-${application.status}`}>{application.status.replaceAll("_", " ")}</span></td>
-                <td><span className={filesCleared ? "document-state cleared" : "document-state pending"}>{application.files.length} · {filesCleared ? "cleared" : "screening required"}</span></td>
                 <td>{application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "Not submitted"}</td>
+                <td><span className={filesCleared ? "document-state cleared" : "document-state pending"}>{application.files.length} files<br />{filesCleared ? "Cleared" : "Screening required"}</span></td>
                 <td>
                   <button className="application-review-button" type="button" onClick={(event) => openReview(application, event.currentTarget)}>
                     <FileText size={17} aria-hidden /> Review application
@@ -213,7 +266,7 @@ export function ApplicationQueue({ initial }: { initial: ClientApplicationRecord
           })}</tbody>
         </table>
       </div>
-      {applications.length === 0 && <p className="prototype-empty-row">No client applications have been assigned.</p>}
+      {visibleApplications.length === 0 && <p className="prototype-empty-row">No applications match this view.</p>}
 
       <dialog
         ref={dialogRef}
@@ -357,11 +410,11 @@ function ApplicationFiles({ application, busy, onReview }: {
   onReview: (applicationId: string, fileId: string, decision: "cleared" | "rejected") => Promise<void>;
 }) {
   return <section className="application-documents-panel">
-    <div><h3>Private income documents</h3><p>Download only to the approved screening workstation.</p></div>
+    <div><h3>Private income and credit score documents</h3><p>Download only to the approved screening workstation.</p></div>
     <ul>{application.files.map((file) => (
       <li key={file.id}>
         <FileText aria-hidden />
-        <span><strong>{file.originalFilename}</strong><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
+        <span><strong>{file.originalFilename}</strong><small>{APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
         {file.scanStatus !== "rejected" && <a className="admin-action secondary compact" href={`/api/admin/application-files/${file.id}`}>Secure download</a>}
         {["manual_review_required", "screening_pending"].includes(file.scanStatus) && <>
           <button className="admin-action success compact" disabled={busy} type="button" onClick={() => onReview(application.id, file.id, "cleared")}>Mark cleared</button>

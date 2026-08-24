@@ -3,10 +3,10 @@ import { expect, test } from "@playwright/test";
 
 test("client signup collects identity details and explains email verification", async ({ page }) => {
   await page.goto("/client/login");
-  await page.getByRole("link", { name: "Create client account" }).click();
+  await page.getByRole("link", { name: "Create an account" }).click();
 
   await expect(page).toHaveURL(/\/client\/signup$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Create client account" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Start your application" })).toBeVisible();
   await expect(page.getByLabel("Name")).toHaveAttribute("autocomplete", "name");
   await expect(page.getByLabel("Email")).toHaveAttribute("autocomplete", "email");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("minlength", "11");
@@ -23,7 +23,7 @@ test("client signup and login links preserve only a safe rental application retu
   const applicationPath = "/client/apply/howe-street-one-bedroom";
   await page.goto(`/client/login?next=${encodeURIComponent(applicationPath)}`);
 
-  const createAccount = page.getByRole("link", { name: "Create client account" });
+  const createAccount = page.getByRole("link", { name: "Create an account" });
   await expect(createAccount).toHaveAttribute(
     "href",
     `/client/signup?next=${encodeURIComponent(applicationPath)}`
@@ -36,11 +36,11 @@ test("client signup and login links preserve only a safe rental application retu
   );
 
   await page.goto("/client/login?next=https%3A%2F%2Fevil.example%2Fclient%2Fapply%2Fstolen");
-  await expect(page.getByRole("link", { name: "Create client account" }))
+  await expect(page.getByRole("link", { name: "Create an account" }))
     .toHaveAttribute("href", "/client/signup");
 
   await page.goto("/client/signup?next=/client/applications&next=https://evil.example");
-  await expect(page.getByRole("heading", { level: 1, name: "Create client account" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Start your application" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Back to Client Login" }))
     .toHaveAttribute("href", "/client/login");
 });

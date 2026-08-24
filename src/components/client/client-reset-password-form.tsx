@@ -35,7 +35,12 @@ export function ClientResetPasswordForm() {
       body: JSON.stringify({ password })
     });
     if (!response.ok) {
-      setError("The password could not be updated. Request a new recovery link.");
+      const result = await response.json().catch(() => null);
+      setError(
+        result?.error?.code === "PASSWORD_UNCHANGED"
+          ? "Choose a new password that is different from your current password."
+          : "The password could not be updated. Request a new recovery link."
+      );
       setBusy(false);
       return;
     }

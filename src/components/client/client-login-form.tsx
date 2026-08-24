@@ -68,22 +68,21 @@ export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local
         <input id="client-email" name="email" type="email" autoComplete="username" required />
       </div>
       <div className="field">
-        <label htmlFor="client-password">Password</label>
+        <div className="client-password-label"><label htmlFor="client-password">Password</label>{authMode === "supabase" && <button className="text-button client-password-help" type="button" disabled={busy} onClick={async () => {
+          const email = String(new FormData(formRef.current ?? undefined).get("email") ?? "").trim();
+          setError(""); setRecoveryMessage("");
+          if (!email || !supabase) { setError("Enter your account email before requesting a recovery link."); return; }
+          setBusy(true);
+          const result = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${window.location.origin}/client/auth/recover`
+          });
+          setBusy(false);
+          if (result.error) setError("A recovery link could not be requested. Confirm the email and try again.");
+          else setRecoveryMessage("If this authorized client account exists, a recovery link has been sent.");
+        }}>Forgot password?</button>}</div>
         <input id="client-password" name="password" type="password" autoComplete="current-password" required />
       </div>
       <button className="button" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in securely"}</button>
-      {authMode === "supabase" && <button className="text-button client-password-help" type="button" disabled={busy} onClick={async () => {
-        const email = String(new FormData(formRef.current ?? undefined).get("email") ?? "").trim();
-        setError(""); setRecoveryMessage("");
-        if (!email || !supabase) { setError("Enter your account email before requesting a recovery link."); return; }
-        setBusy(true);
-        const result = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/client/auth/recover`
-        });
-        setBusy(false);
-        if (result.error) setError("A recovery link could not be requested. Confirm the email and try again.");
-        else setRecoveryMessage("If this authorized client account exists, a recovery link has been sent.");
-      }}>Forgot password?</button>}
       {authMode === "supabase" && unverifiedEmail && <button className="text-button" type="button" disabled={busy} onClick={async () => {
         if (!supabase) return;
         setBusy(true); setRecoveryMessage("");

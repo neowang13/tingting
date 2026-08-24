@@ -634,7 +634,24 @@ export class SupabaseRepository implements DataRepository {
         ...row
       })
     );
-    if (includePrivate) return rentals;
+    if (includePrivate) {
+      const propertyResult = await this.client()
+        .from("rental_properties")
+        .select("id,property_number");
+      if (propertyResult.error) databaseError(propertyResult.error);
+      const propertyNumbers = new Map(
+        asRows(propertyResult.data).map((property) => [
+          text(property, "id"),
+          text(property, "property_number")
+        ])
+      );
+      return rentals.map((rental) => ({
+        ...rental,
+        propertyNumber: rental.property?.id
+          ? propertyNumbers.get(rental.property.id)
+          : undefined
+      }));
+    }
     const mediaUrls = await this.resolvePublicMedia(collectMediaAssetIds(rentals));
     return rentals.map((rental) => refreshPublicRentalMediaUrls(rental, mediaUrls));
   }

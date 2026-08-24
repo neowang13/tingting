@@ -114,6 +114,7 @@ export interface MediaAsset {
 
 export interface RentalListing extends Versioned {
   id: string;
+  propertyNumber?: string;
   slug: string;
   title: string;
   addressLine: string;

@@ -282,6 +282,41 @@ describe("Client recovery intent and identity boundary", () => {
     }
   });
 
+  it("keeps the recovery session available when the proposed password is unchanged", async () => {
+    const marker = createClientRecoveryMarker(clientId);
+    const store = cookieStore({
+      [CLIENT_RECOVERY_COOKIE_NAME]: marker,
+      [CLIENT_SUPABASE_COOKIE_NAME]: "recovery-session"
+    });
+    const auth = authenticatedClient();
+    auth.auth.updateUser.mockResolvedValue({
+      error: Object.assign(new Error("New password should be different from the old password."), {
+        code: "same_password"
+      })
+    });
+    mocks.cookies.mockResolvedValue(store);
+    mocks.createServerClient.mockReturnValue(auth);
+    mocks.createClient.mockReturnValue(serviceClient());
+
+    const response = await updateRecoveredClientPassword(recoveryPost("correct-horse-battery"));
+    const result = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(result).toMatchObject({
+      success: false,
+      error: {
+        code: "PASSWORD_UNCHANGED",
+        message: "Choose a new password that is different from your current password."
+      }
+    });
+    expect(auth.auth.signOut).not.toHaveBeenCalled();
+    expect(store.set).not.toHaveBeenCalledWith(
+      CLIENT_RECOVERY_COOKIE_NAME,
+      "",
+      expect.objectContaining({ maxAge: 0 })
+    );
+  });
+
   it.each(["short", "x".repeat(257)])("rejects an invalid recovery password", async (password) => {
     const marker = createClientRecoveryMarker(clientId);
     mocks.cookies.mockResolvedValue(cookieStore({ [CLIENT_RECOVERY_COOKIE_NAME]: marker }));

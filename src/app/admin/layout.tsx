@@ -1,9 +1,15 @@
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Bricolage_Grotesque, IBM_Plex_Mono, Karla } from "next/font/google";
 
-const adminSans = IBM_Plex_Sans({
+const adminSans = Karla({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
   variable: "--font-admin-sans"
+});
+
+const adminDisplay = Bricolage_Grotesque({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-admin-display"
 });
 
 const adminMono = IBM_Plex_Mono({
@@ -14,7 +20,7 @@ const adminMono = IBM_Plex_Mono({
 
 export default function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className={`admin-route ${adminSans.variable} ${adminMono.variable}`}>
+    <div className={`admin-route ${adminSans.variable} ${adminDisplay.variable} ${adminMono.variable}`}>
       {children}
     </div>
   );

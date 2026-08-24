@@ -66,20 +66,33 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByRole("link", { name: "Download fallback application form" }).click();
   expect((await downloadPromise).suggestedFilename()).toContain("2026-07-31.1");
 
-  await page.getByLabel("Choose an income verification document").setInputFiles({
+  await page.getByLabel("Choose Recent pay stubs or current employment contract file").setInputFiles({
     name: "unsafe.pdf",
     mimeType: "application/pdf",
     buffer: Buffer.from("%PDF-1.7\n/OpenAction /JavaScript")
   });
   await expect(page.locator(".client-application-flow .form-status.error")).toContainText("scripts");
 
-  await page.getByLabel("Choose an income verification document").setInputFiles({
-    name: "completed-application.pdf",
+  const safePdf = Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF");
+  await page.getByLabel("Choose Rental payment history from current landlord file").setInputFiles({
+    name: "rental-payment-history.pdf",
     mimeType: "application/pdf",
-    buffer: Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF")
+    buffer: safePdf
+  });
+  await page.getByLabel("Choose Credit score report file").setInputFiles({
+    name: "credit-score-report.pdf",
+    mimeType: "application/pdf",
+    buffer: safePdf
+  });
+  await page.getByLabel("Choose Recent pay stubs or current employment contract file").setInputFiles({
+    name: "employment-proof.pdf",
+    mimeType: "application/pdf",
+    buffer: safePdf
   });
   await expect(page.getByRole("status")).toContainText("private storage");
-  await expect(page.getByText("completed-application.pdf")).toBeVisible();
+  await expect(page.getByText("rental-payment-history.pdf")).toBeVisible();
+  await expect(page.getByText("credit-score-report.pdf")).toBeVisible();
+  await expect(page.getByText("employment-proof.pdf")).toBeVisible();
 
   await page.getByRole("button", { name: "Save and continue" }).click();
   const sharing = page.getByLabel(/I authorize the property manager/);
@@ -103,18 +116,23 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByLabel("Email").fill("admin@example.test");
   await page.getByLabel("Password").fill("test-admin-password");
   await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Properties" })).toBeVisible();
   await page.goto("/admin/applications");
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
   await page.getByRole("button", { name: "Review application" }).click();
   const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
   await expect(reviewDialog).toBeVisible();
-  await expect(page.getByText("completed-application.pdf")).toBeVisible();
+  await expect(page.getByText("employment-proof.pdf")).toBeVisible();
   const staffDownloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Secure download" }).click();
-  expect((await staffDownloadPromise).suggestedFilename()).toBe("completed-application.pdf");
-  await page.getByRole("button", { name: "Mark cleared" }).click();
+  await reviewDialog.getByRole("link", { name: "Secure download" }).first().click();
+  expect((await staffDownloadPromise).suggestedFilename()).toBe("rental-payment-history.pdf");
+  const clearButtons = reviewDialog.getByRole("button", { name: "Mark cleared" });
+  while (await clearButtons.first().isVisible().catch(() => false)) {
+    const previousCount = await clearButtons.count();
+    await clearButtons.first().click();
+    await expect(clearButtons).toHaveCount(previousCount - 1);
+  }
   await expect(reviewDialog.getByText(/cleared/).first()).toBeVisible();
   await page.getByRole("button", { name: "Mark received" }).click();
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();

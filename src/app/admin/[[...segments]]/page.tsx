@@ -1,35 +1,18 @@
 import Link from "next/link";
+import Image from "next/image";
+import { redirect } from "next/navigation";
+import { Temporal } from "@js-temporal/polyfill";
 import { AdminShell } from "@/components/admin/admin-shell";
-import { SectionEditor } from "@/components/admin/section-editor";
+import { ApplicationQueue } from "@/components/admin/application-queue";
 import { RentalEditor } from "@/components/admin/rental-editor";
 import { TenantEditor } from "@/components/admin/tenant-editor";
-import { TemplateManager } from "@/components/admin/template-manager";
-import { DeliveryHistory } from "@/components/admin/delivery-history";
-import { ReminderSettings } from "@/components/admin/reminder-settings";
-import { SiteHome } from "@/components/public/site-home";
-import { ServiceLandingPage } from "@/components/public/service-landing-page";
 import { RentalDetailPage } from "@/components/public/rental-detail-page";
 import { getRepository } from "@/data/repository";
-import { sectionKeySchema } from "@/features/content/schemas";
-import {
-  loadAdminPreviewData,
-  loadPublicHomepageData
-} from "@/features/content/public-homepage";
-import { loadAdminRentalPreviewData } from "@/features/content/public-rental-detail";
-import { loadAdminServicePagePreviewData } from "@/features/content/public-service-page";
 import { listMediaAssets } from "@/features/content/media-service";
-import { requireAdminPage } from "@/lib/auth";
-import { isServicePageSectionKey, type SectionKey } from "@/lib/contracts";
-import { sectionAdminCopy } from "@/features/content/admin-copy";
-import {
-  deliveryModeCopy,
-  notificationSourceLabel,
-  notificationStatusCopy
-} from "@/lib/notification-copy";
-import { Temporal } from "@js-temporal/polyfill";
-import { ApplicationQueue } from "@/components/admin/application-queue";
-import { ClientManager } from "@/components/admin/client-manager";
+import { loadAdminRentalPreviewData } from "@/features/content/public-rental-detail";
 import { listApplicationsForStaff } from "@/features/applications/service";
+import { requireAdminPage } from "@/lib/auth";
+import type { RentalListing, Tenant } from "@/lib/contracts";
 
 interface Props {
   params: Promise<{ segments?: string[] }>;
@@ -44,292 +27,124 @@ export default async function AdminPage({ params, searchParams }: Props) {
   const [area, id, action] = segments;
   const repository = getRepository();
 
-  if (!area) {
-    const [summary, recentEvents, dashboardTenants] = await Promise.all([
-      repository.dashboard(),
-      repository.listEvents({ limit: 5 }),
-      repository.listTenants({ limit: 500 })
-    ]);
-    const tenantNames = new Map(dashboardTenants.map((tenant) => [tenant.id, tenant.fullName]));
-    const forcePaused = process.env.REMINDERS_FORCE_PAUSED !== "false";
-    const effectivePaused = summary.remindersPaused || forcePaused;
-    const emailProviderMode = process.env.EMAIL_PROVIDER_MODE ??
-      (process.env.NODE_ENV === "production" ? "disabled" : "mock");
-    const deliveryMode = deliveryModeCopy(emailProviderMode);
-    const systemReady = !effectivePaused && emailProviderMode === "live";
-    return (
-      <AdminShell
-        admin={admin}
-        title="Home"
-        description="Whether reminders can send, what is next, and what needs attention."
-      >
-        <div className="prototype-page overview-page">
-          <section className={`prototype-status-banner ${systemReady ? "success" : "waiting"}`}>
-            <div>
-              <strong>{systemReady ? "Ready to send." : effectivePaused ? "Sending is paused." : `${deliveryMode.label}.`}</strong>{" "}
-              {systemReady
-                ? "Automatic rent reminders can be delivered right now."
-                : effectivePaused
-                  ? "Saved tenant plans will wait until sending is resumed."
-                  : deliveryMode.explanation}
-            </div>
-            <Link className="text-link" href="/admin/settings">Reminder settings →</Link>
-          </section>
-          <div className="metric-grid">
-            <Metric label="Current tenants" value={summary.activeTenants} />
-            <Metric label="Automatic reminders on" value={summary.enabledSchedules} />
-            <Metric label="Emails planned in 7 days" value={summary.dueNextSevenDays} />
-            <Metric label="Delivery problems" value={summary.failedLastThirtyDays} tone="danger" />
-            <Metric label="Waiting to send" value={summary.outboxBacklog} />
-          </div>
-          {summary.warnings.length > 0 && (
-            <section className="prototype-attention" aria-labelledby="warnings-heading">
-              <strong id="warnings-heading">Needs attention</strong>
-              {summary.warnings.map((warning) => <span key={warning}>{warning}</span>)}
-            </section>
-          )}
-          <div className="dashboard-status-grid">
-            <section className="prototype-panel">
-            <h2>Last system check</h2>
-              <strong className={effectivePaused ? "prototype-status waiting" : "prototype-status success"}>
-                {effectivePaused ? "Paused" : "Running"}
-              </strong>
-              <p>
-                {summary.lastWorkerRunAt
-                  ? `Last run ${new Date(summary.lastWorkerRunAt).toLocaleString()} — ${workerStatusLabel(summary.latestWorkerStatus).toLocaleLowerCase()}.`
-                  : forcePaused
-                    ? "The deployment-level pause is on. The reminder system has not run yet."
-                    : "The reminder system has not run yet."}
-              </p>
-            </section>
-            <section className="prototype-panel">
-            <h2>Messages waiting to send</h2>
-              <p>
-                {summary.outboxBacklog} {summary.outboxBacklog === 1 ? "message" : "messages"}
-                {summary.oldestEligibleEventAt
-                  ? `, earliest waiting since ${new Date(summary.oldestEligibleEventAt).toLocaleTimeString()}`
-                  : ", nothing is waiting right now"}.
-              </p>
-              <Link className="text-link" href="/admin/notifications/history">View in Email activity →</Link>
-            </section>
-          </div>
-          <section className="prototype-table-panel">
-            <div className="prototype-table-title">Recent emails</div>
-            <table className="admin-table">
-              <thead><tr><th>Tenant</th><th>Type</th><th>Result</th><th>Sent to</th><th>Planned time</th></tr></thead>
-              <tbody>{recentEvents.map((event) => (
-                <tr key={event.id}>
-                  <td>{tenantNames.get(event.tenantId) ?? "Archived tenant"}</td>
-                  <td>{notificationSourceLabel(event.source)}</td>
-                  <td className={`prototype-status ${notificationStatusCopy(event.status).tone}`}>
-                    {notificationStatusCopy(event.status).label}
-                  </td>
-                  <td>{event.destinationMasked ?? "—"}</td>
-                  <td>{new Date(event.scheduledFor).toLocaleString()}</td>
-                </tr>
-              ))}</tbody>
-            </table>
-            {recentEvents.length === 0 && <p className="prototype-empty-row">No reminder emails have been created yet.</p>}
-          </section>
-        </div>
-      </AdminShell>
-    );
-  }
+  if (!area) redirect("/admin/properties");
 
-  if (area === "content" && !id) {
-    const sections = await repository.listSections();
-    const sectionMap = new Map(sections.map((section) => [section.key, section]));
-    const unpublishedDrafts = sections.filter(hasUnpublishedChanges).length;
-    const latestPublish = sections
-      .map((section) => section.publishedAt)
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1);
-    return (
-      <AdminShell
-        admin={admin}
-        title="Website content"
-        description="Edit the words and images visitors see. Saving keeps changes private; publishing makes them live."
-      >
-        <div className="content-page">
-          <div className="content-summary">
-            <span>
-              {sections.length} content areas · {unpublishedDrafts} unpublished{" "}
-              {unpublishedDrafts === 1 ? "draft" : "drafts"} · Last website publish{" "}
-              {latestPublish ? new Date(latestPublish).toLocaleString() : "Never"}
-            </span>
-            <Link className="text-link" href="/" target="_blank">View live website ↗</Link>
-          </div>
-          <div className="content-workflow-note">
-            <strong>Edit → Save draft → Preview → Publish.</strong>{" "}
-            <span>Saved drafts are private. Visitors only see a change after you publish it.</span>
-          </div>
-          <div className="content-groups">
-            {contentGroups.map((group) => (
-              <section className="content-group" key={group.title}>
-                <div className="content-group-heading">
-                  <h2>{group.title}</h2>
-                  <p>{group.description}</p>
-                </div>
-                <div className="content-section-list">
-                  {group.keys.map((key) => {
-                    const section = sectionMap.get(key);
-                    if (!section) return null;
-                    const hasDraft = hasUnpublishedChanges(section);
-                    const isServicePage = key.startsWith("service_");
-                    return (
-                      <div className="content-section-row" key={section.key}>
-                        <div className="content-section-name">
-                          <strong>{sectionAdminCopy[section.key].title}</strong>
-                          {isServicePage && <small>{sectionAdminCopy[section.key].publicLocation}</small>}
-                        </div>
-                        <span className={hasDraft ? "content-state waiting" : "content-state"}>
-                          {hasDraft ? "Unpublished draft" : "No unpublished changes"}
-                        </span>
-                        <span className={section.publishedAt ? "content-state live" : "content-state"}>
-                          {section.publishedAt ? "Live on website" : "Not published"}
-                        </span>
-                        <span className="content-published-date">
-                          {section.publishedAt
-                            ? new Date(section.publishedAt).toLocaleDateString("en-CA", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric"
-                              })
-                            : "Never"}
-                        </span>
-                        <Link className="row-action" href={`/admin/content/${section.key}`}>
-                          {group.action}
-                        </Link>
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        </div>
-      </AdminShell>
-    );
-  }
+  if (area === "properties") {
+    const query = await searchParams;
+    const value = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
+    const rentals = await repository.listRentals(true);
 
-  if (area === "content" && id) {
-    const key = sectionKeySchema.parse(id);
-    const section = await repository.getSection(key);
-    const revisions = await repository.listSectionRevisions(key);
-    return (
-      <AdminShell
-        admin={admin}
-        title={sectionAdminCopy[key].title}
-        description={`${sectionAdminCopy[key].description} Appears at: ${sectionAdminCopy[key].publicLocation}.`}
-      >
-        <SectionEditor
-          initialSection={section}
-          initialRevisions={revisions}
-          initialMedia={await listMediaAssets()}
-        />
-      </AdminShell>
-    );
-  }
-
-  if (area === "preview" && id) {
-    const key = sectionKeySchema.parse(id);
-    if (isServicePageSectionKey(key)) {
-      const [servicePage, homepage] = await Promise.all([
-        loadAdminServicePagePreviewData(key),
-        loadPublicHomepageData()
-      ]);
-      return (
-        <div className="admin-preview">
-          <div className="preview-banner" role="status">
-            Previewing saved changes to {sectionAdminCopy[key].title} · Visitors cannot see this version
-          </div>
-          <ServiceLandingPage
-            page={servicePage.page}
-            sectionKey={servicePage.sectionKey}
-            sections={homepage.sections}
-            mediaUrls={servicePage.mediaUrls}
-          />
-        </div>
-      );
-    }
-    return (
-      <div className="admin-preview">
+    if (id && action === "preview") {
+      return <div className="admin-preview">
         <div className="preview-banner" role="status">
-          Previewing saved changes to {sectionAdminCopy[key].title} · Visitors cannot see this version
+          Private property preview · Visitors cannot see this version · <Link href={`/admin/properties/${id}`}>Return to Admin</Link>
         </div>
-        <SiteHome {...(await loadAdminPreviewData(key))} />
-      </div>
-    );
-  }
-
-  if (area === "rentals") {
-    if (id && id !== "new" && action === "preview") {
-      return (
-        <div className="admin-preview">
-          <div className="preview-banner" role="status">
-            Private draft preview · Visitors cannot see this version ·{" "}
-            <Link href={`/admin/rentals/${id}`}>Return to Admin</Link>
-          </div>
-          <RentalDetailPage {...(await loadAdminRentalPreviewData(id))} />
-        </div>
-      );
+        <RentalDetailPage {...(await loadAdminRentalPreviewData(id))} />
+      </div>;
     }
-    const rentals = await repository.listRentals();
-    return (
-      <AdminShell
-        admin={admin}
-        title={id ? "Rental editor" : "Rental listings"}
-        description={id
-          ? "Edit a rental listing and its public photos."
-          : "Manage the rental listings shown on the public website."}
-      >
-        {id ? (
+
+    if (id) {
+      return (
+        <AdminShell
+          admin={admin}
+          title={id === "new" ? "Create property" : "Property detail"}
+          description={id === "new"
+            ? "Add a managed rental unit. New properties stay inactive until they are ready to publish."
+            : "Review and update the complete operational and public record for this property."}
+        >
           <RentalEditor
             rental={id === "new" ? null : await repository.getRental(id)}
             initialMedia={await listMediaAssets()}
           />
-        ) : (
-          <div className="prototype-page rentals-list-page">
-            <div className="prototype-list-toolbar">
-              <p>
-                {rentals.length} rentals · {rentals.filter((rental) => rental.status === "published").length} live ·{" "}
-                {rentals.filter((rental) => rental.status === "draft").length} draft ·{" "}
-                {rentals.filter((rental) => rental.status === "archived").length} archived
-              </p>
-              <Link className="button" href="/admin/rentals/new">Add rental listing</Link>
-            </div>
-            <div className="table-scroll">
-              <table className="admin-table">
-                <thead><tr><th>Title / Address</th><th>Monthly rent</th><th>Website status</th><th /></tr></thead>
-                <tbody>{rentals.map((rental) => (
-                  <tr key={rental.id}>
-                    <td><strong>{rental.title}</strong><br /><small>{rental.addressLine}</small></td>
-                    <td>${(rental.monthlyRentCents / 100).toLocaleString()}</td>
-                    <td className={`prototype-status ${rental.status}`}>{rentalStatusLabel(rental.status)}</td>
-                    <td><Link className="row-action" href={`/admin/rentals/${rental.id}`}>Edit</Link></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
+        </AdminShell>
+      );
+    }
+
+    const tenants = await repository.listTenants({ limit: 500 });
+    const state = (rental: RentalListing) => propertyState(rental, tenants);
+    const requestedStatus = value("status");
+    const requestedCity = value("city");
+    const requestedType = value("type");
+    const search = value("q").trim().toLowerCase();
+    const managed = rentals.filter((rental) => rental.status !== "archived");
+    const visible = managed.filter((rental) => {
+      if (requestedStatus && state(rental) !== requestedStatus) return false;
+      if (requestedCity && rental.city !== requestedCity) return false;
+      if (requestedType && rental.property?.propertyType !== requestedType) return false;
+      if (!search) return true;
+      return [propertyNumber(rental), rental.title, rental.addressLine, rental.city]
+        .some((item) => item.toLowerCase().includes(search));
+    });
+    const cities = [...new Set(managed.map((rental) => rental.city).filter(Boolean))].sort();
+
+    return (
+      <AdminShell
+        admin={admin}
+        title="Properties"
+        description={`${managed.length} managed · ${managed.filter((rental) => state(rental) === "available").length} currently available · ${managed.filter((rental) => state(rental) === "occupied").length} currently occupied · ${managed.filter((rental) => state(rental) === "inactive").length} inactive`}
+      >
+        <div className="prototype-page properties-list-page">
+          <form className="properties-toolbar" method="get">
+            <label className="properties-search">
+              <span className="sr-only">Search property number or address</span>
+              <input name="q" type="search" placeholder="Search property number or address" defaultValue={value("q")} />
+            </label>
+            <label><span className="sr-only">Property status</span><select name="status" defaultValue={requestedStatus}>
+              <option value="">All managed</option>
+              <option value="available">Currently available</option>
+              <option value="occupied">Currently occupied</option>
+              <option value="inactive">Inactive</option>
+            </select></label>
+            <label><span className="sr-only">City</span><select name="city" defaultValue={requestedCity}>
+              <option value="">City: All</option>
+              {cities.map((city) => <option value={city} key={city}>{city}</option>)}
+            </select></label>
+            <label><span className="sr-only">Property type</span><select name="type" defaultValue={requestedType}>
+              <option value="">Type: All</option>
+              <option value="apartment">Apartment</option><option value="condo">Condo</option>
+              <option value="townhome">Townhome</option><option value="house">House</option>
+              <option value="basement_suite">Basement suite</option><option value="room">Room</option><option value="other">Other</option>
+            </select></label>
+            <button className="button secondary" type="submit">Apply filters</button>
+            <Link className="button" href="/admin/properties/new">Create property</Link>
+          </form>
+
+          <div className="property-list-heading" aria-hidden>
+            <span>Cover</span><span>Number</span><span>Address</span><span>Status</span><span>Action</span>
           </div>
-        )}
+          <div className="property-list">
+            {visible.map((rental) => {
+              const rentalState = state(rental);
+              return <article className="property-row" key={rental.id}>
+                <div className="property-cover">{rental.coverImageUrl
+                  ? <Image src={rental.coverImageUrl} alt="" width={172} height={120} unoptimized />
+                  : <span aria-hidden>SK</span>}
+                </div>
+                <code>{propertyNumber(rental)}</code>
+                <div className="property-address"><strong>{rental.addressLine}</strong><small>{rental.city}</small></div>
+                <span className={`property-status ${rentalState}`}>{propertyStatusLabel(rentalState)}</span>
+                <Link className="property-view-action" href={`/admin/properties/${rental.id}`}>View property</Link>
+              </article>;
+            })}
+          </div>
+          {visible.length === 0 && <section className="client-panel empty-state"><h2>No matching properties</h2><p>Change the search or filters to see managed properties.</p></section>}
+        </div>
       </AdminShell>
     );
   }
 
-  if (area === "clients" && !id) {
-    const [clients, tenants] = await Promise.all([
-      repository.listClientAccounts(),
-      repository.listTenants({ lifecycle: "active", limit: 500 })
-    ]);
+  if (area === "applications" && !id) {
+    const query = await searchParams;
+    const requestedView = typeof query.view === "string" ? query.view : "open";
+    const initialFilter = (["open", "under_review", "approved", "rejected", "contract_signed"] as const)
+      .find((view) => view === requestedView) ?? "open";
     return (
       <AdminShell
         admin={admin}
-        title="Client accounts"
-        description="Review registered clients and explicitly link each account to one current tenant."
+        title="Client applications"
+        description="Review submitted applications, screen private documents, and record approval or rejection."
       >
-        <ClientManager initialClients={clients} tenants={tenants} />
+        <ApplicationQueue initial={await listApplicationsForStaff(admin)} initialFilter={initialFilter} />
       </AdminShell>
     );
   }
@@ -337,335 +152,132 @@ export default async function AdminPage({ params, searchParams }: Props) {
   if (area === "tenants") {
     const query = await searchParams;
     const value = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
+
+    if (id) {
+      const initialTenant = id === "new" ? null : await repository.getTenant(id);
+      return (
+        <AdminShell
+          admin={admin}
+          title={initialTenant ? "Manage tenant" : "Add tenant"}
+          description="Maintain the tenant, lease, contact, payment, and internal record."
+        >
+          <TenantEditor initial={initialTenant} initialNotice={tenantSaveNotice(value("saved"))} />
+        </AdminShell>
+      );
+    }
+
     const tenants = await repository.listTenants({
       query: value("q") || undefined,
       lifecycle: (value("lifecycle") || undefined) as "active" | "inactive" | "archived" | undefined,
-      schedule: (value("schedule") || undefined) as "enabled" | "disabled" | "missing" | undefined,
-      rentStatus: (value("rent") || undefined) as "due" | "collected" | undefined,
       leaseType: (value("lease") || undefined) as "month_to_month" | "fixed_term" | "needs_details" | undefined,
       limit: 500
     });
     const tenantTimezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
-    const tenantToday = Temporal.Now.instant()
-      .toZonedDateTimeISO(tenantTimezone)
-      .toPlainDate();
+    const tenantToday = Temporal.Now.instant().toZonedDateTimeISO(tenantTimezone).toPlainDate();
     const leaseWarningEnd = tenantToday.add({ days: 30 }).toString();
-    const tenantTodayString = tenantToday.toString();
-    if (id) {
-      const [initialTenant, pause] = await Promise.all([
-        id === "new" ? Promise.resolve(null) : repository.getTenant(id),
-        repository.getPause()
-      ]);
-      return (
-        <AdminShell
-          admin={admin}
-          title="Tenant & reminder"
-          description="Save tenant details and their monthly rent reminder together."
-        >
-          <TenantEditor
-            initial={initialTenant}
-            reminderSystem={{
-              ...pause,
-              forcePaused: process.env.REMINDERS_FORCE_PAUSED !== "false",
-              emailProviderMode: process.env.EMAIL_PROVIDER_MODE ??
-                (process.env.NODE_ENV === "production" ? "disabled" : "mock")
-            }}
-            initialNotice={tenantSaveNotice(value("saved"))}
-          />
-        </AdminShell>
-      );
-    }
+
     return (
       <AdminShell
         admin={admin}
-        title="Tenants & schedules"
-        description="Search tenants and see reminder and delivery status."
+        title="Tenants"
+        description="Search and manage current, inactive, and archived tenants."
       >
-          <div className="prototype-page tenants-list-page">
-            <form className="prototype-filter-toolbar" method="get">
-              <label className="sr-only" htmlFor="tenant-search">Search name, property or unit</label>
-              <input id="tenant-search" name="q" placeholder="Search name, property or unit" type="search" defaultValue={value("q")} />
-              <label className="sr-only" htmlFor="tenant-lifecycle">Tenant status</label>
-              <select id="tenant-lifecycle" name="lifecycle" defaultValue={value("lifecycle")}>
-                <option value="">Tenant status: All</option><option value="active">Tenant status: Current</option><option value="inactive">Tenant status: Inactive</option><option value="archived">Tenant status: Archived</option>
-              </select>
-              <label className="sr-only" htmlFor="tenant-schedule">Automatic reminder</label>
-              <select id="tenant-schedule" name="schedule" defaultValue={value("schedule")}>
-                <option value="">Automatic reminder: All</option><option value="enabled">Automatic reminder: On</option><option value="disabled">Automatic reminder: Off</option><option value="missing">Automatic reminder: Not set up</option>
-              </select>
-              <label className="sr-only" htmlFor="tenant-rent">Current month rent</label>
-              <select id="tenant-rent" name="rent" defaultValue={value("rent")}>
-                <option value="">Current month rent: All</option>
-                <option value="due">Current month rent: Due</option>
-                <option value="collected">Current month rent: Collected</option>
-              </select>
-              <label className="sr-only" htmlFor="tenant-lease">Lease type</label>
-              <select id="tenant-lease" name="lease" defaultValue={value("lease")}>
-                <option value="">Lease type: All</option>
-                <option value="month_to_month">Month to month</option>
-                <option value="fixed_term">Fixed contract</option>
-                <option value="needs_details">Needs lease details</option>
-              </select>
-              <button className="sr-only" type="submit">Apply filters</button>
-              <Link className="button" href="/admin/tenants/new">Add tenant and reminder</Link>
-            </form>
-            <div className="table-scroll">
-              <table className="admin-table">
-                <thead><tr><th>Tenant</th><th>Rental home</th><th>Lease</th><th>Current month rent</th><th>Email</th><th>Status</th><th>Next automatic email</th><th>Last email</th><th /></tr></thead>
-                <tbody>{tenants.map((tenant) => (
-                  <tr key={tenant.id}>
-                    <td><strong>{tenant.fullName}</strong></td>
-                    <td>{tenant.propertyLabel} {tenant.unitLabel}</td>
-                    <td className={leaseExpiryTone(
-                      tenant.leaseType,
-                      tenant.leaseEndDate,
-                      tenant.isActive && !tenant.archivedAt,
-                      tenantTodayString,
-                      leaseWarningEnd
-                    )}>
-                      {tenant.leaseType === "month_to_month"
-                        ? "Month to month"
-                        : tenant.leaseType === "fixed_term"
-                          ? `Fixed · ends ${formatMoveInDate(tenant.leaseEndDate)}`
-                          : "Needs lease details"}
-                    </td>
-                    <td className={`prototype-status ${
-                      !tenant.isActive || tenant.archivedAt
-                        ? "neutral"
-                        : tenant.currentRentPayment?.status === "collected"
-                          ? "success"
-                          : "waiting"
-                    }`}>
-                      {!tenant.isActive || tenant.archivedAt
-                        ? "Not applicable"
-                        : tenant.currentRentPayment?.status === "collected"
-                          ? `Collected · ${tenant.currentRentPayment.collectedAt ? new Date(tenant.currentRentPayment.collectedAt).toLocaleDateString("en-CA", { timeZone: tenantTimezone, month: "short", day: "numeric" }) : "receipt recorded"}`
-                          : tenant.currentRentPayment
-                            ? `Not received · due ${formatMoveInDate(tenant.currentRentPayment.dueDate)}`
-                            : "Complete lease details"}
-                    </td>
-                    <td>{maskEmail(tenant.email)}</td>
-                    <td className={`prototype-status ${tenant.isActive && !tenant.archivedAt ? "success" : "neutral"}`}>
-                      {tenant.archivedAt ? "Archived" : tenant.isActive ? "Current" : "Inactive"}
-                    </td>
-                    <td>{tenant.nextRunAt ? new Date(tenant.nextRunAt).toLocaleString() : scheduleStatusLabel(tenant.scheduleStatus)}</td>
-                    <td className={tenant.lastDeliveryStatus ? `prototype-status ${notificationStatusCopy(tenant.lastDeliveryStatus).tone}` : undefined}>
-                      {tenant.lastDeliveryStatus ? notificationStatusCopy(tenant.lastDeliveryStatus).label : "No emails yet"}
-                      {tenant.lastDeliveryAt ? ` ${new Date(tenant.lastDeliveryAt).toLocaleDateString()}` : ""}
-                    </td>
-                    <td><Link className="row-action" href={`/admin/tenants/${tenant.id}`}>Manage</Link></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
+        <div className="prototype-page tenants-list-page">
+          <form className="prototype-filter-toolbar" method="get">
+            <label className="sr-only" htmlFor="tenant-search">Search name, property, unit, or email</label>
+            <input id="tenant-search" name="q" placeholder="Search tenant, property, unit, or email" type="search" defaultValue={value("q")} />
+            <label className="sr-only" htmlFor="tenant-lifecycle">Tenant status</label>
+            <select id="tenant-lifecycle" name="lifecycle" defaultValue={value("lifecycle")}>
+              <option value="">Status: All</option>
+              <option value="active">Status: Current</option>
+              <option value="inactive">Status: Inactive</option>
+              <option value="archived">Status: Archived</option>
+            </select>
+            <label className="sr-only" htmlFor="tenant-lease">Lease type</label>
+            <select id="tenant-lease" name="lease" defaultValue={value("lease")}>
+              <option value="">Lease: All</option>
+              <option value="month_to_month">Month to month</option>
+              <option value="fixed_term">Fixed term</option>
+              <option value="needs_details">Needs lease details</option>
+            </select>
+            <button className="button secondary" type="submit">Apply filters</button>
+            <Link className="button" href="/admin/tenants/new">Add tenant</Link>
+          </form>
+
+          <div className="table-scroll">
+            <table className="admin-table tenant-management-table">
+              <thead><tr><th>Tenant</th><th>Rental home</th><th>Contact</th><th>Lease</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody>{tenants.map((tenant) => (
+                <tr key={tenant.id}>
+                  <td><strong>{tenant.fullName}</strong><small>Since {formatDate(tenant.moveInDate)}</small></td>
+                  <td><strong>{tenant.propertyLabel}</strong><small>{tenant.unitLabel || "No unit"}</small></td>
+                  <td>{tenant.email || "No email"}<small>{tenant.phoneE164 || "No phone"}</small></td>
+                  <td className={leaseExpiryTone(tenant.leaseType, tenant.leaseEndDate, tenant.isActive && !tenant.archivedAt, tenantToday.toString(), leaseWarningEnd)}>
+                    {tenant.leaseType === "month_to_month"
+                      ? "Month to month"
+                      : tenant.leaseType === "fixed_term"
+                        ? `Fixed · ends ${formatDate(tenant.leaseEndDate)}`
+                        : "Needs lease details"}
+                  </td>
+                  <td><span className={`prototype-status ${tenant.isActive && !tenant.archivedAt ? "success" : "neutral"}`}>{tenant.archivedAt ? "Archived" : tenant.isActive ? "Current" : "Inactive"}</span></td>
+                  <td><Link className="row-action" href={`/admin/tenants/${tenant.id}`}>Manage tenant</Link></td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
+          {tenants.length === 0 && <p className="prototype-empty-row">No tenants match these filters.</p>}
+        </div>
       </AdminShell>
     );
   }
 
-  if (area === "notifications" && id === "templates") {
-    return (
-      <AdminShell
-        admin={admin}
-        title="Email templates"
-        description="Create and maintain templates used by automatic reminders and test emails."
-      >
-        <TemplateManager initialTemplates={await repository.listTemplates()} />
-      </AdminShell>
-    );
-  }
-
-  if (area === "notifications" && id === "history") {
-    return (
-      <AdminShell
-        admin={admin}
-        title="Email activity"
-        description="The record of what was actually sent, delivered, or failed."
-      >
-        <DeliveryHistory
-          initialEvents={await repository.listEvents()}
-          tenants={await repository.listTenants()}
-          loadedAt={new Date().toISOString()}
-        />
-      </AdminShell>
-    );
-  }
-
-  if (area === "settings") {
-    const [pause, tenants, templates] = await Promise.all([
-      repository.getPause(),
-      repository.listTenants(),
-      repository.listTemplates()
-    ]);
-    return (
-      <AdminShell
-        admin={admin}
-        title="Reminder settings"
-        description="Control automatic sending and see delivery service status."
-      >
-        <ReminderSettings
-          initialSettings={pause}
-          forcePaused={process.env.REMINDERS_FORCE_PAUSED !== "false"}
-          emailProviderMode={
-            process.env.EMAIL_PROVIDER_MODE ??
-            (process.env.NODE_ENV === "production" ? "disabled" : "mock")
-          }
-          initialTestContacts={await repository.getTestContacts()}
-          tenants={tenants}
-          templates={templates}
-        />
-      </AdminShell>
-    );
-  }
-
-  if (area === "applications") {
-    return (
-      <AdminShell
-        admin={admin}
-        title="Client applications"
-        description="Receive, screen, and process private rental applications through the documented status workflow."
-      >
-        <ApplicationQueue initial={await listApplicationsForStaff(admin)} />
-      </AdminShell>
-    );
-  }
-
-  return (
-    <AdminShell admin={admin} title="Page not found">
-      <div className="card empty-state"><h2>This admin page does not exist</h2><Link className="text-link" href="/admin">Back to overview →</Link></div>
-    </AdminShell>
-  );
+  redirect("/admin/applications");
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: "danger" }) {
-  return <div className="metric"><span>{label}</span><strong className={tone}>{value}</strong></div>;
+function propertyState(rental: RentalListing, tenants: Tenant[]) {
+  const rentalAddress = rental.addressLine.toLowerCase();
+  const occupied = tenants.some((tenant) => tenant.isActive && !tenant.archivedAt && (
+    tenant.propertyLabel.toLowerCase() === rentalAddress ||
+    rentalAddress.includes(tenant.propertyLabel.toLowerCase()) ||
+    tenant.propertyLabel.toLowerCase().includes(rental.title.toLowerCase())
+  ));
+  if (occupied) return "occupied" as const;
+  if (rental.status === "published") return "available" as const;
+  return "inactive" as const;
 }
 
-function maskEmail(value: string | null) {
-  if (!value) return "No email";
-  const [name, domain] = value.split("@");
-  return `${name.slice(0, 1)}***@${domain}`;
+function propertyStatusLabel(state: ReturnType<typeof propertyState>) {
+  if (state === "available") return "Currently available";
+  if (state === "occupied") return "Currently occupied";
+  return "Inactive";
 }
 
-function formatMoveInDate(value: string | null) {
+function propertyNumber(rental: RentalListing) {
+  if (!rental.propertyNumber) {
+    throw new Error(`Property ${rental.id} is missing its permanent Property Number.`);
+  }
+  return rental.propertyNumber;
+}
+
+function formatDate(value: string | null) {
   if (!value) return "Not recorded";
-  return new Intl.DateTimeFormat("en-CA", {
-    dateStyle: "medium",
-    timeZone: "UTC"
-  }).format(new Date(`${value}T00:00:00Z`));
-}
-
-function workerStatusLabel(value: string | null) {
-  if (!value) return "Not run yet";
-  return {
-    completed: "Completed successfully",
-    partial: "Completed with delivery problems",
-    paused: "Paused without sending",
-    running: "Running now"
-  }[value] ?? value.replaceAll("_", " ");
-}
-
-function rentalStatusLabel(value: "draft" | "published" | "archived") {
-  return {
-    draft: "Saved privately",
-    published: "Live on website",
-    archived: "Archived"
-  }[value];
-}
-
-function scheduleStatusLabel(value: "enabled" | "disabled" | "missing" | undefined) {
-  return {
-    enabled: "Automatic email on",
-    disabled: "Automatic email off",
-    missing: "Not set up"
-  }[value ?? "missing"];
+  return new Date(`${value}T12:00:00`).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function leaseExpiryTone(
   leaseType: "month_to_month" | "fixed_term" | null,
   leaseEndDate: string | null,
-  active: boolean,
+  current: boolean,
   today: string,
   warningEnd: string
 ) {
-  if (!active || leaseType !== "fixed_term" || !leaseEndDate) return undefined;
-  if (leaseEndDate < today) return "prototype-status error";
+  if (!current || leaseType !== "fixed_term" || !leaseEndDate) return undefined;
+  if (leaseEndDate < today) return "prototype-status danger";
   if (leaseEndDate <= warningEnd) return "prototype-status waiting";
   return undefined;
 }
 
 function tenantSaveNotice(value: string) {
-  const notices: Record<string, { message: string; tone: "success" | "error" }> = {
-    tenant: {
-      message: "Tenant saved.",
-      tone: "success"
-    },
-    paused: {
-      message: "Tenant saved. The reminder is ready, but automatic sending is paused.",
-      tone: "success"
-    },
-    active: {
-      message: "Tenant saved. The automatic rent reminder is active.",
-      tone: "success"
-    },
-    "catch-up": {
-      message: "Tenant saved. The missed rent reminder was sent immediately.",
-      tone: "success"
-    },
-    retry: {
-      message: "Tenant saved, but the immediate reminder could not be sent. The scheduled worker will retry it.",
-      tone: "error"
-    },
-    "not-live": {
-      message: "Tenant and reminder plan saved. Email delivery is not live yet.",
-      tone: "success"
-    },
-    off: {
-      message: "Tenant and rent due date saved. Automatic email is off.",
-      tone: "success"
-    },
-    "tenant-only": {
-      message: "Tenant details were saved, but the reminder plan was not saved. Review the reminder fields and save again.",
-      tone: "error"
-    }
-  };
-  return notices[value];
-}
-
-const contentGroups: Array<{
-  title: string;
-  description: string;
-  action: string;
-  keys: SectionKey[];
-}> = [
-  {
-    title: "Shared across the website",
-    description: "Affects the header, footer and contact popup on every page.",
-    action: "Edit shared content",
-    keys: ["header", "contact", "footer"]
-  },
-  {
-    title: "Homepage",
-    description: "Four sections shown to visitors on tingtingproperties.example.",
-    action: "Edit page",
-    keys: ["hero", "property_services", "featured_rentals", "about"]
-  },
-  {
-    title: "Service pages",
-    description: "Each page publishes and rolls back as one complete unit.",
-    action: "Edit page",
-    keys: [
-      "service_rental_management",
-      "service_trade_services",
-      "service_property_care",
-      "service_strata"
-    ]
-  }
-];
-
-function hasUnpublishedChanges(section: {
-  draftContent: unknown;
-  publishedContent: unknown;
-}) {
-  return JSON.stringify(section.draftContent) !== JSON.stringify(section.publishedContent);
+  if (!value) return undefined;
+  return { message: "Tenant saved.", tone: "success" as const };
 }

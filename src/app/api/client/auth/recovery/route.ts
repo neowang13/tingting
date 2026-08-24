@@ -73,6 +73,13 @@ export async function POST(request: Request) {
     const { authClient, secure } = await authorizeRecovery(request, cookieStore);
     const updated = await authClient.auth.updateUser({ password: input.password });
     if (updated.error) {
+      if (updated.error.code === "same_password") {
+        throw new ApiError(
+          400,
+          "PASSWORD_UNCHANGED",
+          "Choose a new password that is different from your current password."
+        );
+      }
       await authClient.auth.signOut({ scope: "local" }).catch(() => undefined);
       expireClientRecoverySession(cookieStore, secure);
       throw new ApiError(400, "PASSWORD_UPDATE_FAILED", "The password could not be updated. Request a new recovery link.");

@@ -9,6 +9,35 @@ export const APPLICATION_MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const APPLICATION_LEASE_MAX_FILE_BYTES = 20 * 1024 * 1024;
 export const APPLICATION_RETENTION_MONTHS = 12;
 
+export const APPLICATION_DOCUMENT_TYPES = [
+  "rental_payment_history",
+  "credit_score_report",
+  "employment_income_proof",
+  "bank_statement",
+  "other"
+] as const;
+
+export type ApplicationDocumentType = typeof APPLICATION_DOCUMENT_TYPES[number];
+
+export const APPLICATION_REQUIRED_DOCUMENT_TYPES: readonly ApplicationDocumentType[] = [
+  "rental_payment_history",
+  "credit_score_report",
+  "employment_income_proof"
+];
+
+export const APPLICATION_DOCUMENT_LABELS: Record<ApplicationDocumentType, string> = {
+  rental_payment_history: "Rental payment history from current landlord",
+  credit_score_report: "Credit score report",
+  employment_income_proof: "Recent pay stubs or current employment contract",
+  bank_statement: "Bank statement (optional)",
+  other: "Other supporting document (if needed)"
+};
+
+export function isApplicationDocumentType(value: unknown): value is ApplicationDocumentType {
+  return typeof value === "string"
+    && (APPLICATION_DOCUMENT_TYPES as readonly string[]).includes(value);
+}
+
 export const applicationFormText = `TING TING XU — RESIDENTIAL RENTAL APPLICATION
 Form version: ${APPLICATION_FORM_VERSION}
 
@@ -76,6 +105,7 @@ export interface ClientIdentity {
 
 export interface ApplicationFileRecord {
   id: string;
+  documentType: ApplicationDocumentType;
   originalFilename: string;
   mimeType: "application/pdf" | "image/jpeg" | "image/png";
   byteSize: number;

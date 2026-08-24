@@ -9,12 +9,15 @@ import {
   APPLICATION_FORM_VERSION,
   APPLICATION_LEASE_MAX_FILE_BYTES,
   APPLICATION_MAX_FILE_BYTES,
+  APPLICATION_DOCUMENT_LABELS,
+  APPLICATION_REQUIRED_DOCUMENT_TYPES,
   APPLICATION_RETENTION_MONTHS,
   APPLICATION_TERMS_VERSION,
   APPLICATION_UPLOAD_BUCKET,
   applicationFormText,
   applicationTermsText,
   type ApplicationFileRecord,
+  type ApplicationDocumentType,
   type ApplicationLeaseDocumentRecord,
   type ApplicantNotificationStatus,
   type ApplicationStatus,
@@ -45,7 +48,7 @@ const APPLICATION_SELECT = `
   rental_listings(slug),
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
   application_terms_versions!inner(version,sha256,legal_review_status,displayed_text),
-  client_application_files(id,original_filename,mime_type,byte_size,scan_status,uploaded_at),
+  client_application_files(id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at),
   client_application_lease_files!client_application_lease_files_application_id_fkey(
     id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at
   )
@@ -147,6 +150,7 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
     draftUpdatedAt: row.draft_updated_at ? String(row.draft_updated_at) : null,
     files: files.map((file) => ({
       id: String(file.id),
+      documentType: file.document_type as ApplicationDocumentType,
       originalFilename: String(file.original_filename),
       mimeType: file.mime_type as ApplicationFileRecord["mimeType"],
       byteSize: Number(file.byte_size),
@@ -470,7 +474,12 @@ function inspectUpload(file: File, bytes: Uint8Array) {
   return { name, mimeType, extension };
 }
 
-export async function uploadApplicationFile(identity: ClientIdentity, id: string, file: File) {
+export async function uploadApplicationFile(
+  identity: ClientIdentity,
+  id: string,
+  file: File,
+  documentType: ApplicationDocumentType
+) {
   const application = await loadOwnedApplication(identity, id);
   assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
@@ -480,6 +489,7 @@ export async function uploadApplicationFile(identity: ClientIdentity, id: string
   const uploadedAt = new Date().toISOString();
   const record: ApplicationFileRecord = {
     id: crypto.randomUUID(),
+    documentType,
     originalFilename: inspected.name,
     mimeType: inspected.mimeType,
     byteSize: bytes.length,
@@ -506,6 +516,7 @@ export async function uploadApplicationFile(identity: ClientIdentity, id: string
   const inserted = await service.from("client_application_files").insert({
     id: record.id,
     application_id: id,
+    document_type: record.documentType,
     storage_path: storagePath,
     original_filename: record.originalFilename,
     mime_type: record.mimeType,
@@ -545,7 +556,16 @@ export async function submitClientApplication(
   if (draftIssues.length > 0) {
     throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${draftIssues[0].section.replaceAll("_", " ")} before submitting.`);
   }
-  if (application.files.length === 0) throw new ApiError(400, "APPLICATION_FILE_REQUIRED", "Upload one of the accepted income verification options before submitting.");
+  const missingDocumentTypes = APPLICATION_REQUIRED_DOCUMENT_TYPES.filter(
+    (documentType) => !application.files.some((file) => file.documentType === documentType)
+  );
+  if (missingDocumentTypes.length > 0) {
+    throw new ApiError(
+      400,
+      "APPLICATION_DOCUMENTS_REQUIRED",
+      `Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentTypes[0]].toLowerCase()} before submitting.`
+    );
+  }
   if (application.files.some((file) => file.scanStatus === "rejected")) {
     throw new ApiError(400, "APPLICATION_FILE_REJECTED", "Remove or replace the rejected file before submitting.");
   }
@@ -652,7 +672,7 @@ export async function applicationReceipt(identity: ClientIdentity, id: string) {
   if (!application.submittedAt || !application.consentedAt) {
     throw new ApiError(409, "APPLICATION_NOT_SUBMITTED", "A receipt is available after submission.");
   }
-  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n")}\n\nCorrection, withdrawal, access, or deletion review: ${PUBLIC_CONTACT_EMAIL}\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
+  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${APPLICATION_DOCUMENT_LABELS[file.documentType]}: ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n")}\n\nCorrection, withdrawal, access, or deletion review: ${PUBLIC_CONTACT_EMAIL}\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
   return Buffer.from(text, "utf8");
 }
 
@@ -679,7 +699,7 @@ export async function getApplicationFileForStaff(admin: AdminIdentity, fileId: s
   }
   const service = supabaseService();
   const result = await service.from("client_application_files")
-    .select("id,original_filename,mime_type,byte_size,scan_status,uploaded_at,storage_path,application_id")
+    .select("id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at,storage_path,application_id")
     .eq("id", fileId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -691,6 +711,7 @@ export async function getApplicationFileForStaff(admin: AdminIdentity, fileId: s
   return {
     file: {
       id: result.data.id,
+      documentType: result.data.document_type as ApplicationDocumentType,
       originalFilename: result.data.original_filename,
       mimeType: result.data.mime_type as ApplicationFileRecord["mimeType"],
       byteSize: result.data.byte_size,
@@ -723,7 +744,7 @@ export async function reviewApplicationFile(
     .update({ scan_status: decision, reviewed_at: now })
     .eq("id", fileId)
     .in("scan_status", ["manual_review_required", "screening_pending"])
-    .select("id,application_id,original_filename,mime_type,byte_size,scan_status,uploaded_at")
+    .select("id,application_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at")
     .maybeSingle();
   if (updated.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The screening decision could not be saved.");
   if (!updated.data) throw new ApiError(409, "APPLICATION_FILE_ALREADY_REVIEWED", "This file is missing or already reviewed.");
@@ -736,6 +757,7 @@ export async function reviewApplicationFile(
   });
   return {
     id: updated.data.id,
+    documentType: updated.data.document_type as ApplicationDocumentType,
     originalFilename: updated.data.original_filename,
     mimeType: updated.data.mime_type as ApplicationFileRecord["mimeType"],
     byteSize: updated.data.byte_size,

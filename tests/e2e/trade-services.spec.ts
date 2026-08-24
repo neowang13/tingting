@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("Trade Services is consistent across homepage, detail, redirect, metadata, and Admin", async ({ page }) => {
+test("Trade Services is consistent across homepage, detail, redirect, and metadata", async ({ page }) => {
   await page.goto("/");
   const serviceCard = page.getByRole("article").filter({
     has: page.getByRole("heading", { level: 3, name: "Trade Services" })
@@ -19,13 +19,4 @@ test("Trade Services is consistent across homepage, detail, redirect, metadata, 
   await page.goto("/services/renovation");
   await expect(page).toHaveURL(/\/services\/trade-services$/);
 
-  await page.goto("/admin");
-  await page.getByLabel("Email").fill("admin@example.test");
-  await page.getByLabel("Password").fill("test-admin-password");
-  await page.getByRole("button", { name: "Sign In" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
-  await page.goto("/admin/content");
-  const tradeServicesRow = page.locator(".content-section-row").filter({ hasText: "Trade services" });
-  await expect(tradeServicesRow).toContainText("/services/trade-services");
-  await expect(tradeServicesRow).not.toContainText("/services/renovation");
 });

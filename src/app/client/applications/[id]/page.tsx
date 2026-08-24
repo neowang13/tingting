@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { ApplicationPortal } from "@/components/client/application-portal";
-import { ClientLogoutButton } from "@/components/client/client-logout-button";
+import { ClientPortalHeader } from "@/components/client/client-portal-header";
 import { requireClientPage } from "@/lib/client-auth";
 import { getApplicationTerms, getClientApplication } from "@/features/applications/service";
 
@@ -12,5 +11,5 @@ export default async function ClientApplicationPage({ params }: { params: Promis
   const id = (await params).id;
   const identity = await requireClientPage({ nextPath: `/client/applications/${encodeURIComponent(id)}` });
   const [application, termsText] = await Promise.all([getClientApplication(identity, id), getApplicationTerms(identity, id)]);
-  return <main className="client-main"><div className="client-account-bar"><Link href="/">← Back to website</Link><Link href="/client/applications">My applications</Link><ClientLogoutButton /></div><ApplicationPortal application={application} termsText={termsText} /></main>;
+  return <><ClientPortalHeader displayName={identity.displayName} backHref="/client/applications" backLabel="All applications" /><main className="client-main"><ApplicationPortal application={application} termsText={termsText} /></main></>;
 }

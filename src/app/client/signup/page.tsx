@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ClientAuthShell } from "@/components/client/client-auth-shell";
 import { ClientSignupForm } from "@/components/client/client-signup-form";
 import { isDemoMode } from "@/lib/auth";
 import { sanitizeClientNextPath } from "@/lib/client-signup";
@@ -16,12 +17,13 @@ export default async function ClientSignupPage({ searchParams }: { searchParams:
     ? "/client/login"
     : `/client/login?${new URLSearchParams({ next: nextPath })}`;
   return (
-    <main className="client-auth-page">
+    <ClientAuthShell heading="Create one secure account. Return whenever you need.">
       <section className="client-auth-card">
-        <p className="eyebrow">Private client portal</p>
-        <h1>Create client account</h1>
-        <p>Enter your name, email, and password. You must verify your email before the account can be used.</p>
+        <p className="eyebrow">Create your client account</p>
+        <h1>Start your application</h1>
+        <p>Create an account to save your progress, upload documents securely, and return to your application at any time.</p>
         <ClientSignupForm authMode={isDemoMode() ? "local" : "supabase"} nextPath={nextPath} />
+        <p className="client-verification-note">After creating your account, verify your email before signing in. The verification link expires for your security.</p>
         <p className="client-auth-switch"><Link className="text-link" href={loginPath}>Back to Client Login</Link></p>
         <div className="client-security-note">
           <strong>Client accounts are separate from Admin.</strong>
@@ -29,6 +31,6 @@ export default async function ClientSignupPage({ searchParams }: { searchParams:
         </div>
         <p className="client-legal-links"><Link href="/privacy">Privacy</Link><Link href="/terms/application">Application terms</Link></p>
       </section>
-    </main>
+    </ClientAuthShell>
   );
 }

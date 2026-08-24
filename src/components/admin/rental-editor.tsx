@@ -196,10 +196,10 @@ export function RentalEditor({
     try {
       const saved = await saveForm(event.currentTarget);
       setMessage("Saved privately. The public website has not changed.");
-      if (!current) router.replace(`/admin/rentals/${saved.id}`);
+      if (!current) router.replace(`/admin/properties/${saved.id}`);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Rental could not be saved.");
+      setMessage(error instanceof Error ? error.message : "Property could not be saved.");
     } finally {
       setBusy(false);
     }
@@ -228,14 +228,14 @@ export function RentalEditor({
       setMessage("Published. This rental is now live on the website.");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The rental could not be published.");
+      setMessage(error instanceof Error ? error.message : "The property could not be published.");
     } finally {
       setBusy(false);
     }
   }
 
   async function statusAction(action: "unpublish" | "archive") {
-    if (!current || !window.confirm(`Are you sure you want to ${action} this rental?`)) return;
+    if (!current || !window.confirm(`Are you sure you want to ${action} this property?`)) return;
     setBusy(true);
     setMessage("Updating status…");
     try {
@@ -261,19 +261,19 @@ export function RentalEditor({
   return (
     <div className="prototype-page rental-editor-page">
       <div className="prototype-breadcrumb">
-        <Link href="/admin/rentals">Rental listings</Link> / {current?.title ?? "New rental"}
+        <Link href="/admin/properties">Properties</Link> / {current?.title ?? "New property"}
       </div>
       <header className="rental-editor-header">
         <div>
-          <p className="eyebrow">Rental listing</p>
-          <h1>{current?.title ?? "Create a rental"}</h1>
+          <p className="eyebrow">Managed property</p>
+          <h1>{current?.title ?? "Create a property"}</h1>
         </div>
         <strong className="listing-state">{statusLabel(current, liveHasChanges)}</strong>
       </header>
       <form className="admin-form rental-v2-form" ref={formRef} onSubmit={submit}>
         <FormCard number={1} title="Home and address">
           <div className="field-grid">
-            <label className="field"><span>Listing title</span><input name="title" required defaultValue={initial.title}
+            <label className="field"><span>Property title</span><input name="title" required defaultValue={initial.title}
               onChange={(event) => { if (!current?.publishedAt) setSlug(normalizeRentalSlug(event.currentTarget.value)); }}
             /></label>
             <label className="field"><span>Property type</span><select name="propertyType" required defaultValue={initial.property.propertyType}>
@@ -450,7 +450,7 @@ export function RentalEditor({
           <div>{current && current.status !== "archived" && <button className="button danger-outline" disabled={busy} type="button" onClick={() => void statusAction("archive")}>Archive</button>}</div>
           <div className="admin-action-bar">
             <button className="button secondary" disabled={busy} type="submit">Save privately</button>
-            {current && current.status !== "archived" && <Link className="button secondary" href={`/admin/rentals/${current.id}/preview`}>Preview saved draft</Link>}
+            {current && current.status !== "archived" && <Link className="button secondary" href={`/admin/properties/${current.id}/preview`}>Preview public page</Link>}
             {current && current.status !== "archived" && <button className="button" disabled={busy} type="button" onClick={() => void publishCurrentForm()}>{current.status === "published" ? "Publish updates" : "Publish to website"}</button>}
             {current?.status === "published" && <button className="button secondary" disabled={busy} type="button" onClick={() => void statusAction("unpublish")}>Remove from website</button>}
           </div>

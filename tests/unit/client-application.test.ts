@@ -36,6 +36,14 @@ function pdfFile(content = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%E
   return new File([content], "completed-application.pdf", { type: "application/pdf" });
 }
 
+async function uploadRequiredFiles() {
+  return Promise.all([
+    uploadApplicationFile(client, applicationId, pdfFile(), "rental_payment_history"),
+    uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report"),
+    uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof")
+  ]);
+}
+
 function completeDraft() {
   return applicationDraftSchema.parse({
     personal: { legalFirstName: "Demo", legalLastName: "Applicant", phone: "6045550182", email: "client@example.test" },
@@ -101,12 +109,13 @@ describe("client application workflow", () => {
   });
 
   it("sniffs content and rejects active PDF content or extension mismatches", async () => {
-    await expect(uploadApplicationFile(client, applicationId, pdfFile("%PDF-1.7\n/OpenAction /JavaScript")))
+    await expect(uploadApplicationFile(client, applicationId, pdfFile("%PDF-1.7\n/OpenAction /JavaScript"), "employment_income_proof"))
       .rejects.toMatchObject({ code: "UNSAFE_APPLICATION_FILE" });
     await expect(uploadApplicationFile(
       client,
       applicationId,
-      new File([Buffer.from([0xff, 0xd8, 0xff, 0x00])], "fake.png", { type: "image/png" })
+      new File([Buffer.from([0xff, 0xd8, 0xff, 0x00])], "fake.png", { type: "image/png" }),
+      "employment_income_proof"
     )).rejects.toMatchObject({ code: "APPLICATION_FILE_TYPE_MISMATCH" });
   });
 
@@ -114,7 +123,7 @@ describe("client application workflow", () => {
     const draft = applicationDraftSchema.parse({ personal: { legalFirstName: "Draft" } });
     const saved = await saveApplicationDraft(client, applicationId, { draft, activeStep: 1 });
     expect(saved.draft.personal.legalFirstName).toBe("Draft");
-    await uploadApplicationFile(client, applicationId, pdfFile());
+    await uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof");
     const application = await getClientApplication(client, applicationId);
     await expect(submitClientApplication(client, applicationId, {
       sharingAuthorization: true,
@@ -126,7 +135,7 @@ describe("client application workflow", () => {
     }, { requestId: "test", userAgentHash: "hash" })).rejects.toMatchObject({ code: "APPLICATION_DRAFT_INCOMPLETE" });
   });
 
-  it("requires a file, both unchecked-by-default authorizations, and exact versions", async () => {
+  it("requires all three document categories, both unchecked-by-default authorizations, and exact versions", async () => {
     await saveCompleteDraft();
     const application = await getClientApplication(client, applicationId);
     const base = {
@@ -138,8 +147,12 @@ describe("client application workflow", () => {
       formSha256: application.formSha256
     };
     await expect(submitClientApplication(client, applicationId, base, { requestId: "test", userAgentHash: "hash" }))
-      .rejects.toMatchObject({ code: "APPLICATION_FILE_REQUIRED" });
-    await uploadApplicationFile(client, applicationId, pdfFile());
+      .rejects.toMatchObject({ code: "APPLICATION_DOCUMENTS_REQUIRED" });
+    await uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof");
+    await expect(submitClientApplication(client, applicationId, base, { requestId: "test", userAgentHash: "hash" }))
+      .rejects.toMatchObject({ code: "APPLICATION_DOCUMENTS_REQUIRED" });
+    await uploadApplicationFile(client, applicationId, pdfFile(), "rental_payment_history");
+    await uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report");
     await expect(submitClientApplication(client, applicationId, { ...base, screeningConsent: false }, { requestId: "test", userAgentHash: "hash" }))
       .rejects.toMatchObject({ code: "APPLICATION_CONSENT_REQUIRED" });
     await expect(submitClientApplication(client, applicationId, { ...base, termsVersion: "stale" }, { requestId: "test", userAgentHash: "hash" }))
@@ -148,7 +161,7 @@ describe("client application workflow", () => {
 
   it("records immutable consent evidence, retention, status, and a downloadable receipt", async () => {
     await saveCompleteDraft();
-    await uploadApplicationFile(client, applicationId, pdfFile());
+    await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     const send = vi.fn<EmailProvider["send"]>().mockResolvedValue({
       providerMessageId: "resend-application-test",
@@ -177,7 +190,7 @@ describe("client application workflow", () => {
     });
     expect(send.mock.calls[0][0].text).toContain("https://silverkey.ca/admin/applications");
     expect(send.mock.calls[0][0].text).not.toContain("completed-application.pdf");
-    await expect(uploadApplicationFile(client, applicationId, pdfFile()))
+    await expect(uploadApplicationFile(client, applicationId, pdfFile(), "other"))
       .rejects.toMatchObject({ code: "APPLICATION_ALREADY_SUBMITTED" });
     const receipt = (await applicationReceipt(client, applicationId)).toString("utf8");
     expect(receipt).toContain(application.termsSha256);
@@ -186,7 +199,7 @@ describe("client application workflow", () => {
 
   it("keeps a completed submission when the admin notification provider fails", async () => {
     await saveCompleteDraft();
-    await uploadApplicationFile(client, applicationId, pdfFile());
+    await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     const submitted = await submitClientApplication(client, applicationId, {
       sharingAuthorization: true,
@@ -204,7 +217,7 @@ describe("client application workflow", () => {
 
   it("allows only documented staff status transitions", async () => {
     await saveCompleteDraft();
-    await uploadApplicationFile(client, applicationId, pdfFile());
+    await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     await submitClientApplication(client, applicationId, {
       sharingAuthorization: true, screeningConsent: true,
@@ -219,7 +232,9 @@ describe("client application workflow", () => {
       .rejects.toMatchObject({ code: "APPLICATION_FILES_NOT_CLEARED" });
     const fileId = application.files[0].id;
     expect((await getApplicationFileForStaff(admin, fileId)).bytes.toString("utf8")).toContain("%PDF");
-    expect((await reviewApplicationFile(admin, fileId, "cleared")).scanStatus).toBe("cleared");
+    for (const file of application.files) {
+      expect((await reviewApplicationFile(admin, file.id, "cleared")).scanStatus).toBe("cleared");
+    }
     expect((await updateApplicationStatus(admin, applicationId, "under_review")).status).toBe("under_review");
 
     const approvalSend = vi.fn<EmailProvider["send"]>().mockResolvedValue({
@@ -277,7 +292,7 @@ describe("client application workflow", () => {
 
   it("keeps approval recorded when applicant email delivery fails", async () => {
     await saveCompleteDraft();
-    const uploaded = await uploadApplicationFile(client, applicationId, pdfFile());
+    const uploaded = await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     await submitClientApplication(client, applicationId, {
       sharingAuthorization: true, screeningConsent: true,
@@ -285,7 +300,7 @@ describe("client application workflow", () => {
       formVersion: application.formVersion, formSha256: application.formSha256
     }, { requestId: "test", userAgentHash: "hash" });
     const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
-    await reviewApplicationFile(admin, uploaded.id, "cleared");
+    for (const file of uploaded) await reviewApplicationFile(admin, file.id, "cleared");
     await updateApplicationStatus(admin, applicationId, "received");
     await updateApplicationStatus(admin, applicationId, "under_review");
     const approved = await updateApplicationStatus(admin, applicationId, "approved", {

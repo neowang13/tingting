@@ -3,43 +3,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { formatRentDueDate } from "@/features/reminders/due-date";
 import type {
   ReminderSchedule,
-  ReminderSettings,
   Tenant,
   TenantRentPayment
 } from "@/lib/contracts";
 
 const DEFAULT_TIMEZONE = "America/Vancouver";
 
-interface ReminderSystemStatus extends ReminderSettings {
-  forcePaused: boolean;
-  emailProviderMode: string;
-}
-
-interface NextRunPreview {
-  nextRunAt: string | null;
-  dueDate: string | null;
-  timezone: string;
-  error: string | null;
-}
-
-interface SavedTenantResult extends Tenant {
-  reminderCatchUp?: {
-    attempted: boolean;
-    status: "not_needed" | "processed" | "paused" | "failed";
-    scheduledFor: string | null;
-  };
-}
+type SavedTenantResult = Tenant;
 
 export function TenantEditor({
   initial,
-  reminderSystem,
   initialNotice
 }: {
   initial: { tenant: Tenant; schedule: ReminderSchedule | null } | null;
-  reminderSystem: ReminderSystemStatus;
   initialNotice?: { message: string; tone: "success" | "error" };
 }) {
   const router = useRouter();
@@ -58,52 +36,10 @@ export function TenantEditor({
   const [rentDueDay, setRentDueDay] = useState(
     initial?.tenant.rentDueDay ?? initial?.schedule?.rentDueDay ?? 1
   );
-  const [nextRunPreview, setNextRunPreview] = useState<NextRunPreview>({
-    nextRunAt: initial?.schedule?.nextRunAt ?? null,
-    dueDate: null,
-    timezone: reminderSystem.timezone,
-    error: null
-  });
   const existingEmailBlock = tenant &&
     !["allowed", "unconfirmed"].includes(tenant.emailContactStatus)
     ? tenant.emailContactStatus
     : null;
-
-  useEffect(() => {
-    if (!Number.isInteger(rentDueDay) || rentDueDay < 1 || rentDueDay > 31) {
-      return;
-    }
-    const controller = new AbortController();
-    void fetch("/api/admin/schedules/next-run", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        rentDueDay,
-        moveInDate: moveInDate || null
-      }),
-      signal: controller.signal
-    })
-      .then(async (response) => {
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error();
-        setNextRunPreview({
-          nextRunAt: result.data.nextRunAt,
-          dueDate: result.data.dueDate,
-          timezone: result.data.timezone,
-          error: null
-        });
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setNextRunPreview((current) => ({
-          ...current,
-          nextRunAt: null,
-          dueDate: null,
-          error: "The next automatic email could not be calculated."
-        }));
-      });
-    return () => controller.abort();
-  }, [moveInDate, rentDueDay]);
 
   async function saveTenant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -169,31 +105,9 @@ export function TenantEditor({
       const saved = result.data as SavedTenantResult;
       setTenant(saved);
       setMessageTone("success");
-      if (saved.reminderCatchUp?.status === "processed") {
-        setMessage("Tenant saved. The missed rent reminder was sent immediately.");
-      } else if (saved.reminderCatchUp?.status === "failed") {
-        setMessageTone("error");
-        setMessage("Tenant saved, but the immediate reminder could not be sent. The scheduled worker will retry it.");
-      } else if (
-        saved.reminderCatchUp?.status === "paused"
-        || reminderSystem.paused
-        || reminderSystem.forcePaused
-      ) {
-        setMessage("Tenant saved. The reminder is ready, but automatic sending is paused.");
-      } else {
-        setMessage("Tenant saved. The global reminder settings will be used for future emails.");
-      }
+      setMessage("Tenant saved.");
       if (!tenant) {
-        const savedNotice = saved.reminderCatchUp?.status === "processed"
-          ? "catch-up"
-          : saved.reminderCatchUp?.status === "failed"
-            ? "retry"
-            : saved.reminderCatchUp?.status === "paused"
-              || reminderSystem.paused
-              || reminderSystem.forcePaused
-              ? "paused"
-              : "active";
-        router.replace(`/admin/tenants/${saved.id}?saved=${savedNotice}`);
+        router.replace(`/admin/tenants/${saved.id}?saved=success`);
       } else router.refresh();
     } catch (error) {
       setMessageTone("error");
@@ -204,7 +118,7 @@ export function TenantEditor({
   }
 
   async function archiveTenant() {
-    if (!tenant || !window.confirm("Archive this tenant and stop all future reminders?")) return;
+    if (!tenant || !window.confirm("Archive this tenant? The record will remain available in tenant history.")) return;
     setBusy(true);
     setMessage("Archiving tenant…");
     setMessageTone("neutral");
@@ -218,7 +132,7 @@ export function TenantEditor({
       if (!response.ok || !result.success) throw new Error(readableSaveError(result));
       setTenant(result.data);
       setMessageTone("success");
-      setMessage("Tenant archived. Future reminders are stopped.");
+      setMessage("Tenant archived.");
       router.refresh();
     } catch (error) {
       setMessageTone("error");
@@ -249,10 +163,7 @@ export function TenantEditor({
       <form className="admin-form tenant-prototype-form" onSubmit={saveTenant}>
         <section className="prototype-form-card tenant-step-panel" aria-labelledby="tenant-details-heading">
           <h2 id="tenant-details-heading">Tenant details</h2>
-          <p>
-            Payment due date is the only tenant-specific reminder setting. The lead time,
-            send time, and email template come from Reminder settings.
-          </p>
+          <p>Keep the lease, contact details, payment due day, and internal notes current.</p>
           <div className="field-grid">
             <label className="field field-wide">
               <span>Name</span>
@@ -341,7 +252,7 @@ export function TenantEditor({
                 onChange={(event) => setEmail(event.target.value)}
                 autoComplete="email"
               />
-              <small>Active tenants with an allowed email use the global automatic reminder.</small>
+              <small>Used only for direct tenant communication and account matching.</small>
             </label>
             <label className="field field-wide">
               <span>Notes</span>
@@ -353,24 +264,7 @@ export function TenantEditor({
             </label>
           </div>
 
-          <div className="prototype-next-run neutral" aria-live="polite">
-            {!Number.isInteger(rentDueDay) || rentDueDay < 1 || rentDueDay > 31 ? (
-              "Payment due date must be a whole number from 1 to 31."
-            ) : nextRunPreview.error ? (
-              nextRunPreview.error
-            ) : nextRunPreview.nextRunAt && nextRunPreview.dueDate ? (
-              <>
-                Next automatic email: <strong>{new Date(nextRunPreview.nextRunAt).toLocaleString("en-CA", {
-                  dateStyle: "long",
-                  timeStyle: "short",
-                  timeZone: nextRunPreview.timezone
-                })}</strong>
-                {" · "}Payment due: <strong>{formatRentDueDate(nextRunPreview.dueDate)}</strong>
-              </>
-            ) : (
-              "The next automatic email will appear after a valid payment due date is entered."
-            )}
-          </div>
+          {(!Number.isInteger(rentDueDay) || rentDueDay < 1 || rentDueDay > 31) && <p className="warning-callout">Payment due day must be a whole number from 1 to 31.</p>}
 
           {existingEmailBlock && (
             <p className="warning-callout">

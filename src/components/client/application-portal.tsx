@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, type ReactNode, useMemo, useState } from "react";
-import type { ApplicationFileRecord, ClientApplicationRecord } from "@/features/applications/contracts";
+import {
+  APPLICATION_DOCUMENT_LABELS,
+  APPLICATION_DOCUMENT_TYPES,
+  APPLICATION_REQUIRED_DOCUMENT_TYPES,
+  type ApplicationDocumentType,
+  type ApplicationFileRecord,
+  type ClientApplicationRecord
+} from "@/features/applications/contracts";
 import {
   applicationDraftStepComplete,
   applicationDraftStepIssues,
@@ -74,12 +81,18 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
   const [error, setError] = useState("");
   const [lastSaved, setLastSaved] = useState(application.draftUpdatedAt);
   const editable = application.status === "draft";
+  const requiredDocumentsComplete = useMemo(
+    () => APPLICATION_REQUIRED_DOCUMENT_TYPES.every(
+      (documentType) => files.some((file) => file.documentType === documentType)
+    ),
+    [files]
+  );
 
   const completed = useMemo(() => steps.map((step, index) => {
     if (step.section) return applicationDraftStepComplete(draft, step.section);
-    if (index === 6) return files.length > 0;
+    if (index === 6) return requiredDocumentsComplete;
     return !editable;
-  }), [draft, editable, files.length]);
+  }), [draft, editable, requiredDocumentsComplete]);
   const completedCount = completed.slice(0, 7).filter(Boolean).length;
 
   function updateSection(section: ApplicationDraftSection, patch: Record<string, unknown>) {
@@ -102,8 +115,11 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
         return false;
       }
     }
-    if (options.validate && step === 7 && files.length === 0) {
-      setError("Upload one of the accepted income verification options before continuing.");
+    if (options.validate && step === 7 && !requiredDocumentsComplete) {
+      const missingDocumentType = APPLICATION_REQUIRED_DOCUMENT_TYPES.find(
+        (documentType) => !files.some((file) => file.documentType === documentType)
+      );
+      setError(`Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentType!].toLowerCase()} before continuing.`);
       return false;
     }
     setBusy(true);
@@ -136,12 +152,13 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     }
   }
 
-  async function uploadSelectedFile(event: ChangeEvent<HTMLInputElement>) {
+  async function uploadSelectedFile(event: ChangeEvent<HTMLInputElement>, documentType: ApplicationDocumentType) {
     const input = event.currentTarget;
     const file = input.files?.[0];
     if (!file) return;
     const data = new FormData();
     data.set("file", file);
+    data.set("documentType", documentType);
     setBusy(true); setError(""); setMessage("");
     try {
       const response = await fetch(`/api/client/applications/${application.id}/files`, { method: "POST", body: data });
@@ -150,7 +167,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       } else {
         const body = await response.json() as { data: ApplicationFileRecord };
         setFiles((current) => [...current, body.data]);
-        setMessage("Income verification file uploaded to private storage. Staff screening is required before processing.");
+        setMessage(`${APPLICATION_DOCUMENT_LABELS[documentType]} uploaded to private storage. Staff screening is required before processing.`);
       }
     } catch {
       setError("The file upload could not be completed. Check your connection and try again.");
@@ -252,7 +269,42 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <Field label="Email address"><input type="email" value={draft.emergency.email} onChange={(event) => updateSection("emergency", { email: event.target.value })} /></Field>
         </div><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(5)} onExit={() => void persistDraft({ exit: true })} /></form>}
 
-        {activeStep === 7 && <div><h2 id="application-step-title">Income verification</h2><p>Upload one of the following options. Only one type of income proof is required.</p><div className="application-document-guidance"><strong>Accepted income proof</strong><ul><li>Your two most recent pay stubs;</li><li>an employment letter confirming your position and income; or</li><li>if self-employed, your most recent Notice of Assessment.</li></ul><p>Before uploading, redact your SIN, bank or account numbers, and any unrelated personal information. Do not upload photo ID, full bank statements, or credit card information.</p></div><p>Accepted formats: PDF, JPEG, or PNG. Maximum 10 MB per file and 8 files total.</p>{files.length > 0 && <ul className="application-file-list">{files.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}<label className={`application-file-picker${busy ? " is-disabled" : ""}`}><input aria-label="Choose an income verification document" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadSelectedFile(event)} disabled={busy} /><span className="application-file-picker-icon" aria-hidden="true">↑</span><span><strong>{busy ? "Uploading securely…" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span></label><details className="application-paper-fallback"><summary>Need a paper application instead?</summary><p>The paper application is separate from the income proof above. Download it only if you cannot complete the online fields, then upload the completed form here with one accepted income proof. Do not email either document.</p><a className="text-link" href={`/api/client/applications/${application.id}/form`}>Download fallback application form</a></details><form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form></div>}
+        {activeStep === 7 && <div>
+          <h2 id="application-step-title">Income and credit score verification</h2>
+          <p>Upload each of the three required document categories below. Bank statements are optional, and other supporting documents should be added only if needed.</p>
+          <div className="application-document-guidance">
+            <strong>Required and optional documents</strong>
+            <ol>
+              <li>Rental payment history from your current landlord — required;</li>
+              <li>current credit score report — required;</li>
+              <li>recent pay stubs or your current employment contract — required;</li>
+              <li>bank statement — optional; and</li>
+              <li>other supporting documents — only if needed.</li>
+            </ol>
+            <p>Before uploading, redact your SIN, full bank or account numbers, login credentials, and unrelated personal information. Do not upload photo ID or credit card information unless specifically requested.</p>
+          </div>
+          <p>Accepted formats: PDF, JPEG, or PNG. Maximum 10 MB per file and 8 files total.</p>
+          <div className="application-document-categories">
+            {APPLICATION_DOCUMENT_TYPES.map((documentType) => {
+              const categoryFiles = files.filter((file) => file.documentType === documentType);
+              const required = APPLICATION_REQUIRED_DOCUMENT_TYPES.includes(documentType);
+              return <section className="application-document-category" key={documentType}>
+                <div>
+                  <strong>{APPLICATION_DOCUMENT_LABELS[documentType]}{required ? " *" : ""}</strong>
+                  <small>{required ? "Required" : "Optional"}</small>
+                </div>
+                {categoryFiles.length > 0 && <ul className="application-file-list">{categoryFiles.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}
+                <label className={`application-file-picker${busy ? " is-disabled" : ""}`}>
+                  <input aria-label={`Choose ${APPLICATION_DOCUMENT_LABELS[documentType]} file`} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadSelectedFile(event, documentType)} disabled={busy} />
+                  <span className="application-file-picker-icon" aria-hidden="true">↑</span>
+                  <span><strong>{busy ? "Uploading securely…" : categoryFiles.length > 0 ? "Upload another file" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span>
+                </label>
+              </section>;
+            })}
+          </div>
+          <details className="application-paper-fallback"><summary>Need a paper application instead?</summary><p>The paper application is separate from the verification documents above. Download it only if you cannot complete the online fields, then upload the completed form under Other supporting document. Do not email the application or supporting documents.</p><a className="text-link" href={`/api/client/applications/${application.id}/form`}>Download fallback application form</a></details>
+          <form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form>
+        </div>}
 
         {activeStep === 8 && <form onSubmit={submitApplication}><h2 id="application-step-title">Review and submit</h2><p>Review every section before giving the required authorizations. You cannot edit the application after submission.</p><div className="application-review-list">
           <ReviewGroup title="Personal details" onEdit={() => setActiveStep(1)} rows={[["Legal name", `${draft.personal.legalFirstName} ${draft.personal.legalLastName}`], ["Phone", draft.personal.phone], ["Email", draft.personal.email]]} />
@@ -261,7 +313,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <ReviewGroup title="Employment & income" onEdit={() => setActiveStep(4)} rows={[["Status", draft.employment.employmentStatus.replaceAll("_", " ")], ["Employer / source", draft.employment.employerOrIncomeSource], ["Role", draft.employment.occupation], ["Gross monthly income", `$${draft.employment.grossMonthlyIncome.toLocaleString("en-CA")}`]]} />
           <ReviewGroup title="References" onEdit={() => setActiveStep(5)} rows={[["Primary reference", draft.references.primary.name], ["Relationship", draft.references.primary.relationship], ["Second reference", draft.references.secondary.name]]} />
           <ReviewGroup title="Emergency contact" onEdit={() => setActiveStep(6)} rows={[["Name", draft.emergency.name], ["Relationship", draft.emergency.relationship], ["Phone", draft.emergency.phone]]} />
-          <ReviewGroup title="Documents" onEdit={() => setActiveStep(7)} rows={files.map((file, index) => [`Document ${index + 1}`, file.originalFilename])} />
+          <ReviewGroup title="Income and credit score verification" onEdit={() => setActiveStep(7)} rows={files.map((file) => [APPLICATION_DOCUMENT_LABELS[file.documentType], file.originalFilename])} />
         </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to the stated credit-score, reference, housing, and income-verification checks for this rental application. *</span></label><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}</form>}
 
         {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
