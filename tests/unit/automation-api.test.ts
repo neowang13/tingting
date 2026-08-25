@@ -28,6 +28,8 @@ describe("Automation API route", () => {
     vi.stubEnv("AUTOMATION_CONFIRMATIONS_ENABLED", "true");
     vi.stubEnv("AUTOMATION_TENANT_IMPORT_ENABLED", "true");
     vi.stubEnv("AUTOMATION_TOKEN_PEPPER", "route-test-pepper-value-that-is-longer-than-32-characters");
+    vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "true");
+    vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "true");
     resetEnvironmentCache();
     resetAutomationRepositoryForTests();
     resetRepositoryForTests();
@@ -455,6 +457,100 @@ describe("Automation API route", () => {
       kind: "daily_overdue_rent_summary",
       text: expect.stringContaining("Agent Overdue Tenant")
     });
+  });
+
+  it("acknowledges a disabled same-day overdue event and continues to an enabled Agent event", async () => {
+    vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "false");
+    const automationRepository = getAutomationRepository();
+    const credential = await automationRepository.createServiceAccount({
+      name: "Disabled overdue reader",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["payments:read"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const repository = getRepository();
+    const now = Temporal.Now.instant();
+    const localDate = now
+      .toZonedDateTimeISO("America/Vancouver")
+      .toPlainDate()
+      .toString();
+    const disabledId = await repository.enqueueAgentNotification({
+      eventKey: `agent-disabled-daily:${crypto.randomUUID()}`,
+      kind: "daily_overdue_rent_summary",
+      payload: { localDate },
+      availableAt: now.subtract({ seconds: 2 }).toString()
+    });
+    await repository.enqueueAgentNotification({
+      eventKey: `agent-enabled-weekly:${crypto.randomUUID()}`,
+      kind: "weekly_report_sent",
+      payload: { text: "Enabled weekly event" },
+      availableAt: now.subtract({ seconds: 1 }).toString()
+    });
+    const acknowledge = vi.spyOn(repository, "acknowledgeAgentNotification");
+
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/agent-notifications/claim",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json"
+        },
+        body: "{}"
+      }
+    ), context(["agent-notifications", "claim"]));
+    const payload = await response.json();
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.data).toMatchObject({
+      kind: "weekly_report_sent",
+      text: "Enabled weekly event"
+    });
+    expect(acknowledge).toHaveBeenCalledWith(
+      disabledId,
+      expect.any(String),
+      expect.any(String)
+    );
+  });
+
+  it("acknowledges a disabled pending weekly report and does not return it", async () => {
+    vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "false");
+    const automationRepository = getAutomationRepository();
+    const credential = await automationRepository.createServiceAccount({
+      name: "Disabled weekly reader",
+      delegatedAdminUserId: crypto.randomUUID(),
+      scopes: ["payments:read"],
+      expiresAt: null
+    }, crypto.randomUUID());
+    const repository = getRepository();
+    const weeklyId = await repository.enqueueAgentNotification({
+      eventKey: `agent-disabled-weekly:${crypto.randomUUID()}`,
+      kind: "weekly_report_sent",
+      payload: { text: "Must not be returned" },
+      availableAt: Temporal.Now.instant().subtract({ seconds: 1 }).toString()
+    });
+    const acknowledge = vi.spyOn(repository, "acknowledgeAgentNotification");
+
+    const response = await POST(new Request(
+      "http://localhost/api/automation/v1/agent-notifications/claim",
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${credential.token}`,
+          "content-type": "application/json"
+        },
+        body: "{}"
+      }
+    ), context(["agent-notifications", "claim"]));
+    const payload = await response.json();
+
+    expect(response.status, JSON.stringify(payload)).toBe(200);
+    expect(payload.data).toBeNull();
+    expect(acknowledge).toHaveBeenCalledWith(
+      weeklyId,
+      expect.any(String),
+      expect.any(String)
+    );
   });
 
   it("updates existing tenant fields without exposing stored contact data", async () => {

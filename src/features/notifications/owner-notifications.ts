@@ -6,6 +6,10 @@ import {
 } from "@/features/notifications/providers";
 import type { EmailProvider } from "@/features/notifications/providers/types";
 import { ApiError } from "@/lib/api";
+import {
+  isOwnerDailyOverdueEnabled,
+  isOwnerWeeklySummaryEnabled
+} from "@/lib/env";
 import type {
   OwnerNotificationDelivery,
   RentPaymentDetail,
@@ -367,6 +371,9 @@ export function latestWeeklySummaryWindow(now = new Date()) {
 }
 
 export async function enqueueWeeklyTenantSummary(now = new Date()) {
+  if (!isOwnerWeeklySummaryEnabled()) {
+    return { queued: false, reason: "weekly_summary_disabled" as const };
+  }
   if (!ownerRecipient() || resolveEmailProviderMode() === "disabled") {
     return { queued: false, reason: "email_not_configured" as const };
   }
@@ -388,6 +395,9 @@ export async function enqueueWeeklyTenantSummary(now = new Date()) {
 }
 
 export async function enqueueDailyOverdueRentSummary(now = new Date()) {
+  if (!isOwnerDailyOverdueEnabled()) {
+    return { queued: false, reason: "daily_overdue_disabled" as const };
+  }
   const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
   const generatedThrough = now.toISOString();
   const localNow = Temporal.Instant.from(generatedThrough).toZonedDateTimeISO(timezone);
@@ -451,6 +461,21 @@ export async function deliverOwnerNotifications(options: {
   const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
   for (const delivery of deliveries) {
     try {
+      const disabledSafeErrorCode = delivery.kind === "daily_overdue_rent_summary"
+        ? !isOwnerDailyOverdueEnabled() && "OWNER_DAILY_OVERDUE_REPORT_DISABLED"
+        : delivery.kind === "weekly_tenant_summary"
+          ? !isOwnerWeeklySummaryEnabled() && "OWNER_WEEKLY_SUMMARY_REPORT_DISABLED"
+          : false;
+      if (disabledSafeErrorCode) {
+        await repository.finishOwnerNotification(delivery.id, {
+          status: "sent",
+          providerMessageId: null,
+          safeErrorCode: disabledSafeErrorCode,
+          nextAttemptAt: null
+        });
+        summary.skipped += 1;
+        continue;
+      }
       const message = await renderDelivery(delivery, timezone, now.toISOString());
       if (!message) {
         await repository.finishOwnerNotification(delivery.id, {

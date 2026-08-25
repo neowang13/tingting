@@ -46,7 +46,11 @@ import {
   enqueueTenantUploadNotification
 } from "@/features/notifications/owner-notifications";
 import { ApiError, handleApiError, readJson } from "@/lib/api";
-import { readServerEnvironment } from "@/lib/env";
+import {
+  isOwnerDailyOverdueEnabled,
+  isOwnerWeeklySummaryEnabled,
+  readServerEnvironment
+} from "@/lib/env";
 import { NextResponse } from "next/server";
 
 interface Context {
@@ -464,7 +468,14 @@ export async function POST(request: Request, context: Context) {
           : {};
         const staleDaily = candidate.kind === "daily_overdue_rent_summary"
           && payload.localDate !== localDate;
-        if (staleDaily) {
+        const disabledReport = (
+          candidate.kind === "daily_overdue_rent_summary"
+          && !isOwnerDailyOverdueEnabled()
+        ) || (
+          candidate.kind === "weekly_report_sent"
+          && !isOwnerWeeklySummaryEnabled()
+        );
+        if (staleDaily || disabledReport) {
           await repository.acknowledgeAgentNotification(
             candidateId,
             actor.serviceAccountId,

@@ -41,8 +41,10 @@ describe("owner email notifications", () => {
     vi.stubEnv("DATA_BACKEND", "memory");
     vi.stubEnv("EMAIL_PROVIDER_MODE", "mock");
     vi.stubEnv("OWNER_NOTIFICATION_TO_EMAIL", "owner@example.test");
+    vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "true");
     vi.stubEnv("OWNER_DAILY_OVERDUE_TIME", "09:00");
     vi.stubEnv("DEFAULT_TIMEZONE", "America/Vancouver");
+    vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "true");
     vi.stubEnv("OWNER_WEEKLY_SUMMARY_DAY", "1");
     vi.stubEnv("OWNER_WEEKLY_SUMMARY_TIME", "09:00");
     resetRepositoryForTests();
@@ -73,6 +75,74 @@ describe("owner email notifications", () => {
       subject: "租客信息上传完成：Jane Chen",
       text: expect.stringContaining("Email：jane@example.com"),
       html: expect.stringContaining("Month to month")
+    }));
+  });
+
+  it("does not queue daily or weekly owner reports when their switches are disabled", async () => {
+    vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "false");
+    vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "false");
+    const repository = getRepository();
+    await repository.createTenant({
+      ...tenantPayload("Disabled Report Tenant"),
+      moveInDate: "2026-01-01",
+      rentDueDay: 1
+    }, crypto.randomUUID());
+    await repository.materializeRentPeriods("2026-08-10");
+    const enqueueOwner = vi.spyOn(repository, "enqueueOwnerNotification");
+    const enqueueAgent = vi.spyOn(repository, "enqueueAgentNotification");
+
+    await expect(enqueueDailyOverdueRentSummary(
+      new Date("2026-08-10T16:01:00.000Z")
+    )).resolves.toEqual({
+      queued: false,
+      reason: "daily_overdue_disabled"
+    });
+    await expect(enqueueWeeklyTenantSummary(
+      new Date("2026-08-10T16:01:00.000Z")
+    )).resolves.toEqual({
+      queued: false,
+      reason: "weekly_summary_disabled"
+    });
+    expect(enqueueOwner).not.toHaveBeenCalled();
+    expect(enqueueAgent).not.toHaveBeenCalled();
+  });
+
+  it("terminally skips queued disabled reports while still delivering tenant uploads", async () => {
+    const repository = getRepository();
+    const tenant = await repository.createTenant({
+      ...tenantPayload("Allowed Upload Tenant"),
+      moveInDate: "2026-01-01",
+      rentDueDay: 1
+    }, crypto.randomUUID());
+    await repository.materializeRentPeriods("2026-08-10");
+    await enqueueDailyOverdueRentSummary(new Date("2026-08-10T16:01:00.000Z"));
+    await enqueueWeeklyTenantSummary(new Date("2026-08-10T16:01:00.000Z"));
+    await enqueueTenantUploadNotification(tenant);
+    vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "false");
+    vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "false");
+    const finish = vi.spyOn(repository, "finishOwnerNotification");
+    const send = vi.fn().mockResolvedValue({
+      providerMessageId: "upload-only",
+      status: "queued"
+    });
+
+    await expect(deliverOwnerNotifications({
+      now: new Date(Date.now() + 1_000),
+      provider: { send } as EmailProvider
+    })).resolves.toMatchObject({ claimed: 3, sent: 1, failed: 0, skipped: 2 });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      subject: "租客信息上传完成：Allowed Upload Tenant"
+    }));
+    expect(finish).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      status: "sent",
+      safeErrorCode: "OWNER_DAILY_OVERDUE_REPORT_DISABLED",
+      nextAttemptAt: null
+    }));
+    expect(finish).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({
+      status: "sent",
+      safeErrorCode: "OWNER_WEEKLY_SUMMARY_REPORT_DISABLED",
+      nextAttemptAt: null
     }));
   });
 

@@ -27,6 +27,10 @@ services:
         value: live
       - key: OWNER_DAILY_OVERDUE_TIME
         value: "09:00"
+      - key: OWNER_DAILY_OVERDUE_ENABLED
+        value: "false"
+      - key: OWNER_WEEKLY_SUMMARY_ENABLED
+        value: "false"
       - key: SMS_PROVIDER_MODE
         value: disabled
       - key: AUTOMATION_API_ENABLED
