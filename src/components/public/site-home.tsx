@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowRight, House, Phone } from "lucide-react";
 import { ContactForm } from "@/components/public/contact-form";
 import { GoogleReviewCard } from "@/components/public/google-review-card";
+import { SITE_BANNER_ALT, SITE_BANNER_IMAGE } from "@/components/public/site-banner";
 import { SiteFooter, SiteHeader } from "@/components/public/site-chrome";
 import type { PublicHomepageData } from "@/features/content/public-homepage";
 import { googleReviewEmptyFeed, type GoogleReviewFeed } from "@/features/google-reviews";
@@ -67,8 +68,8 @@ export function SiteHome({
         <section className="home-hero" aria-labelledby="hero-heading">
           <Image
             className="home-hero-image"
-            src="/images/silverkey-home-hero-2026.webp"
-            alt="The four-person Silverkey real estate team"
+            src={SITE_BANNER_IMAGE}
+            alt={SITE_BANNER_ALT}
             fill
             priority
             unoptimized

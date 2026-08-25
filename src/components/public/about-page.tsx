@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { Award, BarChart3, Gem, Medal } from "lucide-react";
+import { SITE_BANNER_ALT, SITE_BANNER_IMAGE } from "@/components/public/site-banner";
 
 const recognition = [
   { year: "2023", title: "Presidents Club Qualification", Icon: Award },
@@ -36,8 +37,8 @@ export function AboutPageExperience() {
       <section className="about-design-hero" aria-labelledby="about-page-heading">
         <Image
           className="about-design-hero-image"
-          src="/images/silverkey-home-hero-2026.webp"
-          alt="The four-person Silverkey team"
+          src={SITE_BANNER_IMAGE}
+          alt={SITE_BANNER_ALT}
           fill
           priority
           unoptimized

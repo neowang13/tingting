@@ -45,6 +45,7 @@ import type {
 } from "@/features/content/service-pages";
 import type { ServicePageSectionKey } from "@/lib/contracts";
 import { shouldServePublicImageDirectly } from "@/lib/public-image-url";
+import { SITE_BANNER_ALT, SITE_BANNER_IMAGE } from "@/components/public/site-banner";
 
 const serviceIcons: Record<ServiceIconKey, LucideIcon> = {
   armchair: Armchair,
@@ -287,25 +288,21 @@ export function ServiceLandingPage({
   sections: PublicHomepageData["sections"];
   mediaUrls: Record<string, string | null>;
 }) {
-  const heroImage = resolveImage(page.heroImage, mediaUrls);
   const storyFirst = sectionKey === "service_trade_services";
   return (
     <ContactModalProvider contact={sections.contact}>
       <SiteHeader header={sections.header} />
       <main className="service-page">
         <section className="service-page-hero" aria-labelledby="service-page-title">
-          {heroImage && (
-            <Image
-              className="service-page-hero-image"
-              src={heroImage}
-              alt={page.heroImage.alt}
-              fill
-              priority
-              unoptimized={shouldServePublicImageDirectly(heroImage)}
-              sizes="100vw"
-              style={{ objectPosition: page.heroPosition }}
-            />
-          )}
+          <Image
+            className="service-page-hero-image"
+            src={SITE_BANNER_IMAGE}
+            alt={SITE_BANNER_ALT}
+            fill
+            priority
+            unoptimized
+            sizes="100vw"
+          />
           <div className="service-page-hero-scrim" aria-hidden />
           <div className="container service-page-hero-copy">
             <div className="eyebrow">{page.eyebrow}</div>
