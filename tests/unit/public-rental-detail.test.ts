@@ -66,20 +66,10 @@ describe("public rental detail formatters", () => {
 
   it("renders the mapped tour with controls, source, poster, and fallback link", async () => {
     const videoTour = getPublicRentalVideo("sail-5981-gray-avenue");
-    const sections = Object.fromEntries(
-      (["header", "contact", "footer"] as const).map((key) => [
-        key,
-        sectionSchemas[key].parse(
-          demoSections.find((section) => section.key === key)?.publishedContent
-        )
-      ])
-    ) as PublicRentalDetailData["sections"];
-    const markup = await renderMarkup(createElement(RentalDetailPage, {
-      rental: structuredClone(demoRentals[0]),
-      videoTour,
-      similarRentals: [],
-      sections
-    }));
+    const markup = await renderMarkup(createElement(
+      RentalDetailPage,
+      detailData(videoTour)
+    ));
 
     expect(markup).toContain("<video");
     expect(markup).toContain("controls=\"\"");
@@ -87,7 +77,37 @@ describe("public rental detail formatters", () => {
     expect(markup).toContain(`src=\"${videoTour!.url}\"`);
     expect(markup).toContain(`href=\"${videoTour!.url}\"`);
   });
+
+  it("omits the tour section for rentals without a mapped video", async () => {
+    const markup = await renderMarkup(createElement(
+      RentalDetailPage,
+      detailData(null)
+    ));
+
+    expect(markup).not.toContain("<video");
+    expect(markup).not.toContain("VIDEO TOUR");
+  });
 });
+
+function detailData(
+  videoTour: PublicRentalDetailData["videoTour"]
+): PublicRentalDetailData {
+  const sections = Object.fromEntries(
+    (["header", "contact", "footer"] as const).map((key) => [
+      key,
+      sectionSchemas[key].parse(
+        demoSections.find((section) => section.key === key)?.publishedContent
+      )
+    ])
+  ) as PublicRentalDetailData["sections"];
+
+  return {
+    rental: structuredClone(demoRentals[0]),
+    videoTour,
+    similarRentals: [],
+    sections
+  };
+}
 
 function renderMarkup(element: React.ReactNode): Promise<string> {
   return new Promise((resolve, reject) => {
