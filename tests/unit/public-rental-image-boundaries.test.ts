@@ -76,5 +76,19 @@ describe("public rental image projection boundaries", () => {
     expect(data?.rental.coverImageUrl).toBeNull();
     expect(data?.rental.images).toEqual([]);
     expect(data?.similarRentals[0].coverImageUrl).toBeNull();
+    expect(data?.videoTour).toBeNull();
+  });
+
+  it("attaches the imported tour to its public rental detail data", async () => {
+    const detail = unsafeRental({ slug: "sail-5981-gray-avenue" });
+    mocks.getRepository.mockReturnValue(repositoryWith([detail], detail));
+
+    const data = await loadPublicRentalDetailData(detail.slug);
+
+    expect(data?.videoTour).toEqual({
+      url: "/listings/facebook/1044446938097580/tour.mp4",
+      posterUrl: "/listings/facebook/1044446938097580/tour-poster.jpg",
+      title: "Video tour of the home"
+    });
   });
 });
