@@ -21,7 +21,7 @@ function escapeHtml(value: string) {
 export function buildMailtoUri(email: string | null | undefined) {
   const normalized = email?.trim();
   if (!normalized || /[\r\n]/.test(normalized)) return null;
-  return `mailto:${encodeURIComponent(normalized)}`;
+  return `mailto:${encodeURIComponent(normalized).replaceAll("%40", "@")}`;
 }
 
 export function normalizeDialablePhone(phone: string | null | undefined) {

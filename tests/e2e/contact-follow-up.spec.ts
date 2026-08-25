@@ -15,7 +15,7 @@ test("contact form validates, shows configured follow-up actions on success, and
   const status = page.getByRole("status");
   await expect(status).toContainText("Thank you. We will be in touch shortly.");
   await expect(status.getByRole("link", { name: "Email Ting Ting" }))
-    .toHaveAttribute("href", "mailto:info%40silverkey.ca");
+    .toHaveAttribute("href", "mailto:info@silverkey.ca");
   await expect(status.getByRole("link", { name: "Call Ting Ting" }))
     .toHaveAttribute("href", "tel:+16048726896");
   await expect(status.getByRole("link", { name: "Text Ting Ting" }))

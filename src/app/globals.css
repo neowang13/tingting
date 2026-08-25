@@ -335,7 +335,8 @@
   text-align: center;
 }
 
-.home-rental-link:hover {
+.home-rental-card:hover .home-rental-link,
+.home-rental-card:focus-visible .home-rental-link {
   color: #fff;
   background: #00800a;
 }

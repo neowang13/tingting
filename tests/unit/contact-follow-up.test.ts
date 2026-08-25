@@ -7,15 +7,15 @@ import {
 } from "../../src/features/contact/follow-up";
 
 describe("contact follow-up links", () => {
-  it("encodes email addresses and normalizes Canadian phone numbers", () => {
+  it("keeps the mailto @ literal, encodes the local part, and normalizes Canadian phone numbers", () => {
     expect(buildMailtoUri("ting+rentals@example.com"))
-      .toBe("mailto:ting%2Brentals%40example.com");
+      .toBe("mailto:ting%2Brentals@example.com");
     expect(normalizeDialablePhone("(604) 872-6896")).toBe("+16048726896");
     expect(buildContactActionUris({
       email: "ting+rentals@example.com",
       phone: "(604) 872-6896"
     })).toEqual({
-      email: "mailto:ting%2Brentals%40example.com",
+      email: "mailto:ting%2Brentals@example.com",
       call: "tel:+16048726896",
       text: "sms:+16048726896"
     });
@@ -36,10 +36,10 @@ describe("contact follow-up links", () => {
       website: ""
     });
 
-    expect(notification.text).toContain("mailto:visitor%2Blisting%40example.com");
+    expect(notification.text).toContain("mailto:visitor%2Blisting@example.com");
     expect(notification.text).toContain("tel:+16045550123");
     expect(notification.text).toContain("sms:+16045550123");
-    expect(notification.html).toContain('href="mailto:visitor%2Blisting%40example.com"');
+    expect(notification.html).toContain('href="mailto:visitor%2Blisting@example.com"');
     expect(notification.html).toContain('href="tel:+16045550123"');
     expect(notification.html).toContain('href="sms:+16045550123"');
     expect(notification.html).not.toContain("<script>");

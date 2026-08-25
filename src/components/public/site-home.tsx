@@ -109,7 +109,12 @@ export function SiteHome({
             {rentals.length ? (
               <div className="home-rental-grid">
                 {rentals.map((rental) => (
-                  <article className="home-rental-card" key={rental.id}>
+                  <Link
+                    aria-label={`View home: ${rental.title}`}
+                    className="home-rental-card"
+                    href={`/rentals/${rental.slug}`}
+                    key={rental.id}
+                  >
                     <div className="home-rental-media">
                       {rental.coverImageUrl ? (
                         <Image
@@ -139,9 +144,9 @@ export function SiteHome({
                         <span>{formatNumber(rental.bathrooms)} bath</span>
                         {rental.squareFeet && <span>{rental.squareFeet.toLocaleString("en-CA")} sq ft</span>}
                       </div>
-                      <Link className="home-rental-link" href={`/rentals/${rental.slug}`}>View home</Link>
+                      <span className="home-rental-link">View home</span>
                     </div>
-                  </article>
+                  </Link>
                 ))}
               </div>
             ) : (
