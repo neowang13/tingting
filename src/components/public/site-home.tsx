@@ -80,7 +80,7 @@ export function SiteHome({
             <h1 id="hero-heading">Property, managed like a modern service.</h1>
             <p>Find a home, book a viewing, apply online, or hand us the day-to-day work. Silverkey brings every step into one clear experience.</p>
             <div className="home-hero-credentials" aria-label="Professional credentials">
-              <span>Licensed real estate professionals</span>
+              <span>Tingting Xu Personal Real Estate Corporation.</span>
               <i aria-hidden />
               <span>RE/MAX City Realty · Brokerage</span>
               <i aria-hidden />
