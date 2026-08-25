@@ -12450,3 +12450,48 @@ a {
     margin-bottom: -0.55rem;
   }
 }
+
+/* Keep shared banner copy clear of the people in the team photograph. */
+@media (min-width: 761px) {
+  .home-hero-image,
+  .about-design-hero-image,
+  .service-page-hero-image {
+    right: 0 !important;
+    left: auto !important;
+    width: 70% !important;
+  }
+
+  .home-hero-copy h1,
+  .about-design-hero-copy h1,
+  .service-page-hero-copy h1 {
+    max-width: 650px;
+  }
+
+  .home-hero-copy > p,
+  .about-design-hero-copy > p:last-child,
+  .service-page-hero-copy > p {
+    max-width: 560px;
+  }
+}
+
+@media (max-width: 760px) {
+  .home-hero,
+  .about-design-hero {
+    height: 700px;
+  }
+
+  .home-hero-image,
+  .about-design-hero-image,
+  .service-page-hero-image {
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 300px !important;
+    object-position: 55% 18%;
+  }
+
+  .service-page-hero-copy {
+    padding-top: 345px;
+  }
+}
