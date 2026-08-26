@@ -44,6 +44,7 @@ interface DetailItem {
 
 export function RentalDetailPage({
   rental,
+  videoTour,
   similarRentals,
   sections
 }: PublicRentalDetailData) {
@@ -134,6 +135,26 @@ export function RentalDetailPage({
 
         <main className="rental-detail-content">
           <div className="container rental-listing-shell">
+            {videoTour && (
+              <section className="rental-video-tour" aria-labelledby="rental-video-tour-heading">
+                <div className="rental-video-tour-copy">
+                  <span className="eyebrow">VIDEO TOUR</span>
+                  <h2 id="rental-video-tour-heading">Walk through the home</h2>
+                  <p>Play the full property tour before booking a viewing.</p>
+                </div>
+                <video
+                  aria-label={videoTour.title}
+                  controls
+                  playsInline
+                  poster={videoTour.posterUrl}
+                  preload="metadata"
+                >
+                  <source src={videoTour.url} type="video/mp4" />
+                  Your browser does not support embedded video. You can
+                  {" "}<a href={videoTour.url}>open the video directly</a>.
+                </video>
+              </section>
+            )}
             <section className="rental-listing-overview" aria-labelledby="rental-title">
               <header className="rental-listing-heading">
                 <div>
