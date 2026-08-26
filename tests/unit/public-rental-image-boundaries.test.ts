@@ -6,10 +6,7 @@ const mocks = vi.hoisted(() => ({ getRepository: vi.fn() }));
 vi.mock("@/data/repository", () => ({ getRepository: mocks.getRepository }));
 
 import { loadPublicHomepageData } from "@/features/content/public-homepage";
-import {
-  loadAdminRentalPreviewData,
-  loadPublicRentalDetailData
-} from "@/features/content/public-rental-detail";
+import { loadPublicRentalDetailData } from "@/features/content/public-rental-detail";
 import { GET as listPublicRentals } from "@/app/api/public/rentals/route";
 
 const unsafeUrl = "https://example.test/rentals/rental-v2.jpg";
@@ -43,7 +40,6 @@ function repositoryWith(rentals: RentalListing[], detail = rentals[0]) {
     }))),
     listRentals: vi.fn().mockResolvedValue(rentals),
     getPublicRentalBySlug: vi.fn().mockResolvedValue(detail),
-    getRental: vi.fn().mockResolvedValue(detail),
     resolvePublicMedia: vi.fn().mockResolvedValue({})
   };
 }
@@ -80,30 +76,5 @@ describe("public rental image projection boundaries", () => {
     expect(data?.rental.coverImageUrl).toBeNull();
     expect(data?.rental.images).toEqual([]);
     expect(data?.similarRentals[0].coverImageUrl).toBeNull();
-    expect(data?.videoTour).toBeNull();
-  });
-
-  it("attaches the imported tour to its public rental detail data", async () => {
-    const detail = unsafeRental({ slug: "sail-5981-gray-avenue" });
-    mocks.getRepository.mockReturnValue(repositoryWith([detail], detail));
-
-    const data = await loadPublicRentalDetailData(detail.slug);
-
-    expect(data?.videoTour).toEqual({
-      url: "/listings/facebook/1044446938097580/tour.mp4",
-      posterUrl: "/listings/facebook/1044446938097580/tour-poster.jpg",
-      title: "Video tour of the home"
-    });
-  });
-
-  it("attaches the imported tour to the matching admin preview", async () => {
-    const detail = unsafeRental({ slug: "sail-5981-gray-avenue" });
-    mocks.getRepository.mockReturnValue(repositoryWith([detail], detail));
-
-    const data = await loadAdminRentalPreviewData(detail.id);
-
-    expect(data.videoTour?.url).toBe(
-      "/listings/facebook/1044446938097580/tour.mp4"
-    );
   });
 });

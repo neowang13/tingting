@@ -19,31 +19,12 @@ type ChromeSections = {
 
 export interface PublicRentalDetailData {
   rental: RentalListing;
-  videoTour: PublicRentalVideo | null;
   similarRentals: RentalListing[];
   sections: {
     header: Header;
     contact: Contact;
     footer: Footer;
   };
-}
-
-export interface PublicRentalVideo {
-  url: string;
-  posterUrl: string;
-  title: string;
-}
-
-const rentalVideos: Readonly<Record<string, PublicRentalVideo>> = {
-  "sail-5981-gray-avenue": {
-    url: "/listings/facebook/1044446938097580/tour.mp4",
-    posterUrl: "/listings/facebook/1044446938097580/tour-poster.jpg",
-    title: "Video tour of the home"
-  }
-};
-
-export function getPublicRentalVideo(slug: string): PublicRentalVideo | null {
-  return rentalVideos[slug] ?? null;
 }
 
 function parseSection<Key extends "header" | "contact" | "footer">(
@@ -75,7 +56,6 @@ export const loadPublicRentalDetailData = cache(
           .filter((image) => Boolean(image.url))
           .sort((a, b) => a.sortOrder - b.sortOrder)
       },
-      videoTour: getPublicRentalVideo(rental.slug),
       similarRentals: rentals
         .filter((candidate) =>
           candidate.id !== rental.id &&
@@ -105,7 +85,6 @@ export async function loadAdminRentalPreviewData(id: string): Promise<PublicRent
       ...rental,
       images: [...rental.images].sort((a, b) => a.sortOrder - b.sortOrder)
     },
-    videoTour: getPublicRentalVideo(rental.slug),
     similarRentals: [],
     sections: {
       header: parseSection("header", publishedSections),
