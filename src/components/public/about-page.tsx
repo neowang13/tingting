@@ -14,19 +14,16 @@ const teamMembers = [
   {
     name: "Neo Wang",
     role: "Marketing & Digital Strategy",
-    description: "Listing presentation, photography and how homes reach the right renters.",
     image: "/images/neo-wang-portrait-2026.jpg"
   },
   {
     name: "Hudson Dong",
-    role: "Property Manager",
-    description: "Day-to-day tenancy: inspections, renewals, repairs and notices.",
+    role: "admin and assistant",
     image: "/images/hudson-dong-portrait-2026.jpg"
   },
   {
     name: "Tina Hu",
     role: "Accountant",
-    description: "Rent, owner statements and reconciliation through the brokerage.",
     image: "/images/team-member-03-portrait-2026.jpg"
   }
 ] as const;
@@ -130,7 +127,6 @@ export function AboutPageExperience() {
                 <div className="about-design-team-copy">
                   <h3>{member.name}</h3>
                   <p>{member.role}</p>
-                  <span>{member.description}</span>
                 </div>
               </article>
             ))}
