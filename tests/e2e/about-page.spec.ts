@@ -16,6 +16,9 @@ test("About page follows the supplied team design", async ({ page }) => {
   await expect(
     page.locator(".about-design-team-card").filter({ hasText: "Hudson Dong" }).getByText("admin and assistant", { exact: true })
   ).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: "Hudson Dong, admin and assistant at Silverkey" })
+  ).toBeVisible();
   await expect(page.getByText("Listing presentation, photography and how homes reach the right renters.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Day-to-day tenancy: inspections, renewals, repairs and notices.", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Rent, owner statements and reconciliation through the brokerage.", { exact: true })).toHaveCount(0);
