@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   APPLICATION_TERMS_VERSION,
   applicationTermsText
@@ -68,6 +68,10 @@ beforeEach(() => {
   resetRepositoryForTests();
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("client application workflow", () => {
   it("fails closed when queued email application or attachment bytes are missing", async () => {
     await expect(prepareApplicationSubmissionEmail({
@@ -88,6 +92,68 @@ describe("client application workflow", () => {
       applicationId, fileIds: [uploaded.id], partIndex: 1, partCount: 1,
       appBaseUrl: "https://silverkey.ca"
     })).rejects.toMatchObject({ code: "APPLICATION_FILE_UNAVAILABLE" });
+  });
+
+  it("uses the dedicated Application recipient before general Admin fallbacks", async () => {
+    vi.stubEnv("APPLICATION_TO_EMAIL", "applications@example.test");
+    vi.stubEnv("CONTACT_TO_EMAIL", "contact@example.test");
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const send = vi.fn<EmailProvider["send"]>().mockResolvedValue({
+      providerMessageId: "recipient-precedence", status: "queued"
+    });
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, { notifier: { send } });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      to: "applications@example.test"
+    }));
+  });
+
+  it("submits without queuing an Admin email when the recipient is explicitly disabled", async () => {
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const repository = getRepository();
+    const enqueue = vi.spyOn(repository, "enqueueOwnerNotification");
+    const send = vi.fn<EmailProvider["send"]>();
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, {
+      notifier: { send }, recipient: null
+    });
+
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("durably queues the email when live delivery is disabled", async () => {
+    vi.stubEnv("EMAIL_PROVIDER_MODE", "disabled");
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const repository = getRepository();
+    const enqueue = vi.spyOn(repository, "enqueueOwnerNotification");
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, {
+      recipient: "admin@example.test"
+    });
+
+    expect(enqueue).toHaveBeenCalledOnce();
+    await expect(deliverOwnerNotifications({ now: new Date(Date.now() + 1_000) }))
+      .resolves.toMatchObject({ claimed: 0, skipped: 1 });
   });
 
   it("uses the finalized approved consent copy", () => {
