@@ -59,6 +59,8 @@ services:
         value: Ting Ting Xu <notifications@silverkey.ca>
       - key: CONTACT_TO_EMAIL
         value: info@silverkey.ca
+      - key: APPLICATION_TO_EMAIL
+        value: info@silverkey.ca
       - key: ALERT_TO_EMAIL
         value: info@silverkey.ca
       - key: OPERATIONAL_ALERTS_ENABLED

@@ -32,14 +32,18 @@ import {
   type ApplicationTenantConversion
 } from "@/features/applications/schemas";
 import {
+  applicationEmailAttachmentFilename,
+  groupApplicationFilesForEmail,
   renderApplicationApprovedNotification,
-  renderApplicationSubmittedNotification
+  renderApplicationSubmittedNotification,
+  type ApplicationNotificationApplicant,
+  type ApplicationSubmissionNotificationData
 } from "@/features/applications/notification";
 import {
   createNotificationProviders,
   resolveEmailProviderMode
 } from "@/features/notifications/providers";
-import type { EmailProvider } from "@/features/notifications/providers/types";
+import type { EmailAttachment, EmailProvider } from "@/features/notifications/providers/types";
 
 const DEMO_APPLICATION_ID = "30000000-0000-4000-8000-000000000009";
 const APPLICATION_SELECT = `
@@ -166,6 +170,131 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
     } : null,
     convertedTenantId: row.converted_tenant_id ? String(row.converted_tenant_id) : null,
     convertedAt: row.converted_at ? String(row.converted_at) : null
+  };
+}
+
+function applicationNotificationApplicant(
+  application: ClientApplicationRecord
+): ApplicationNotificationApplicant {
+  const legalName = [
+    application.draft.personal.legalFirstName,
+    application.draft.personal.legalLastName
+  ].filter(Boolean).join(" ").trim();
+  return {
+    id: application.ownerUserId,
+    role: "primary",
+    email: application.draft.personal.email,
+    legalName,
+    status: "signed",
+    signedAt: application.consentedAt,
+    draft: application.draft,
+    files: application.files
+  };
+}
+
+async function loadApplicationForNotification(applicationId: string) {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const application = demoStore().get(applicationId);
+    if (!application) {
+      throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+    }
+    return structuredClone(application);
+  }
+  const result = await supabaseService().from("client_applications")
+    .select(APPLICATION_SELECT)
+    .eq("id", applicationId)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (result.error) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
+  }
+  if (!result.data) {
+    throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  }
+  return mapApplication(result.data as unknown as Record<string, unknown>);
+}
+
+async function applicationEmailAttachments(
+  application: ClientApplicationRecord,
+  fileIds: string[]
+): Promise<EmailAttachment[]> {
+  const selected = fileIds.map((fileId) => {
+    const file = application.files.find((candidate) => candidate.id === fileId);
+    if (!file) {
+      throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "Application file not found.");
+    }
+    return file;
+  });
+
+  if (process.env.DATA_BACKEND !== "supabase") {
+    return selected.map((file, index) => {
+      const bytes = globalThis.__tingtingClientApplicationFileBytes?.get(file.id);
+      if (!bytes) {
+        throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment is unavailable.");
+      }
+      return {
+        filename: applicationEmailAttachmentFilename(file, applicationNotificationApplicant(application), index),
+        content: Buffer.from(bytes).toString("base64"),
+        contentType: file.mimeType
+      };
+    });
+  }
+
+  const service = supabaseService();
+  const records = await service.from("client_application_files")
+    .select("id,storage_path,sha256,byte_size")
+    .eq("application_id", application.id)
+    .in("id", fileIds)
+    .is("deleted_at", null);
+  if (records.error || (records.data?.length ?? 0) !== fileIds.length) {
+    throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "One or more application attachments are unavailable.");
+  }
+  const byId = new Map((records.data ?? []).map((record) => [String(record.id), record]));
+  return Promise.all(selected.map(async (file, index) => {
+    const record = byId.get(file.id);
+    if (!record) {
+      throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment is unavailable.");
+    }
+    const download = await service.storage.from(applicationBucket()).download(String(record.storage_path));
+    if (download.error || !download.data) {
+      throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment is unavailable.");
+    }
+    const bytes = Buffer.from(await download.data.arrayBuffer());
+    if (bytes.byteLength !== Number(record.byte_size) || sha256(bytes) !== String(record.sha256)) {
+      throw new ApiError(503, "APPLICATION_FILE_INTEGRITY_FAILED", "An application attachment failed its integrity check.");
+    }
+    return {
+      filename: applicationEmailAttachmentFilename(file, applicationNotificationApplicant(application), index),
+      content: bytes.toString("base64"),
+      contentType: file.mimeType
+    };
+  }));
+}
+
+export async function prepareApplicationSubmissionEmail(input: {
+  applicationId: string;
+  fileIds: string[];
+  partIndex: number;
+  partCount: number;
+  appBaseUrl: string;
+}) {
+  const application = await loadApplicationForNotification(input.applicationId);
+  const applicant = applicationNotificationApplicant(application);
+  const files = input.fileIds.map((fileId) => {
+    const file = application.files.find((candidate) => candidate.id === fileId);
+    if (!file) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "Application file not found.");
+    return file;
+  });
+  const data: ApplicationSubmissionNotificationData = { application, applicants: [applicant] };
+  return {
+    ...renderApplicationSubmittedNotification({
+      data,
+      appBaseUrl: input.appBaseUrl,
+      attachedFiles: files,
+      partIndex: input.partIndex,
+      partCount: input.partCount
+    }),
+    attachments: await applicationEmailAttachments(application, input.fileIds)
   };
 }
 
@@ -621,23 +750,58 @@ export async function submitClientApplication(
   }
 
   const recipient = options.recipient === undefined
-    ? process.env.CONTACT_TO_EMAIL ?? process.env.ALERT_TO_EMAIL ?? process.env.LOCAL_ADMIN_EMAIL
+    ? process.env.APPLICATION_TO_EMAIL
+      ?? process.env.CONTACT_TO_EMAIL
+      ?? process.env.ALERT_TO_EMAIL
+      ?? process.env.LOCAL_ADMIN_EMAIL
     : options.recipient;
   if (recipient) {
-    try {
-      const emailMode = resolveEmailProviderMode();
-      if (options.notifier || emailMode !== "disabled") {
-        const notifier = options.notifier ?? createNotificationProviders({ email: emailMode, sms: "disabled" }).email;
-        const notification = renderApplicationSubmittedNotification({
-          application: submitted,
-          appBaseUrl: options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000"
+    const appBaseUrl = options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
+    const groups = groupApplicationFilesForEmail(submitted.files);
+    const repository = getRepository();
+    const emailMode = resolveEmailProviderMode();
+    const notifier = options.notifier
+      ?? (emailMode === "disabled" || groups.length > 1
+        ? null
+        : createNotificationProviders({ email: emailMode, sms: "disabled" }).email);
+
+    for (const [groupIndex, files] of groups.entries()) {
+      const partIndex = groupIndex + 1;
+      const notificationKey = `application-submitted:${submitted.id}:part:${partIndex}-of-${groups.length}`;
+      const deliveryId = await repository.enqueueOwnerNotification({
+        notificationKey,
+        kind: "application_submission",
+        tenantId: null,
+        payload: {
+          applicationId: submitted.id,
+          fileIds: files.map((file) => file.id),
+          partIndex,
+          partCount: groups.length,
+          appBaseUrl,
+          recipient
+        },
+        scheduledFor: timestamp
+      });
+
+      if (!notifier) continue;
+      try {
+        const notification = await prepareApplicationSubmissionEmail({
+          applicationId: submitted.id,
+          fileIds: files.map((file) => file.id),
+          partIndex,
+          partCount: groups.length,
+          appBaseUrl
         });
         const delivery = await notifier.send({
           to: recipient,
-          subject: notification.subject,
-          text: notification.text,
-          html: notification.html,
-          idempotencyKey: `application-submitted-${submitted.id}`
+          ...notification,
+          idempotencyKey: notificationKey.replaceAll(":", "-")
+        });
+        await repository.finishOwnerNotification(deliveryId, {
+          status: "sent",
+          providerMessageId: delivery.providerMessageId,
+          safeErrorCode: null,
+          nextAttemptAt: null
         });
         if (process.env.DATA_BACKEND !== "supabase") {
           demoStore().get(id)?.audit.push({ action: "application.admin_notification_queued", createdAt: new Date().toISOString() });
@@ -646,20 +810,26 @@ export async function submitClientApplication(
             application_id: id,
             actor_type: "system",
             action: "application.admin_notification_queued",
-            request_context: { providerMessageId: delivery.providerMessageId, status: delivery.status }
+            request_context: { providerMessageId: delivery.providerMessageId, status: delivery.status, partIndex, partCount: groups.length }
           });
         }
-      }
-    } catch {
-      if (process.env.DATA_BACKEND !== "supabase") {
-        demoStore().get(id)?.audit.push({ action: "application.admin_notification_failed", createdAt: new Date().toISOString() });
-      } else {
-        await supabaseService().from("client_application_audit_events").insert({
-          application_id: id,
-          actor_type: "system",
-          action: "application.admin_notification_failed",
-          request_context: { safeErrorCode: "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED" }
+      } catch {
+        await repository.finishOwnerNotification(deliveryId, {
+          status: "failed",
+          providerMessageId: null,
+          safeErrorCode: "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED",
+          nextAttemptAt: new Date(Date.now() + 5 * 60_000).toISOString()
         });
+        if (process.env.DATA_BACKEND !== "supabase") {
+          demoStore().get(id)?.audit.push({ action: "application.admin_notification_failed", createdAt: new Date().toISOString() });
+        } else {
+          await supabaseService().from("client_application_audit_events").insert({
+            application_id: id,
+            actor_type: "system",
+            action: "application.admin_notification_failed",
+            request_context: { safeErrorCode: "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED", partIndex, partCount: groups.length }
+          });
+        }
       }
     }
   }

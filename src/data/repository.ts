@@ -136,6 +136,11 @@ export interface DataRepository {
       nextAttemptAt: string | null;
     }
   ): Promise<void>;
+  applyOwnerNotificationProviderStatus(
+    providerMessageId: string,
+    nextStatus: NotificationEvent["status"],
+    providerStatus: string
+  ): Promise<string | null>;
   tenantActivitySummary(input: {
     periodStart: string;
     periodEnd: string;
@@ -188,11 +193,13 @@ export interface DataRepository {
 
 const memoryOperationalAlertBuckets = new Map<string, string>();
 interface MemoryOwnerNotification extends OwnerNotificationDelivery {
-  status: "scheduled" | "processing" | "sent" | "failed";
+  status: "scheduled" | "processing" | "sent" | "delivered" | "failed";
   scheduledFor: string;
   nextAttemptAt: string;
   providerMessageId: string | null;
   safeErrorCode: string | null;
+  providerStatus: string | null;
+  deliveredAt: string | null;
   updatedAt: string;
 }
 const memoryOwnerNotifications = new Map<string, MemoryOwnerNotification>();
@@ -372,6 +379,8 @@ class MemoryRepository implements DataRepository {
       nextAttemptAt: input.scheduledFor,
       providerMessageId: null,
       safeErrorCode: null,
+      providerStatus: null,
+      deliveredAt: null,
       updatedAt: now
     };
     memoryOwnerNotifications.set(input.notificationKey, delivery);
@@ -412,6 +421,30 @@ class MemoryRepository implements DataRepository {
     delivery.safeErrorCode = input.safeErrorCode;
     delivery.nextAttemptAt = input.nextAttemptAt ?? delivery.nextAttemptAt;
     delivery.updatedAt = new Date().toISOString();
+  }
+  async applyOwnerNotificationProviderStatus(
+    providerMessageId: string,
+    nextStatus: NotificationEvent["status"],
+    providerStatus: string
+  ) {
+    const delivery = [...memoryOwnerNotifications.values()].find(
+      (item) => item.providerMessageId === providerMessageId
+    );
+    if (!delivery) return null;
+    delivery.providerStatus = providerStatus;
+    if (nextStatus === "delivered") {
+      delivery.status = "delivered";
+      delivery.deliveredAt = new Date().toISOString();
+      delivery.safeErrorCode = null;
+    } else if (["failed", "undelivered"].includes(nextStatus)) {
+      delivery.status = "failed";
+      delivery.safeErrorCode = "OWNER_EMAIL_DELIVERY_FAILED";
+      delivery.nextAttemptAt = new Date(Date.now() + 5 * 60_000).toISOString();
+    } else if (["sent", "queued"].includes(nextStatus) && delivery.status !== "delivered") {
+      delivery.status = "sent";
+    }
+    delivery.updatedAt = new Date().toISOString();
+    return delivery.id;
   }
   async tenantActivitySummary(input: {
     periodStart: string;

@@ -408,7 +408,8 @@ function mapOwnerNotification(value: unknown): OwnerNotificationDelivery {
     kind: text(row, "kind") as OwnerNotificationDelivery["kind"],
     tenantId: nullableText(row, "tenant_id"),
     payload: payload as Record<string, unknown>,
-    attemptCount: numberValue(row, "attempt_count")
+    attemptCount: numberValue(row, "attempt_count"),
+    providerMessageId: nullableText(row, "provider_message_id")
   };
 }
 
@@ -1315,6 +1316,37 @@ export class SupabaseRepository implements DataRepository {
       })
       .eq("id", id);
     if (error) databaseError(error);
+  }
+
+  async applyOwnerNotificationProviderStatus(
+    providerMessageId: string,
+    nextStatus: NotificationEvent["status"],
+    providerStatus: string
+  ) {
+    const status = nextStatus === "delivered"
+      ? "delivered"
+      : ["failed", "undelivered"].includes(nextStatus)
+        ? "failed"
+        : "sent";
+    const now = new Date().toISOString();
+    const { data, error } = await this.client()
+      .from("owner_notification_deliveries")
+      .update({
+        status,
+        provider_status: providerStatus,
+        delivered_at: status === "delivered" ? now : null,
+        completed_at: status === "delivered" ? now : null,
+        next_attempt_at: status === "failed"
+          ? new Date(Date.now() + 5 * 60_000).toISOString()
+          : null,
+        safe_error_code: status === "failed" ? "OWNER_EMAIL_DELIVERY_FAILED" : null,
+        updated_at: now
+      })
+      .eq("provider_message_id", providerMessageId)
+      .select("id")
+      .maybeSingle();
+    if (error) databaseError(error);
+    return data ? text(asRow(data), "id") : null;
   }
 
   async tenantActivitySummary(input: {

@@ -5,6 +5,7 @@ import {
   resolveSmsProviderMode
 } from "../../src/features/notifications/providers";
 import { TwilioSmsProvider } from "../../src/features/notifications/providers/twilio";
+import { ResendEmailProvider } from "../../src/features/notifications/providers/resend";
 
 const emailInput = {
   to: "admin@example.test",
@@ -33,6 +34,7 @@ describe("notification provider modes", () => {
     process.env.TWILIO_AUTH_TOKEN = originalTwilioEnvironment.authToken;
     process.env.TWILIO_MESSAGING_SERVICE_SID = originalTwilioEnvironment.messagingServiceSid;
     process.env.TWILIO_FROM_NUMBER = originalTwilioEnvironment.fromNumber;
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -71,6 +73,76 @@ describe("notification provider modes", () => {
     await expect(providers.sms.send(smsInput)).rejects.toMatchObject({
       code: "SMS_PROVIDER_DISABLED"
     });
+  });
+
+  it("sends Base64 attachment content through Resend", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("EMAIL_FROM", "Silverkey <notifications@silverkey.ca>");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ id: "email-with-attachments" }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    ));
+
+    await new ResendEmailProvider().send({
+      ...emailInput,
+      attachments: [{
+        filename: "application.pdf",
+        content: Buffer.from("%PDF-1.7").toString("base64"),
+        contentType: "application/pdf"
+      }]
+    });
+
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(payload.attachments).toEqual([{
+      filename: "application.pdf",
+      content: Buffer.from("%PDF-1.7").toString("base64"),
+      content_type: "application/pdf"
+    }]);
+  });
+
+  it("keeps attachment-free Resend emails backward compatible", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("EMAIL_FROM", "Silverkey <notifications@silverkey.ca>");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ id: "email-without-attachments" }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    ));
+
+    await new ResendEmailProvider().send(emailInput);
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(payload).not.toHaveProperty("attachments");
+  });
+
+  it("rejects oversized attachment bodies before calling Resend", async () => {
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("EMAIL_FROM", "Silverkey <notifications@silverkey.ca>");
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await expect(new ResendEmailProvider().send({
+      ...emailInput,
+      attachments: [{
+        filename: "too-large.pdf",
+        content: "A".repeat(40 * 1024 * 1024),
+        contentType: "application/pdf"
+      }]
+    })).rejects.toMatchObject({ code: "EMAIL_ATTACHMENTS_TOO_LARGE" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed for missing Resend configuration and provider rejection", async () => {
+    vi.stubEnv("RESEND_API_KEY", "");
+    vi.stubEnv("EMAIL_FROM", "");
+    await expect(new ResendEmailProvider().send(emailInput))
+      .rejects.toMatchObject({ code: "EMAIL_PROVIDER_NOT_CONFIGURED" });
+
+    vi.stubEnv("RESEND_API_KEY", "re_test");
+    vi.stubEnv("EMAIL_FROM", "Silverkey <notifications@silverkey.ca>");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ message: "rejected" }),
+      { status: 422, headers: { "content-type": "application/json" } }
+    ));
+    await expect(new ResendEmailProvider().send(emailInput))
+      .rejects.toMatchObject({ code: "EMAIL_PROVIDER_REJECTED" });
   });
 
   it("rejects unknown channel-specific provider modes", () => {

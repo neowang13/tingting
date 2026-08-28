@@ -78,6 +78,58 @@ describe("owner email notifications", () => {
     }));
   });
 
+  it("matches Resend delivery feedback to a durable owner email", async () => {
+    const repository = getRepository();
+    const deliveryId = await repository.enqueueOwnerNotification({
+      notificationKey: "delivery-feedback-test",
+      kind: "application_submission",
+      tenantId: null,
+      payload: {},
+      scheduledFor: new Date().toISOString()
+    });
+    await repository.finishOwnerNotification(deliveryId, {
+      status: "sent",
+      providerMessageId: "resend-owner-message",
+      safeErrorCode: null,
+      nextAttemptAt: null
+    });
+
+    await expect(repository.applyOwnerNotificationProviderStatus(
+      "resend-owner-message", "delivered", "email.delivered"
+    )).resolves.toBe(deliveryId);
+    await expect(repository.applyOwnerNotificationProviderStatus(
+      "unknown-message", "delivered", "email.delivered"
+    )).resolves.toBeNull();
+    await expect(repository.applyOwnerNotificationProviderStatus(
+      "resend-owner-message", "sent", "email.sent"
+    )).resolves.toBe(deliveryId);
+    await expect(deliverOwnerNotifications({
+      now: new Date(Date.now() + 24 * 60 * 60_000),
+      provider: { send: vi.fn() } as EmailProvider
+    })).resolves.toMatchObject({ claimed: 0 });
+  });
+
+  it("fails malformed or recipient-less application deliveries without sending", async () => {
+    const repository = getRepository();
+    await repository.enqueueOwnerNotification({
+      notificationKey: "application-missing-recipient",
+      kind: "application_submission",
+      tenantId: null,
+      payload: {
+        applicationId: "application-id", fileIds: [], partIndex: 1,
+        partCount: 1, appBaseUrl: "https://silverkey.ca"
+      },
+      scheduledFor: new Date().toISOString()
+    });
+    const send = vi.fn();
+
+    await expect(deliverOwnerNotifications({
+      now: new Date(Date.now() + 1_000),
+      provider: { send } as EmailProvider
+    })).resolves.toMatchObject({ claimed: 1, sent: 0, failed: 1 });
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it("does not queue daily or weekly owner reports when their switches are disabled", async () => {
     vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "false");
     vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "false");
