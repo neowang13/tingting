@@ -62,7 +62,7 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
 | GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
 | POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
-| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue a minimal Admin email notification |
+| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue styled Admin email(s) with complete detail and physical attachments |
 | GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
 | PATCH | `/api/admin/applications/:id` | Perform a documented staff status transition |
@@ -78,6 +78,11 @@ sniffed PDF/JPEG/PNG files up to 10 MB, reject active PDF features, use random
 private-bucket keys, and remain `manual_review_required` until the approved
 malware-risk process clears them. See the
 [client application runbook](./client-application-operations.md).
+
+Submission notification delivery uses `APPLICATION_TO_EMAIL` with the documented
+Admin-recipient fallbacks. The server verifies each private object's byte size and
+SHA-256 digest before attaching it, splits raw attachment groups at 25 MB, stores a
+durable delivery per part, and applies signed Resend delivery feedback to those rows.
 
 ## Rentals
 

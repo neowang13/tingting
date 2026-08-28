@@ -58,6 +58,15 @@ details. SMS URI handling varies by device and messaging app, so links do not
 prefill a message body; desktop browsers without an SMS handler may not open
 them.
 
+Submitted rental applications use a separate Admin recipient configured with
+`APPLICATION_TO_EMAIL` (falling back to `CONTACT_TO_EMAIL`, `ALERT_TO_EMAIL`,
+then `LOCAL_ADMIN_EMAIL`). The styled email contains the complete application
+detail and the uploaded PDF/JPEG/PNG files as physical attachments. Attachments
+are split across numbered emails when their combined raw size exceeds 25 MB;
+delivery and provider callbacks are tracked through the durable owner-notification
+queue. These files are still security-screening pending and must be handled only
+by the authorized application review team on an approved device.
+
 ## Verify
 
 ```bash

@@ -131,10 +131,14 @@ dry run、签名回调、Owner 批准准备以及生产备份恢复演练。
 
    ```text
    CONTACT_TO_EMAIL
+   APPLICATION_TO_EMAIL
    ALERT_TO_EMAIL
    OWNER_NOTIFICATION_TO_EMAIL
    ```
 
+   `APPLICATION_TO_EMAIL` 是受限的申请审核收件箱，接收完整申请详情和所有实体
+   PDF/JPEG/PNG 附件；不要与公开咨询收件地址混为一谈。附件原始总量超过 25 MB
+   时会拆成带编号的多封邮件。
    `OWNER_NOTIFICATION_TO_EMAIL` 接收每次租客上传成功通知和每周租客汇总。
    默认周一温哥华时间 09:00；如需调整，设置
    `OWNER_WEEKLY_SUMMARY_DAY`（1=周一，7=周日）及
@@ -171,6 +175,9 @@ dry run、签名回调、Owner 批准准备以及生产备份恢复演练。
    - 测试期间两层暂停及 `SMS_PROVIDER_MODE=disabled` 的证据。
 
 8. 对 `failed`、`bounced`、`complained`、`unknown` 或签名错误必须停止并修复。
+9. 使用纯测试资料提交一份非生产租赁申请，确认 `APPLICATION_TO_EMAIL` 收到排版
+   完整的申请详情、全部实体附件、必要时的分封编号，以及对应的 durable delivery
+   和 Resend signed callback。附件仍为待安全审核，只能在批准设备上打开。
 
 ## 阶段 5：生产加密备份与恢复
 
