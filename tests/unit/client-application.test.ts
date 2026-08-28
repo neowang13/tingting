@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   APPLICATION_TERMS_VERSION,
   applicationTermsText
@@ -12,6 +12,7 @@ import {
   getSignedLeaseForStaff,
   getClientApplication,
   listClientApplications,
+  prepareApplicationSubmissionEmail,
   resetDemoApplicationsForTests,
   reviewApplicationFile,
   saveApplicationDraft,
@@ -24,6 +25,8 @@ import {
 import type { ClientIdentity } from "@/features/applications/contracts";
 import { applicationDraftSchema } from "@/features/applications/schemas";
 import type { EmailProvider } from "@/features/notifications/providers/types";
+import { deliverOwnerNotifications } from "@/features/notifications/owner-notifications";
+import { getRepository, resetRepositoryForTests } from "@/data/repository";
 
 const client: ClientIdentity = {
   userId: "00000000-0000-4000-8000-000000000009",
@@ -62,9 +65,97 @@ async function saveCompleteDraft() {
 beforeEach(() => {
   process.env.DATA_BACKEND = "memory";
   resetDemoApplicationsForTests();
+  resetRepositoryForTests();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("client application workflow", () => {
+  it("fails closed when queued email application or attachment bytes are missing", async () => {
+    await expect(prepareApplicationSubmissionEmail({
+      applicationId: "missing", fileIds: [], partIndex: 1, partCount: 1,
+      appBaseUrl: "https://silverkey.ca"
+    })).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+
+    const uploaded = await uploadApplicationFile(
+      client, applicationId, pdfFile(), "employment_income_proof"
+    );
+    await expect(prepareApplicationSubmissionEmail({
+      applicationId, fileIds: ["missing-file"], partIndex: 1, partCount: 1,
+      appBaseUrl: "https://silverkey.ca"
+    })).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+
+    globalThis.__tingtingClientApplicationFileBytes?.delete(uploaded.id);
+    await expect(prepareApplicationSubmissionEmail({
+      applicationId, fileIds: [uploaded.id], partIndex: 1, partCount: 1,
+      appBaseUrl: "https://silverkey.ca"
+    })).rejects.toMatchObject({ code: "APPLICATION_FILE_UNAVAILABLE" });
+  });
+
+  it("uses the dedicated Application recipient before general Admin fallbacks", async () => {
+    vi.stubEnv("APPLICATION_TO_EMAIL", "applications@example.test");
+    vi.stubEnv("CONTACT_TO_EMAIL", "contact@example.test");
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const send = vi.fn<EmailProvider["send"]>().mockResolvedValue({
+      providerMessageId: "recipient-precedence", status: "queued"
+    });
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, { notifier: { send } });
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
+      to: "applications@example.test"
+    }));
+  });
+
+  it("submits without queuing an Admin email when the recipient is explicitly disabled", async () => {
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const repository = getRepository();
+    const enqueue = vi.spyOn(repository, "enqueueOwnerNotification");
+    const send = vi.fn<EmailProvider["send"]>();
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, {
+      notifier: { send }, recipient: null
+    });
+
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("durably queues the email when live delivery is disabled", async () => {
+    vi.stubEnv("EMAIL_PROVIDER_MODE", "disabled");
+    await saveCompleteDraft();
+    await uploadRequiredFiles();
+    const application = await getClientApplication(client, applicationId);
+    const repository = getRepository();
+    const enqueue = vi.spyOn(repository, "enqueueOwnerNotification");
+
+    await submitClientApplication(client, applicationId, {
+      sharingAuthorization: true, screeningConsent: true,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, {
+      recipient: "admin@example.test"
+    });
+
+    expect(enqueue).toHaveBeenCalledOnce();
+    await expect(deliverOwnerNotifications({ now: new Date(Date.now() + 1_000) }))
+      .resolves.toMatchObject({ claimed: 0, skipped: 1 });
+  });
+
   it("uses the finalized approved consent copy", () => {
     expect(APPLICATION_TERMS_VERSION).toBe("2026-08-08.1");
     expect(applicationTermsText).not.toMatch(/draft|pre-production|before production/i);
@@ -186,10 +277,35 @@ describe("client application workflow", () => {
     expect(send).toHaveBeenCalledOnce();
     expect(send.mock.calls[0][0]).toMatchObject({
       to: "admin@example.test",
-      idempotencyKey: `application-submitted-${applicationId}`
+      idempotencyKey: `application-submitted-${applicationId}-part-1-of-1`
     });
     expect(send.mock.calls[0][0].text).toContain("https://silverkey.ca/admin/applications");
-    expect(send.mock.calls[0][0].text).not.toContain("completed-application.pdf");
+    expect(send.mock.calls[0][0].text).toContain("completed-application.pdf");
+    expect(send.mock.calls[0][0].html).toContain("SILVERKEY · NEW RENTAL APPLICATION");
+    expect(send.mock.calls[0][0].attachments).toHaveLength(3);
+    expect(send.mock.calls[0][0].attachments?.every((attachment) =>
+      attachment.contentType === "application/pdf"
+      && attachment.filename.endsWith("completed-application.pdf")
+      && Buffer.from(attachment.content, "base64").toString("utf8").startsWith("%PDF-1.7")
+    )).toBe(true);
+
+    await getRepository().applyOwnerNotificationProviderStatus(
+      "resend-application-test",
+      "failed",
+      "email.bounced"
+    );
+    const retrySend = vi.fn<EmailProvider["send"]>().mockResolvedValue({
+      providerMessageId: "resend-application-retry",
+      status: "queued"
+    });
+    await expect(deliverOwnerNotifications({
+      now: new Date(Date.now() + 6 * 60_000),
+      provider: { send: retrySend }
+    })).resolves.toMatchObject({ claimed: 1, sent: 1, failed: 0 });
+    expect(retrySend).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: `application-submitted-${applicationId}-part-1-of-1-retry-1`,
+      attachments: expect.arrayContaining([expect.objectContaining({ contentType: "application/pdf" })])
+    }));
     await expect(uploadApplicationFile(client, applicationId, pdfFile(), "other"))
       .rejects.toMatchObject({ code: "APPLICATION_ALREADY_SUBMITTED" });
     const receipt = (await applicationReceipt(client, applicationId)).toString("utf8");

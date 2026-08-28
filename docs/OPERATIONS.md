@@ -35,6 +35,10 @@ retention period, templates, recipients, and provider dry-run results.
    and `OWNER_WEEKLY_SUMMARY_TIME` only with owner approval. Daily overdue
    Email and Agent events are deduplicated by local date and are not queued
    before `OWNER_DAILY_OVERDUE_TIME` (default `09:00`).
+   Set `APPLICATION_TO_EMAIL` to the restricted application-review inbox.
+   Submitted applications send complete form details and physical supporting-file
+   attachments to this address; it is intentionally separate from public enquiry
+   routing in `CONTACT_TO_EMAIL`.
 7. The Cron service invokes:
 
    ```text
@@ -117,12 +121,20 @@ run, signed callback, evidence review, and Owner approval sequence.
 
 - Supabase URL, anon key, service-role key, and first Auth administrator UUID.
 - Render production hostname and a random Cron secret of at least 24 characters.
-- Resend API key, verified `EMAIL_FROM` (`Ting Ting Xu <notifications@silverkey.ca>`), contact/alert recipient addresses, and
-  webhook signing secret.
+- Resend API key, verified `EMAIL_FROM` (`Ting Ting Xu <notifications@silverkey.ca>`),
+  `APPLICATION_TO_EMAIL`, contact/alert recipient addresses, and webhook signing
+  secret.
 - Approved production domain and final approved website images.
 
 Provider secrets are server-only. Never expose the service-role key, Resend key,
 full destinations, message bodies, or webhook payloads in logs.
+
+Before accepting real applications, submit a non-production application with
+representative PDF/JPEG/PNG files to the approved `APPLICATION_TO_EMAIL` inbox.
+Confirm the styled details, every physical attachment, signed Resend callback, and
+durable owner-notification status. Use enough files to exercise numbered delivery
+when the combined raw attachment size exceeds 25 MB. Do not forward the message;
+attachments remain screening-pending and must be opened only on an approved device.
 
 Rent receipts use the private `tenant-rent-payment-receipts` bucket created by
 migration `202607300032`. Access is only through a five-minute signed Admin URL

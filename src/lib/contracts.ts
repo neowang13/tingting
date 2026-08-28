@@ -354,7 +354,8 @@ export interface RentReportSnapshot {
 export type OwnerNotificationKind =
   | "tenant_upload"
   | "weekly_tenant_summary"
-  | "daily_overdue_rent_summary";
+  | "daily_overdue_rent_summary"
+  | "application_submission";
 
 export interface OwnerNotificationDelivery {
   id: string;
@@ -363,6 +364,7 @@ export interface OwnerNotificationDelivery {
   tenantId: string | null;
   payload: Record<string, unknown>;
   attemptCount: number;
+  providerMessageId?: string | null;
 }
 
 export interface TenantActivitySummary {

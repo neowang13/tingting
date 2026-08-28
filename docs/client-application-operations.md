@@ -49,19 +49,27 @@ submission continue to fail closed if either approval is withdrawn.
    exact form/terms versions and hashes, then stores displayed consent text, hashes,
    timestamp, authenticated user, application ID, and minimized request context.
 7. After the database accepts the submission, the email provider notifies the Admin
-   recipient configured in `CONTACT_TO_EMAIL` (falling back to `ALERT_TO_EMAIL` or
-   `LOCAL_ADMIN_EMAIL`). The message contains only the application reference,
-   applicant/contact summary, property, submission time, and authenticated Admin link;
-   supporting documents are never attached. Delivery success or failure is audited,
-   and an email-provider failure does not undo the applicant's completed submission.
+   recipient configured in `APPLICATION_TO_EMAIL` (falling back to
+   `CONTACT_TO_EMAIL`, `ALERT_TO_EMAIL`, or `LOCAL_ADMIN_EMAIL`). The styled HTML
+   message and text fallback contain the complete application detail, submission and
+   consent record, property, authenticated Admin link, and every uploaded PDF/JPEG/PNG
+   as a physical email attachment. Before sending, the server downloads each private
+   object and verifies its stored byte size and SHA-256 digest. If the combined raw
+   attachment size exceeds 25 MB, the system sends numbered parts with the same
+   application details. Each part is durably queued, retried by the existing owner-email
+   worker after a safe failure, and updated from signed Resend delivery callbacks. An
+   email-provider failure does not undo the applicant's completed submission.
 8. Applicant downloads a receipt showing the reference, files, status, versions,
    hashes, consent time, correction route, and retention-review date.
 
 ## Staff processing
 
 Use `/admin/applications`. This is a need-to-know queue and does not expose private
-object paths or public download URLs. Do not copy application content into email,
-chat, analytics, issue trackers, or general admin notes.
+object paths or public download URLs. The automated submission email is an approved
+delivery path to the dedicated Admin inbox; do not forward it or copy application
+content into any other email, chat, analytics, issue tracker, or general admin note.
+Its attachments remain `manual_review_required` until staff records the approved
+screening decision, so open them only on the approved screening workstation.
 
 Allowed progression:
 
@@ -145,4 +153,8 @@ read the queue without receiving storage public URLs.
 
 For production email, verify `silverkey.ca` in Resend and configure
 `EMAIL_FROM="Ting Ting Xu <notifications@silverkey.ca>"`, `EMAIL_PROVIDER_MODE=live`,
-`RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, and the approved `CONTACT_TO_EMAIL` inbox.
+`RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, the approved `APPLICATION_TO_EMAIL`
+application-review inbox, and `CONTACT_TO_EMAIL` for public enquiries. Submit a
+non-production application with representative PDF/JPEG/PNG files and verify every
+attachment, numbered multi-email delivery when applicable, the durable delivery row,
+and the signed Resend callback before using the flow for real applicant data.

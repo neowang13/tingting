@@ -28,6 +28,7 @@ const baseEnvSchema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(3).optional(),
   CONTACT_TO_EMAIL: z.string().email().optional(),
+  APPLICATION_TO_EMAIL: z.string().email().optional(),
   ALERT_TO_EMAIL: z.string().email().optional(),
   OWNER_NOTIFICATION_TO_EMAIL: z.string().email().optional(),
   OWNER_DAILY_OVERDUE_ENABLED: z.enum(["true", "false"]).default("false"),
