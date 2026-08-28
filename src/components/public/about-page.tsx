@@ -18,7 +18,7 @@ const teamMembers = [
   },
   {
     name: "Hudson Dong",
-    role: "admin and assistant",
+    role: "Admin and Assistant",
     image: "/images/hudson-dong-portrait-2026.jpg"
   },
   {
