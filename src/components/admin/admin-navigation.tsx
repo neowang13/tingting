@@ -1,12 +1,13 @@
 "use client";
 
-import { Building2, FileText, Users } from "lucide-react";
+import { Building2, CalendarClock, FileText, Users } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navigation = [
   { label: "Properties", href: "/admin/properties", icon: Building2 },
   { label: "Applications", href: "/admin/applications", icon: FileText },
+  { label: "Viewing dates", href: "/admin/viewings", icon: CalendarClock },
   { label: "Tenants", href: "/admin/tenants", icon: Users }
 ] as const;
 

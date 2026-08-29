@@ -5,6 +5,7 @@ import { CheckCircle2, FileText, UserRoundCheck, X } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   APPLICATION_DOCUMENT_LABELS,
+  APPLICATION_REQUIRED_DOCUMENT_TYPES,
   type ApplicationStatus,
   type ApplicationStatusUpdateResult,
   type ClientApplicationRecord
@@ -248,14 +249,17 @@ export function ApplicationQueue({ initial, initialFilter = "open" }: { initial:
         <table className="admin-table application-queue-table">
           <thead><tr><th>Applicant</th><th>Property</th><th>Status</th><th>Submitted</th><th>Documents</th><th>Action</th></tr></thead>
           <tbody>{visibleApplications.map((application) => {
-            const filesCleared = application.files.length > 0 && application.files.every((file) => file.scanStatus === "cleared");
+            const filesCleared = application.files.every((file) => file.scanStatus === "cleared");
+            const documentStatus = application.files.length === 0
+              ? "No files to screen"
+              : filesCleared ? "Cleared" : "Screening required";
             return (
               <tr key={application.id}>
                 <td><strong>{applicantName(application)}</strong><small>{application.id}</small></td>
                 <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
                 <td><span className={`application-status application-status-${application.status}`}>{application.status.replaceAll("_", " ")}</span></td>
                 <td>{application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "Not submitted"}</td>
-                <td><span className={filesCleared ? "document-state cleared" : "document-state pending"}>{application.files.length} files<br />{filesCleared ? "Cleared" : "Screening required"}</span></td>
+                <td><span className={filesCleared ? "document-state cleared" : "document-state pending"}>{application.files.length} files<br />{documentStatus}</span></td>
                 <td>
                   <button className="application-review-button" type="button" onClick={(event) => openReview(application, event.currentTarget)}>
                     <FileText size={17} aria-hidden /> Review application
@@ -356,6 +360,9 @@ export function ApplicationQueue({ initial, initialFilter = "open" }: { initial:
 
 function ApplicationDetails({ application }: { application: ClientApplicationRecord }) {
   const { draft } = application;
+  const totalOccupants = draft.tenancy.adultCount !== null && draft.tenancy.childCount !== null
+    ? draft.tenancy.adultCount + draft.tenancy.childCount
+    : draft.tenancy.occupantCount;
   return <div className="application-detail-grid">
     <DetailCard title="Applicant">
       <Detail label="Legal name" value={applicantName(application)} />
@@ -366,7 +373,9 @@ function ApplicationDetails({ application }: { application: ClientApplicationRec
     <DetailCard title="Requested tenancy">
       <Detail label="Move-in" value={draft.tenancy.desiredMoveInDate} />
       <Detail label="Lease term" value={draft.tenancy.leaseTerm.replaceAll("_", " ")} />
-      <Detail label="Occupants" value={String(draft.tenancy.occupantCount || "—")} />
+      <Detail label="Adults" value={draft.tenancy.adultCount === null ? "Not recorded" : String(draft.tenancy.adultCount)} />
+      <Detail label="Children" value={draft.tenancy.childCount === null ? "Not recorded" : String(draft.tenancy.childCount)} />
+      <Detail label="Total occupants" value={totalOccupants ? String(totalOccupants) : "—"} />
       <Detail label="Pets / parking" value={`${draft.tenancy.hasPets ? `Pets: ${draft.tenancy.petDetails || "yes"}` : "No pets"} · ${draft.tenancy.needsParking ? "Parking required" : "No parking"}`} />
       <Detail label="Property fit" value={draft.tenancy.reasonForChoosing} wide />
     </DetailCard>
@@ -409,9 +418,13 @@ function ApplicationFiles({ application, busy, onReview }: {
   busy: boolean;
   onReview: (applicationId: string, fileId: string, decision: "cleared" | "rejected") => Promise<void>;
 }) {
+  const explanations = APPLICATION_REQUIRED_DOCUMENT_TYPES.flatMap((documentType) => {
+    const explanation = application.draft.documentExplanations[documentType];
+    return explanation ? [{ documentType, explanation }] : [];
+  });
   return <section className="application-documents-panel">
-    <div><h3>Private income and credit score documents</h3><p>Download only to the approved screening workstation.</p></div>
-    <ul>{application.files.map((file) => (
+    <div><h3>Private income and credit score documents</h3><p>{application.files.length === 0 ? "No files to screen. Review the applicant explanations below." : "Download only to the approved screening workstation."}</p></div>
+    {application.files.length > 0 && <ul>{application.files.map((file) => (
       <li key={file.id}>
         <FileText aria-hidden />
         <span><strong>{file.originalFilename}</strong><small>{APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
@@ -421,7 +434,14 @@ function ApplicationFiles({ application, busy, onReview }: {
           <button className="admin-action danger compact" disabled={busy} type="button" onClick={() => onReview(application.id, file.id, "rejected")}>Reject file</button>
         </>}
       </li>
-    ))}</ul>
+    ))}</ul>}
+    {explanations.length > 0 && <div className="application-document-explanations-admin">
+      <h4>Applicant explanations</h4>
+      <dl>{explanations.map(({ documentType, explanation }) => <div key={documentType}>
+        <dt>{APPLICATION_DOCUMENT_LABELS[documentType]}</dt>
+        <dd>{explanation}</dd>
+      </div>)}</dl>
+    </div>}
   </section>;
 }
 

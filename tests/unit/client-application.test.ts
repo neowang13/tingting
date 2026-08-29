@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  APPLICATION_REQUIRED_DOCUMENT_TYPES,
   APPLICATION_TERMS_VERSION,
+  applicationDocumentRequirementSatisfied,
   applicationTermsText
 } from "@/features/applications/contracts";
 import {
@@ -8,6 +10,7 @@ import {
   assertApplicationMaterialsApproved,
   convertApprovedApplicationToTenant,
   getApplicationForm,
+  getPaperApplicationForm,
   getApplicationFileForStaff,
   getSignedLeaseForStaff,
   getClientApplication,
@@ -22,7 +25,11 @@ import {
   uploadSignedLeaseForStaff
 } from "@/features/applications/service";
 import type { ClientIdentity } from "@/features/applications/contracts";
-import { applicationDraftSchema } from "@/features/applications/schemas";
+import {
+  applicationDraftSchema,
+  applicationDraftStepComplete,
+  validateCompleteApplicationDraft
+} from "@/features/applications/schemas";
 import type { EmailProvider } from "@/features/notifications/providers/types";
 
 const client: ClientIdentity = {
@@ -47,7 +54,7 @@ async function uploadRequiredFiles() {
 function completeDraft() {
   return applicationDraftSchema.parse({
     personal: { legalFirstName: "Demo", legalLastName: "Applicant", phone: "6045550182", email: "client@example.test" },
-    tenancy: { desiredMoveInDate: "2026-09-01", leaseTerm: "one_year", occupantCount: 1, needsShowing: "no", reasonForChoosing: "The location and lease term fit my needs." },
+    tenancy: { desiredMoveInDate: "2026-09-01", leaseTerm: "one_year", occupantCount: 12, adultCount: 2, childCount: 1, needsShowing: "no" },
     housing: { currentAddress: "10 Current Street, Vancouver", currentHousingSince: "2024-01", currentMonthlyRent: 2200, landlordName: "Current Landlord", landlordPhone: "6045550111", reasonForLeaving: "Need a different location." },
     employment: { employmentStatus: "employed", employerOrIncomeSource: "Example Company", occupation: "Designer", employmentSince: "2022-06", grossMonthlyIncome: 7200, contactName: "Manager Name", contactPhone: "6045550122" },
     references: { primary: { name: "Reference Person", relationship: "Former manager", phone: "6045550133" } },
@@ -65,6 +72,46 @@ beforeEach(() => {
 });
 
 describe("client application workflow", () => {
+  it("loads legacy occupant totals without inventing an adult-child split", () => {
+    const legacy = applicationDraftSchema.parse({ tenancy: { occupantCount: 3 } });
+
+    expect(legacy.tenancy).toMatchObject({ occupantCount: 3, adultCount: null, childCount: null });
+    expect(legacy.documentExplanations).toEqual({
+      rental_payment_history: "",
+      credit_score_report: "",
+      employment_income_proof: ""
+    });
+    expect(applicationDraftStepComplete(legacy, "tenancy")).toBe(false);
+  });
+
+  it("satisfies each required document category with a file or a trimmed explanation", () => {
+    const explanations = applicationDraftSchema.parse({
+      documentExplanations: {
+        rental_payment_history: "  My landlord does not provide payment ledgers.  ",
+        credit_score_report: "Too short",
+        employment_income_proof: ""
+      }
+    }).documentExplanations;
+    const files = [{ documentType: "employment_income_proof" as const }];
+
+    expect(applicationDocumentRequirementSatisfied("rental_payment_history", files, explanations)).toBe(true);
+    expect(applicationDocumentRequirementSatisfied("credit_score_report", files, explanations)).toBe(false);
+    expect(applicationDocumentRequirementSatisfied("employment_income_proof", files, explanations)).toBe(true);
+    expect(APPLICATION_REQUIRED_DOCUMENT_TYPES.every((type) =>
+      applicationDocumentRequirementSatisfied(type, files, explanations)
+    )).toBe(false);
+  });
+
+  it("requires a valid adult-child split but makes the property-fit answer optional", () => {
+    const draft = completeDraft();
+    expect(validateCompleteApplicationDraft(draft)).toEqual([]);
+
+    const tooMany = applicationDraftSchema.safeParse({
+      tenancy: { adultCount: 8, childCount: 5, occupantCount: 1 }
+    });
+    expect(tooMany.success).toBe(false);
+  });
+
   it("uses the finalized approved consent copy", () => {
     expect(APPLICATION_TERMS_VERSION).toBe("2026-08-08.1");
     expect(applicationTermsText).not.toMatch(/draft|pre-production|before production/i);
@@ -105,7 +152,18 @@ describe("client application workflow", () => {
       .rejects.toMatchObject({ status: 404, code: "APPLICATION_NOT_FOUND" });
     const download = await getApplicationForm(client, applicationId);
     expect(download.filename).toContain("2026-07-31.1");
+    expect(download.contentType).toContain("text/plain");
     expect(download.bytes.toString("utf8")).toContain("secure online application");
+
+    const paperForm = await getPaperApplicationForm(client, applicationId);
+    expect(paperForm.filename).toBe("remax-application-for-tenancy-fillable.pdf");
+    expect(paperForm.contentType).toBe("application/pdf");
+    expect(paperForm.bytes.subarray(0, 4).toString("ascii")).toBe("%PDF");
+    expect(paperForm.bytes.toString("latin1")).toContain("/AcroForm");
+    await expect(getPaperApplicationForm(
+      { ...client, userId: crypto.randomUUID() },
+      applicationId
+    )).rejects.toMatchObject({ status: 404, code: "APPLICATION_NOT_FOUND" });
   });
 
   it("sniffs content and rejects active PDF content or extension mismatches", async () => {
@@ -126,6 +184,7 @@ describe("client application workflow", () => {
     await uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof");
     const application = await getClientApplication(client, applicationId);
     await expect(submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true,
       screeningConsent: true,
       termsVersion: application.termsVersion,
@@ -135,10 +194,20 @@ describe("client application workflow", () => {
     }, { requestId: "test", userAgentHash: "hash" })).rejects.toMatchObject({ code: "APPLICATION_DRAFT_INCOMPLETE" });
   });
 
-  it("requires all three document categories, both unchecked-by-default authorizations, and exact versions", async () => {
+  it("derives the stored occupant total from the adult and child counts", async () => {
+    const saved = await saveApplicationDraft(client, applicationId, {
+      draft: completeDraft(),
+      activeStep: 2
+    });
+
+    expect(saved.draft.tenancy).toMatchObject({ adultCount: 2, childCount: 1, occupantCount: 3 });
+  });
+
+  it("requires a file or valid explanation for each required category, both authorizations, and exact versions", async () => {
     await saveCompleteDraft();
     const application = await getClientApplication(client, applicationId);
     const base = {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true,
       screeningConsent: true,
       termsVersion: application.termsVersion,
@@ -148,15 +217,50 @@ describe("client application workflow", () => {
     };
     await expect(submitClientApplication(client, applicationId, base, { requestId: "test", userAgentHash: "hash" }))
       .rejects.toMatchObject({ code: "APPLICATION_DOCUMENTS_REQUIRED" });
-    await uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof");
+    const explainedDraft = completeDraft();
+    explainedDraft.documentExplanations.rental_payment_history = "My current landlord cannot provide a payment history.";
+    explainedDraft.documentExplanations.credit_score_report = "My credit report is not currently available.";
+    explainedDraft.documentExplanations.employment_income_proof = "Too short";
+    await saveApplicationDraft(client, applicationId, { draft: explainedDraft, activeStep: 7 });
     await expect(submitClientApplication(client, applicationId, base, { requestId: "test", userAgentHash: "hash" }))
       .rejects.toMatchObject({ code: "APPLICATION_DOCUMENTS_REQUIRED" });
-    await uploadApplicationFile(client, applicationId, pdfFile(), "rental_payment_history");
-    await uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report");
+    await uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof");
     await expect(submitClientApplication(client, applicationId, { ...base, screeningConsent: false }, { requestId: "test", userAgentHash: "hash" }))
       .rejects.toMatchObject({ code: "APPLICATION_CONSENT_REQUIRED" });
     await expect(submitClientApplication(client, applicationId, { ...base, termsVersion: "stale" }, { requestId: "test", userAgentHash: "hash" }))
       .rejects.toMatchObject({ code: "APPLICATION_VERSION_CHANGED" });
+  });
+
+  it("includes document explanations in the formatted Admin notification", async () => {
+    const draft = completeDraft();
+    draft.documentExplanations = {
+      rental_payment_history: "My landlord cannot provide a rental payment history.",
+      credit_score_report: "I cannot access a current credit score report.",
+      employment_income_proof: "I am between roles and do not have current pay stubs."
+    };
+    await saveApplicationDraft(client, applicationId, { draft, activeStep: 7 });
+    const application = await getClientApplication(client, applicationId);
+    const send = vi.fn<EmailProvider["send"]>().mockResolvedValue({ providerMessageId: "test", status: "queued" });
+    const submitted = await submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
+      sharingAuthorization: true,
+      screeningConsent: true,
+      termsVersion: application.termsVersion,
+      termsSha256: application.termsSha256,
+      formVersion: application.formVersion,
+      formSha256: application.formSha256
+    }, { requestId: "test", userAgentHash: "hash" }, { notifier: { send }, recipient: "admin@example.test" });
+
+    expect(submitted.files).toHaveLength(0);
+    expect(send.mock.calls[0][0].text).toContain("between roles");
+    expect(send.mock.calls[0][0].html).toContain("Document explanations");
+    expect(send.mock.calls[0][0].attachments).toEqual([]);
+    expect((await applicationReceipt(client, applicationId)).toString("utf8"))
+      .toContain("I am between roles and do not have current pay stubs.");
+    const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
+    await updateApplicationStatus(admin, applicationId, "received");
+    await expect(updateApplicationStatus(admin, applicationId, "under_review"))
+      .resolves.toMatchObject({ status: "under_review", files: [] });
   });
 
   it("records immutable consent evidence, retention, status, and a downloadable receipt", async () => {
@@ -168,6 +272,7 @@ describe("client application workflow", () => {
       status: "queued"
     });
     const submitted = await submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true,
       screeningConsent: true,
       termsVersion: application.termsVersion,
@@ -189,7 +294,14 @@ describe("client application workflow", () => {
       idempotencyKey: `application-submitted-${applicationId}`
     });
     expect(send.mock.calls[0][0].text).toContain("https://silverkey.ca/admin/applications");
-    expect(send.mock.calls[0][0].text).not.toContain("completed-application.pdf");
+    expect(send.mock.calls[0][0].text).toContain("completed-application.pdf");
+    expect(send.mock.calls[0][0].html).toContain("SILVERKEY · NEW RENTAL APPLICATION");
+    expect(send.mock.calls[0][0].attachments).toHaveLength(3);
+    expect(send.mock.calls[0][0].attachments?.every((attachment) =>
+      attachment.contentType === "application/pdf"
+      && attachment.filename.endsWith("completed-application.pdf")
+      && Buffer.from(attachment.content, "base64").toString("utf8").startsWith("%PDF-1.7")
+    )).toBe(true);
     await expect(uploadApplicationFile(client, applicationId, pdfFile(), "other"))
       .rejects.toMatchObject({ code: "APPLICATION_ALREADY_SUBMITTED" });
     const receipt = (await applicationReceipt(client, applicationId)).toString("utf8");
@@ -202,6 +314,7 @@ describe("client application workflow", () => {
     await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     const submitted = await submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true,
       screeningConsent: true,
       termsVersion: application.termsVersion,
@@ -220,6 +333,7 @@ describe("client application workflow", () => {
     await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     await submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true, screeningConsent: true,
       termsVersion: application.termsVersion, termsSha256: application.termsSha256,
       formVersion: application.formVersion, formSha256: application.formSha256
@@ -295,6 +409,7 @@ describe("client application workflow", () => {
     const uploaded = await uploadRequiredFiles();
     const application = await getClientApplication(client, applicationId);
     await submitClientApplication(client, applicationId, {
+      signatureLegalName: "Demo Applicant",
       sharingAuthorization: true, screeningConsent: true,
       termsVersion: application.termsVersion, termsSha256: application.termsSha256,
       formVersion: application.formVersion, formSha256: application.formSha256

@@ -1,10 +1,10 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-test("client login, saved online application, validated upload, affirmative consent, receipt, and staff queue", async ({ page, request }) => {
+test("client login, explanation-only application, affirmative consent, receipt, and staff queue", async ({ page, request }) => {
   test.setTimeout(60_000);
 
-  const denied = await request.get("/api/client/applications/30000000-0000-4000-8000-000000000009/form");
+  const denied = await request.get("/api/client/applications/30000000-0000-4000-8000-000000000009/paper-form");
   expect(denied.status()).toBe(401);
 
   await page.goto("/client/applications");
@@ -25,13 +25,18 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByLabel("Legal last name *").fill("Applicant");
   await page.getByLabel("Phone number *").fill("604-555-0182");
   await page.getByLabel("Email address *").fill("client@example.test");
+  await page.getByText("Prefer a paper application?").click();
+  const downloadPromise = page.waitForEvent("download");
+  await page.getByRole("link", { name: "Download fillable paper application" }).click();
+  expect((await downloadPromise).suggestedFilename()).toBe("remax-application-for-tenancy-fillable.pdf");
   await page.getByRole("button", { name: "Save and continue" }).click();
 
   await page.getByLabel("Desired move-in date *").fill("2026-09-01");
   await page.getByLabel("Preferred lease term *").selectOption("one_year");
-  await page.getByLabel("Total occupants *").fill("1");
+  await page.getByLabel("Adults *").fill("2");
+  await page.getByLabel("Children *").fill("1");
   await page.getByLabel("Do you still need a showing? *").selectOption("no");
-  await page.getByLabel("Why does this home fit your needs? *").fill("The location and lease term fit my needs.");
+  await expect(page.getByLabel("Why does this home fit your needs? (optional)")).not.toHaveAttribute("required", "");
   await page.getByRole("button", { name: "Save and continue" }).click();
 
   await page.getByLabel("Current address *").fill("10 Current Street, Vancouver");
@@ -61,11 +66,6 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByLabel("Phone number *").fill("604-555-0144");
   await page.getByRole("button", { name: "Save and continue" }).click();
 
-  await page.getByText("Need a paper application instead?").click();
-  const downloadPromise = page.waitForEvent("download");
-  await page.getByRole("link", { name: "Download fallback application form" }).click();
-  expect((await downloadPromise).suggestedFilename()).toContain("2026-07-31.1");
-
   await page.getByLabel("Choose Recent pay stubs or current employment contract file").setInputFiles({
     name: "unsafe.pdf",
     mimeType: "application/pdf",
@@ -73,28 +73,29 @@ test("client login, saved online application, validated upload, affirmative cons
   });
   await expect(page.locator(".client-application-flow .form-status.error")).toContainText("scripts");
 
-  const safePdf = Buffer.from("%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF");
-  await page.getByLabel("Choose Rental payment history from current landlord file").setInputFiles({
-    name: "rental-payment-history.pdf",
-    mimeType: "application/pdf",
-    buffer: safePdf
-  });
-  await page.getByLabel("Choose Credit score report file").setInputFiles({
-    name: "credit-score-report.pdf",
-    mimeType: "application/pdf",
-    buffer: safePdf
-  });
-  await page.getByLabel("Choose Recent pay stubs or current employment contract file").setInputFiles({
-    name: "employment-proof.pdf",
-    mimeType: "application/pdf",
-    buffer: safePdf
-  });
-  await expect(page.getByRole("status")).toContainText("private storage");
-  await expect(page.getByText("rental-payment-history.pdf")).toBeVisible();
-  await expect(page.getByText("credit-score-report.pdf")).toBeVisible();
-  await expect(page.getByText("employment-proof.pdf")).toBeVisible();
+  await page.getByLabel("Explain why you cannot provide Rental payment history from current landlord").fill("My landlord cannot provide a rental payment history.");
+  await page.getByLabel("Explain why you cannot provide Credit score report").fill("I cannot access a current credit score report.");
+  await page.getByLabel("Explain why you cannot provide Recent pay stubs or current employment contract").fill("My employment documents are not currently available.");
+  await expect(page.getByText(
+    "Providing an explanation does not replace supporting evidence. If we cannot verify your information, your application may be declined."
+  ).first()).toBeVisible();
+  await expect(page.getByText(
+    "If you cannot provide recent pay stubs, you must upload a recent bank statement."
+  )).toBeVisible();
+
+  const documentStepResults = await new AxeBuilder({ page })
+    .include(".client-application-flow")
+    .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
+    .analyze();
+  expect(documentStepResults.violations.map(({ id }) => id)).toEqual([]);
 
   await page.getByRole("button", { name: "Save and continue" }).click();
+  const householdReview = page.locator(".application-review-group").filter({ hasText: "Household & tenancy" });
+  await expect(householdReview).toContainText("Adults2");
+  await expect(householdReview).toContainText("Children1");
+  await expect(householdReview).toContainText("Total occupants3");
+  const documentReview = page.locator(".application-review-group").filter({ hasText: "Income and credit score verification" });
+  await expect(documentReview).toContainText("My landlord cannot provide a rental payment history.");
   const sharing = page.getByLabel(/I authorize the property manager/);
   const screening = page.getByLabel(/I consent to the stated credit-score/);
   await expect(sharing).not.toBeChecked();
@@ -102,6 +103,7 @@ test("client login, saved online application, validated upload, affirmative cons
 
   await sharing.check();
   await screening.check();
+  await page.getByLabel("Type your full legal name to sign *").fill("Demo Applicant");
   await page.getByRole("button", { name: "Submit application" }).click();
   await expect(page.getByRole("link", { name: "Download submission receipt" })).toBeVisible();
   await expect(page.getByText("Submitted", { exact: true }).first()).toBeVisible();
@@ -123,17 +125,12 @@ test("client login, saved online application, validated upload, affirmative cons
   await page.getByRole("button", { name: "Review application" }).click();
   const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
   await expect(reviewDialog).toBeVisible();
-  await expect(page.getByText("employment-proof.pdf")).toBeVisible();
-  const staffDownloadPromise = page.waitForEvent("download");
-  await reviewDialog.getByRole("link", { name: "Secure download" }).first().click();
-  expect((await staffDownloadPromise).suggestedFilename()).toBe("rental-payment-history.pdf");
-  const clearButtons = reviewDialog.getByRole("button", { name: "Mark cleared" });
-  while (await clearButtons.first().isVisible().catch(() => false)) {
-    const previousCount = await clearButtons.count();
-    await clearButtons.first().click();
-    await expect(clearButtons).toHaveCount(previousCount - 1);
-  }
-  await expect(reviewDialog.getByText(/cleared/).first()).toBeVisible();
+  const requestedTenancy = reviewDialog.locator(".application-detail-card").filter({ hasText: "Requested tenancy" });
+  await expect(requestedTenancy).toContainText("Adults2");
+  await expect(requestedTenancy).toContainText("Children1");
+  await expect(requestedTenancy).toContainText("Total occupants3");
+  await expect(reviewDialog.getByText("No files to screen. Review the applicant explanations below.")).toBeVisible();
+  await expect(reviewDialog.getByText("My employment documents are not currently available.")).toBeVisible();
   await page.getByRole("button", { name: "Mark received" }).click();
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();
   await page.getByRole("button", { name: "Start review" }).click();

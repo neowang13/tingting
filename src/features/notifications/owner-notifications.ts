@@ -6,6 +6,7 @@ import {
 } from "@/features/notifications/providers";
 import type { EmailProvider } from "@/features/notifications/providers/types";
 import { ApiError } from "@/lib/api";
+import { prepareApplicationSubmissionEmail } from "@/features/applications/service";
 import {
   isOwnerDailyOverdueEnabled,
   isOwnerWeeklySummaryEnabled
@@ -36,7 +37,8 @@ export interface OwnerNotificationWorkerSummary {
 }
 
 function ownerRecipient() {
-  return process.env.OWNER_NOTIFICATION_TO_EMAIL
+  return process.env.CONTACT_TO_EMAIL
+    ?? process.env.OWNER_NOTIFICATION_TO_EMAIL
     ?? process.env.ALERT_TO_EMAIL
     ?? process.env.LOCAL_ADMIN_EMAIL
     ?? null;
@@ -281,12 +283,39 @@ async function renderDelivery(
   now: string
 ) {
   const repository = getRepository();
+  if (delivery.kind === "application_submission") {
+    const { applicationId, fileIds, partIndex, partCount, appBaseUrl } = delivery.payload;
+    if (
+      typeof applicationId !== "string"
+      || !Array.isArray(fileIds)
+      || !fileIds.every((id) => typeof id === "string")
+      || typeof partIndex !== "number"
+      || typeof partCount !== "number"
+      || typeof appBaseUrl !== "string"
+    ) {
+      throw new ApiError(500, "OWNER_NOTIFICATION_PAYLOAD_INVALID", "Application notification payload is invalid.");
+    }
+    return prepareApplicationSubmissionEmail({
+      applicationId,
+      fileIds,
+      partIndex,
+      partCount,
+      appBaseUrl
+    });
+  }
   if (delivery.kind === "tenant_upload") {
     if (!delivery.tenantId) {
       throw new ApiError(500, "OWNER_NOTIFICATION_TENANT_MISSING", "Owner notification tenant is missing.");
     }
     const { tenant } = await repository.getTenant(delivery.tenantId);
     return tenantUploadMessage(tenant, timezone);
+  }
+  if (delivery.kind === "showing_confirmation") {
+    const { subject, text, html } = delivery.payload;
+    if (typeof subject !== "string" || typeof text !== "string" || typeof html !== "string") {
+      throw new ApiError(500, "OWNER_NOTIFICATION_PAYLOAD_INVALID", "Showing notification payload is invalid.");
+    }
+    return { subject, text, html };
   }
   const generatedThrough = requiredPayloadTimestamp(delivery, "generatedThrough");
   const rent = await repository.rentReportSnapshot(
@@ -445,9 +474,9 @@ export async function deliverOwnerNotifications(options: {
   provider?: EmailProvider;
 } = {}): Promise<OwnerNotificationWorkerSummary> {
   const now = options.now ?? new Date();
-  const recipient = ownerRecipient();
+  const defaultRecipient = ownerRecipient();
   const mode = resolveEmailProviderMode();
-  if (!recipient || mode === "disabled") {
+  if (mode === "disabled") {
     return { claimed: 0, sent: 0, failed: 0, skipped: 1 };
   }
   const repository = getRepository();
@@ -461,6 +490,12 @@ export async function deliverOwnerNotifications(options: {
   const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
   for (const delivery of deliveries) {
     try {
+      const recipient = delivery.kind === "application_submission"
+        ? delivery.payload.recipient
+        : defaultRecipient;
+      if (typeof recipient !== "string" || !recipient) {
+        throw new ApiError(503, "OWNER_NOTIFICATION_RECIPIENT_MISSING", "The notification recipient is not configured.");
+      }
       const disabledSafeErrorCode = delivery.kind === "daily_overdue_rent_summary"
         ? !isOwnerDailyOverdueEnabled() && "OWNER_DAILY_OVERDUE_REPORT_DISABLED"
         : delivery.kind === "weekly_tenant_summary"
@@ -490,7 +525,9 @@ export async function deliverOwnerNotifications(options: {
       const result = await provider.send({
         to: recipient,
         ...message,
-        idempotencyKey: `owner-notification:${delivery.notificationKey}`
+        idempotencyKey: delivery.kind === "application_submission"
+          ? delivery.notificationKey.replaceAll(":", "-")
+          : `owner-notification:${delivery.notificationKey}`
       });
       if (delivery.kind === "weekly_tenant_summary") {
         const scheduledFor = typeof delivery.payload.scheduledFor === "string"

@@ -36,6 +36,14 @@ export async function POST(request: Request) {
       return ok({ accepted: true, duplicate: true }, requestId);
     }
     const mapped = mapResendStatus(providerStatus);
+    const ownerDeliveryId = await getRepository().applyOwnerNotificationProviderStatus(
+      providerMessageId,
+      mapped,
+      providerStatus
+    );
+    if (ownerDeliveryId) {
+      return ok({ accepted: true, ownerDeliveryId }, requestId);
+    }
     const event = await getRepository().applyProviderStatus("resend", providerMessageId, mapped, providerStatus);
     return ok({ accepted: true, eventId: event.id }, requestId);
   } catch (error) {

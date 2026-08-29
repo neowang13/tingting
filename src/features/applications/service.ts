@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getRepository } from "@/data/repository";
 import { ApiError } from "@/lib/api";
@@ -14,6 +16,7 @@ import {
   APPLICATION_RETENTION_MONTHS,
   APPLICATION_TERMS_VERSION,
   APPLICATION_UPLOAD_BUCKET,
+  applicationDocumentRequirementSatisfied,
   applicationFormText,
   applicationTermsText,
   type ApplicationFileRecord,
@@ -32,14 +35,31 @@ import {
   type ApplicationTenantConversion
 } from "@/features/applications/schemas";
 import {
+  applicationEmailAttachmentFilename,
+  groupApplicationFilesForEmail,
   renderApplicationApprovedNotification,
-  renderApplicationSubmittedNotification
+  renderApplicationSubmittedNotification,
+  type ApplicationSubmissionNotificationData
 } from "@/features/applications/notification";
 import {
   createNotificationProviders,
   resolveEmailProviderMode
 } from "@/features/notifications/providers";
-import type { EmailProvider } from "@/features/notifications/providers/types";
+import type { EmailAttachment, EmailProvider } from "@/features/notifications/providers/types";
+import {
+  assertAllActiveCoApplicantsSigned,
+  assertApplicationSignaturesUnlocked,
+  getMemoryApplicationApplicants,
+  getMemoryApplicationNotificationApplicants,
+  getMemoryAllApplicantFilesForStaff,
+  getMemoryGuestFileForStaff,
+  recordPrimarySignatureAndCreditRequests,
+  registerMemoryPrimaryApplicant,
+  resetMemoryApplicantSigningForTests,
+  reviewMemoryApplicantFileForStaff,
+  syncMemoryPrimaryApplicantFiles
+} from "@/features/applications/applicant-signing";
+import type { ApplicantSignatureInput } from "@/features/applications/schemas";
 
 const DEMO_APPLICATION_ID = "30000000-0000-4000-8000-000000000009";
 const APPLICATION_SELECT = `
@@ -48,7 +68,8 @@ const APPLICATION_SELECT = `
   rental_listings(slug),
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
   application_terms_versions!inner(version,sha256,legal_review_status,displayed_text),
-  client_application_files(id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at),
+  application_applicants(id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,draft_payload),
+  client_application_files(id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at),
   client_application_lease_files!client_application_lease_files_application_id_fkey(
     id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at
   )
@@ -73,7 +94,7 @@ function demoStore() {
   globalThis.__tingtingClientApplications ??= new Map();
   if (!globalThis.__tingtingClientApplications.has(DEMO_APPLICATION_ID)) {
     const now = new Date().toISOString();
-    globalThis.__tingtingClientApplications.set(DEMO_APPLICATION_ID, {
+    const application: DemoApplication = {
       id: DEMO_APPLICATION_ID,
       ownerUserId: "00000000-0000-4000-8000-000000000009",
       propertySlug: "howe-street-one-bedroom",
@@ -92,12 +113,29 @@ function demoStore() {
       draft: applicationDraftSchema.parse({}),
       draftUpdatedAt: null,
       files: [],
+      applicants: [],
       leaseDocument: null,
       convertedTenantId: null,
       convertedAt: null,
       consentText: null,
       audit: [{ action: "application.assigned", createdAt: now }]
+    };
+    globalThis.__tingtingClientApplications.set(DEMO_APPLICATION_ID, application);
+    registerMemoryPrimaryApplicant({
+      applicationId: application.id,
+      ownerUserId: application.ownerUserId,
+      legalName: "Demo Applicant",
+      email: "client@example.test",
+      draft: application.draft,
+      formVersion: application.formVersion,
+      formSha256: application.formSha256,
+      termsVersion: application.termsVersion,
+      termsSha256: application.termsSha256,
+      termsText: applicationTermsText,
+      propertyTitle: application.propertyTitle,
+      propertyAddress: application.propertyAddress
     });
+    application.applicants = getMemoryApplicationApplicants(application.id);
   }
   return globalThis.__tingtingClientApplications;
 }
@@ -119,11 +157,13 @@ function relation(value: unknown) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
+function mapApplication(row: Record<string, unknown>, options: { includeAllApplicantFiles?: boolean } = {}): ClientApplicationRecord {
   const form = relation(row.application_form_versions) as Record<string, unknown>;
   const terms = relation(row.application_terms_versions) as Record<string, unknown>;
   const rental = relation(row.rental_listings) as Record<string, unknown> | undefined;
   const files = (row.client_application_files ?? []) as Array<Record<string, unknown>>;
+  const applicants = (row.application_applicants ?? []) as Array<Record<string, unknown>>;
+  const primaryApplicant = applicants.find((applicant) => applicant.role === "primary");
   const leaseFiles = (row.client_application_lease_files ?? []) as Array<Record<string, unknown>>;
   const leaseFile = leaseFiles.find((file) => !file.superseded_at && !file.deleted_at);
   const draft = applicationDraftSchema.safeParse(row.draft_payload ?? {});
@@ -148,8 +188,9 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
     retainUntil: row.retain_until ? String(row.retain_until) : null,
     draft: draft.data,
     draftUpdatedAt: row.draft_updated_at ? String(row.draft_updated_at) : null,
-    files: files.map((file) => ({
+    files: files.filter((file) => options.includeAllApplicantFiles || file.applicant_id === primaryApplicant?.id).map((file) => ({
       id: String(file.id),
+      applicantId: String(file.applicant_id),
       documentType: file.document_type as ApplicationDocumentType,
       originalFilename: String(file.original_filename),
       mimeType: file.mime_type as ApplicationFileRecord["mimeType"],
@@ -157,6 +198,19 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
       scanStatus: file.scan_status as ApplicationFileRecord["scanStatus"],
       uploadedAt: String(file.uploaded_at)
     })).sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt)),
+    applicants: applicants.map((applicant) => ({
+      id: String(applicant.id),
+      role: applicant.role as "primary" | "co_applicant",
+      legalName: String(applicant.legal_name),
+      email: String(applicant.email),
+      status: applicant.status === "invited" && applicant.invitation_expires_at
+        && new Date(String(applicant.invitation_expires_at)).getTime() <= Date.now()
+        ? "expired"
+        : applicant.status as "invited" | "in_progress" | "signed" | "revoked",
+      invitationExpiresAt: applicant.invitation_expires_at ? String(applicant.invitation_expires_at) : null,
+      draftUpdatedAt: applicant.draft_updated_at ? String(applicant.draft_updated_at) : null,
+      signedAt: applicant.signed_at ? String(applicant.signed_at) : null
+    })),
     leaseDocument: leaseFile ? {
       id: String(leaseFile.id),
       originalFilename: String(leaseFile.original_filename),
@@ -166,6 +220,134 @@ function mapApplication(row: Record<string, unknown>): ClientApplicationRecord {
     } : null,
     convertedTenantId: row.converted_tenant_id ? String(row.converted_tenant_id) : null,
     convertedAt: row.converted_at ? String(row.converted_at) : null
+  };
+}
+
+export async function loadApplicationSubmissionNotificationData(
+  applicationId: string
+): Promise<ApplicationSubmissionNotificationData> {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const stored = demoStore().get(applicationId);
+    if (!stored) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+    const applicants = getMemoryApplicationNotificationApplicants(applicationId);
+    const files = applicants.flatMap((applicant) => applicant.files);
+    return {
+      application: {
+        ...structuredClone(stored),
+        applicants: applicants.map((applicant) => ({
+          id: applicant.id,
+          role: applicant.role,
+          legalName: applicant.legalName,
+          email: applicant.email,
+          status: applicant.status,
+          invitationExpiresAt: applicant.invitationExpiresAt,
+          draftUpdatedAt: applicant.draftUpdatedAt,
+          signedAt: applicant.signedAt
+        })),
+        files: structuredClone(files)
+      },
+      applicants
+    };
+  }
+
+  const result = await supabaseService().from("client_applications")
+    .select(APPLICATION_SELECT)
+    .eq("id", applicationId)
+    .is("deleted_at", null)
+    .single();
+  if (result.error || !result.data) {
+    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The submitted application could not be loaded for email delivery.");
+  }
+  const row = result.data as unknown as Record<string, unknown>;
+  const application = mapApplication(row, { includeAllApplicantFiles: true });
+  const applicantRows = (row.application_applicants ?? []) as Array<Record<string, unknown>>;
+  const applicants = applicantRows
+    .filter((applicant) => applicant.status !== "revoked")
+    .map((applicant) => {
+      const draft = applicationDraftSchema.safeParse(applicant.draft_payload ?? {});
+      if (!draft.success) {
+        throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "An applicant draft could not be loaded for email delivery.");
+      }
+      const id = String(applicant.id);
+      const publicApplicant = application.applicants.find((candidate) => candidate.id === id);
+      if (!publicApplicant) {
+        throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "An applicant record could not be loaded for email delivery.");
+      }
+      return {
+        ...publicApplicant,
+        draft: draft.data,
+        files: application.files.filter((file) => file.applicantId === id)
+      };
+    });
+  return { application, applicants };
+}
+
+async function loadApplicationEmailAttachment(
+  applicationId: string,
+  file: ApplicationFileRecord,
+  data: ApplicationSubmissionNotificationData,
+  index: number
+): Promise<EmailAttachment> {
+  let bytes: Buffer;
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const primaryBytes = globalThis.__tingtingClientApplicationFileBytes?.get(file.id);
+    const guestFile = getMemoryGuestFileForStaff(file.id);
+    const storedBytes = primaryBytes ?? guestFile?.bytes;
+    if (!storedBytes) throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment is unavailable for email delivery.");
+    bytes = Buffer.from(storedBytes);
+  } else {
+    const service = supabaseService();
+    const result = await service.from("client_application_files")
+      .select("storage_path,sha256")
+      .eq("id", file.id)
+      .eq("application_id", applicationId)
+      .is("deleted_at", null)
+      .single();
+    if (result.error || !result.data) {
+      throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment is unavailable for email delivery.");
+    }
+    const download = await service.storage.from(applicationBucket()).download(result.data.storage_path);
+    if (download.error || !download.data) {
+      throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "An application attachment could not be read for email delivery.");
+    }
+    bytes = Buffer.from(await download.data.arrayBuffer());
+    if (bytes.length !== file.byteSize || sha256(bytes) !== result.data.sha256) {
+      throw new ApiError(503, "APPLICATION_FILE_INTEGRITY_FAILED", "An application attachment failed its integrity check.");
+    }
+  }
+  const applicant = data.applicants.find((candidate) => candidate.id === file.applicantId);
+  return {
+    filename: applicationEmailAttachmentFilename(file, applicant, index),
+    content: bytes.toString("base64"),
+    contentType: file.mimeType
+  };
+}
+
+export async function prepareApplicationSubmissionEmail(input: {
+  applicationId: string;
+  fileIds: string[];
+  partIndex: number;
+  partCount: number;
+  appBaseUrl: string;
+}) {
+  const data = await loadApplicationSubmissionNotificationData(input.applicationId);
+  const filesById = new Map(data.application.files.map((file) => [file.id, file]));
+  const attachedFiles = input.fileIds.map((id) => filesById.get(id)).filter((file): file is ApplicationFileRecord => Boolean(file));
+  if (attachedFiles.length !== input.fileIds.length) {
+    throw new ApiError(503, "APPLICATION_FILE_UNAVAILABLE", "One or more application attachments are unavailable for email delivery.");
+  }
+  const attachments = await Promise.all(attachedFiles.map((file) =>
+    loadApplicationEmailAttachment(input.applicationId, file, data, data.application.files.findIndex((candidate) => candidate.id === file.id))
+  ));
+  return {
+    ...renderApplicationSubmittedNotification({
+      data,
+      appBaseUrl: input.appBaseUrl,
+      attachedFiles,
+      partIndex: input.partIndex,
+      partCount: input.partCount
+    }),
+    attachments
   };
 }
 
@@ -188,6 +370,7 @@ async function loadOwnedApplication(identity: ClientIdentity, id: string) {
     if (!application || application.ownerUserId !== identity.userId) {
       throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
     }
+    application.applicants = getMemoryApplicationApplicants(id);
     return structuredClone(application);
   }
   const result = await supabaseService().from("client_applications")
@@ -325,6 +508,7 @@ export async function startOrReuseClientApplication(identity: ClientIdentity, pr
       draft: applicationDraftSchema.parse({}),
       draftUpdatedAt: null,
       files: [],
+      applicants: [],
       leaseDocument: null,
       convertedTenantId: null,
       convertedAt: null,
@@ -332,6 +516,15 @@ export async function startOrReuseClientApplication(identity: ClientIdentity, pr
       audit: [{ action: "application.client_started", createdAt: now }]
     };
     demoStore().set(application.id, application);
+    registerMemoryPrimaryApplicant({
+      applicationId: application.id, ownerUserId: identity.userId,
+      legalName: identity.displayName, email: identity.email, draft: application.draft,
+      formVersion: application.formVersion, formSha256: application.formSha256,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      termsText: applicationTermsText, propertyTitle: application.propertyTitle,
+      propertyAddress: application.propertyAddress
+    });
+    application.applicants = getMemoryApplicationApplicants(application.id);
     return structuredClone(application);
   }
 
@@ -383,13 +576,33 @@ export async function saveApplicationDraft(
   if (application.status !== "draft") {
     throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application can no longer be edited.");
   }
-  const draft = applicationDraftSchema.parse(input.draft);
+  await assertApplicationSignaturesUnlocked(id);
+  const parsedDraft = applicationDraftSchema.parse(input.draft);
+  const { adultCount, childCount } = parsedDraft.tenancy;
+  const draft: ApplicationDraft = adultCount !== null && childCount !== null
+    ? {
+        ...parsedDraft,
+        tenancy: {
+          ...parsedDraft.tenancy,
+          occupantCount: adultCount + childCount
+        }
+      }
+    : parsedDraft;
   const updatedAt = new Date().toISOString();
 
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
     stored.draft = structuredClone(draft);
     stored.draftUpdatedAt = updatedAt;
+    registerMemoryPrimaryApplicant({
+      applicationId: stored.id, ownerUserId: stored.ownerUserId,
+      legalName: `${draft.personal.legalFirstName} ${draft.personal.legalLastName}`.trim() || identity.displayName,
+      email: draft.personal.email || identity.email, draft,
+      formVersion: stored.formVersion, formSha256: stored.formSha256,
+      termsVersion: stored.termsVersion, termsSha256: stored.termsSha256,
+      termsText: applicationTermsText, propertyTitle: stored.propertyTitle,
+      propertyAddress: stored.propertyAddress
+    });
     stored.audit.push({ action: "application.draft_saved", createdAt: updatedAt });
     return { draft: structuredClone(draft), draftUpdatedAt: updatedAt };
   }
@@ -429,11 +642,28 @@ export async function getApplicationForm(identity: ClientIdentity, id: string) {
   if (result.error || !result.data) throw new ApiError(404, "APPLICATION_FORM_NOT_FOUND", "Application form not found.");
   const form = relation(result.data.application_form_versions) as Record<string, unknown>;
   if (form.content_text) {
-    return { filename: String(form.filename), contentType: `${form.content_type}; charset=utf-8`, bytes: Buffer.from(String(form.content_text), "utf8") };
+    return {
+      filename: String(form.filename),
+      contentType: `${form.content_type}; charset=utf-8`,
+      bytes: Buffer.from(String(form.content_text), "utf8")
+    };
   }
   const download = await supabaseService().storage.from(applicationBucket()).download(String(form.storage_path));
   if (download.error || !download.data) throw new ApiError(503, "APPLICATION_FORM_UNAVAILABLE", "The application form is temporarily unavailable.");
   return { filename: String(form.filename), contentType: String(form.content_type), bytes: Buffer.from(await download.data.arrayBuffer()) };
+}
+
+export async function getPaperApplicationForm(identity: ClientIdentity, id: string) {
+  await loadOwnedApplication(identity, id);
+  try {
+    return {
+      filename: "remax-application-for-tenancy-fillable.pdf",
+      contentType: "application/pdf",
+      bytes: await readFile(join(process.cwd(), "server-assets", "forms", "remax-application-for-tenancy-fillable.pdf"))
+    };
+  } catch {
+    throw new ApiError(503, "APPLICATION_FORM_UNAVAILABLE", "The paper application is temporarily unavailable.");
+  }
 }
 
 function safeFilename(value: string) {
@@ -483,12 +713,14 @@ export async function uploadApplicationFile(
   const application = await loadOwnedApplication(identity, id);
   assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
+  await assertApplicationSignaturesUnlocked(id);
   if (application.files.length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_FILES", "An application can include at most 8 files.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const inspected = inspectUpload(file, bytes);
   const uploadedAt = new Date().toISOString();
   const record: ApplicationFileRecord = {
     id: crypto.randomUUID(),
+    applicantId: application.applicants.find((applicant) => applicant.role === "primary")?.id,
     documentType,
     originalFilename: inspected.name,
     mimeType: inspected.mimeType,
@@ -500,6 +732,7 @@ export async function uploadApplicationFile(
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
     stored.files.push(record);
+    syncMemoryPrimaryApplicantFiles(id, stored.files);
     globalThis.__tingtingClientApplicationFileBytes ??= new Map();
     globalThis.__tingtingClientApplicationFileBytes.set(record.id, bytes);
     stored.audit.push({ action: "application.file_uploaded", createdAt: uploadedAt });
@@ -516,6 +749,7 @@ export async function uploadApplicationFile(
   const inserted = await service.from("client_application_files").insert({
     id: record.id,
     application_id: id,
+    applicant_id: record.applicantId,
     document_type: record.documentType,
     storage_path: storagePath,
     original_filename: record.originalFilename,
@@ -542,8 +776,8 @@ export async function uploadApplicationFile(
 export async function submitClientApplication(
   identity: ClientIdentity,
   id: string,
-  input: { sharingAuthorization: boolean; screeningConsent: boolean; termsVersion: string; termsSha256: string; formVersion: string; formSha256: string },
-  requestContext: { requestId: string; userAgentHash: string },
+  input: { signatureLegalName: string; sharingAuthorization: boolean; screeningConsent: boolean; termsVersion: string; termsSha256: string; formVersion: string; formSha256: string },
+  requestContext: { requestId: string; userAgentHash: string; ipHash?: string },
   options: { notifier?: EmailProvider; recipient?: string | null; appBaseUrl?: string } = {}
 ) {
   const application = await loadOwnedApplication(identity, id);
@@ -557,13 +791,17 @@ export async function submitClientApplication(
     throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${draftIssues[0].section.replaceAll("_", " ")} before submitting.`);
   }
   const missingDocumentTypes = APPLICATION_REQUIRED_DOCUMENT_TYPES.filter(
-    (documentType) => !application.files.some((file) => file.documentType === documentType)
+    (documentType) => !applicationDocumentRequirementSatisfied(
+      documentType,
+      application.files,
+      application.draft.documentExplanations
+    )
   );
   if (missingDocumentTypes.length > 0) {
     throw new ApiError(
       400,
       "APPLICATION_DOCUMENTS_REQUIRED",
-      `Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentTypes[0]].toLowerCase()} before submitting.`
+      `Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentTypes[0]].toLowerCase()} or provide an explanation before submitting.`
     );
   }
   if (application.files.some((file) => file.scanStatus === "rejected")) {
@@ -573,10 +811,31 @@ export async function submitClientApplication(
       input.formVersion !== application.formVersion || input.formSha256 !== application.formSha256) {
     throw new ApiError(409, "APPLICATION_VERSION_CHANGED", "The form or consent changed. Review the current version before submitting.");
   }
+  await assertAllActiveCoApplicantsSigned(id);
   const now = new Date();
   const retainUntil = new Date(now);
   retainUntil.setUTCMonth(retainUntil.getUTCMonth() + APPLICATION_RETENTION_MONTHS);
   const timestamp = now.toISOString();
+
+  let termsText = applicationTermsText;
+  if (process.env.DATA_BACKEND === "supabase") {
+    const termsResult = await supabaseService().from("application_terms_versions")
+      .select("displayed_text").eq("version", application.termsVersion).single();
+    if (termsResult.error || !termsResult.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Consent evidence could not be loaded.");
+    termsText = termsResult.data.displayed_text;
+  }
+  await recordPrimarySignatureAndCreditRequests({
+    applicationId: id,
+    identity,
+    legalName: input.signatureLegalName,
+    signature: input as ApplicantSignatureInput,
+    termsText,
+    draft: application.draft,
+    files: application.files,
+    context: requestContext,
+    signedAt: timestamp,
+    retainUntil: retainUntil.toISOString()
+  });
 
   let submitted: ClientApplicationRecord;
   if (process.env.DATA_BACKEND !== "supabase") {
@@ -587,70 +846,102 @@ export async function submitClientApplication(
     stored.retainUntil = retainUntil.toISOString();
     stored.consentText = applicationTermsText;
     stored.audit.push({ action: "application.submitted", createdAt: timestamp });
+    stored.applicants = getMemoryApplicationApplicants(id);
     submitted = structuredClone(stored);
   } else {
-    const service = supabaseService();
-    const termsResult = await service.from("application_terms_versions")
-      .select("displayed_text")
-      .eq("version", application.termsVersion)
-      .single();
-    if (termsResult.error || !termsResult.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Consent evidence could not be loaded.");
-    const updated = await service.from("client_applications").update({
-      status: "submitted",
-      submitted_at: timestamp,
-      consented_at: timestamp,
-      consent_text: termsResult.data.displayed_text,
-      consent_terms_version: application.termsVersion,
-      consent_terms_sha256: application.termsSha256,
-      consent_form_version: application.formVersion,
-      consent_form_sha256: application.formSha256,
-      consent_request_context: requestContext,
-      retain_until: retainUntil.toISOString(),
-      updated_at: timestamp
-    }).eq("id", id).eq("owner_user_id", identity.userId).eq("status", "draft").select("id").maybeSingle();
-    if (updated.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be submitted.");
-    if (!updated.data) throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application has already been submitted.");
-    await service.from("client_application_audit_events").insert({
-      application_id: id,
-      actor_user_id: identity.userId,
-      actor_type: "client",
-      action: "application.submitted",
-      request_context: requestContext
-    });
     submitted = await loadOwnedApplication(identity, id);
   }
 
   const recipient = options.recipient === undefined
-    ? process.env.CONTACT_TO_EMAIL ?? process.env.ALERT_TO_EMAIL ?? process.env.LOCAL_ADMIN_EMAIL
+    ? process.env.APPLICATION_TO_EMAIL ?? process.env.CONTACT_TO_EMAIL ?? process.env.ALERT_TO_EMAIL ?? process.env.LOCAL_ADMIN_EMAIL
     : options.recipient;
   if (recipient) {
     try {
       const emailMode = resolveEmailProviderMode();
+      const appBaseUrl = options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
+      const notificationData = await loadApplicationSubmissionNotificationData(id);
+      const fileGroups = groupApplicationFilesForEmail(notificationData.application.files);
+      const repository = getRepository();
+      const queuedParts: Array<{
+        deliveryId: string;
+        files: ApplicationFileRecord[];
+        partIndex: number;
+        notificationKey: string;
+      }> = [];
+      for (const [groupIndex, files] of fileGroups.entries()) {
+        const partIndex = groupIndex + 1;
+        const notificationKey = fileGroups.length === 1
+          ? `application-submitted:${submitted.id}`
+          : `application-submitted:${submitted.id}:part:${partIndex}-of-${fileGroups.length}`;
+        const deliveryId = await repository.enqueueOwnerNotification({
+          notificationKey,
+          kind: "application_submission",
+          tenantId: null,
+          payload: {
+            applicationId: submitted.id,
+            fileIds: files.map((file) => file.id),
+            partIndex,
+            partCount: fileGroups.length,
+            recipient,
+            appBaseUrl
+          },
+          scheduledFor: new Date().toISOString()
+        });
+        queuedParts.push({ deliveryId, files, partIndex, notificationKey });
+      }
       if (options.notifier || emailMode !== "disabled") {
         const notifier = options.notifier ?? createNotificationProviders({ email: emailMode, sms: "disabled" }).email;
-        const notification = renderApplicationSubmittedNotification({
-          application: submitted,
-          appBaseUrl: options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000"
-        });
-        const delivery = await notifier.send({
-          to: recipient,
-          subject: notification.subject,
-          text: notification.text,
-          html: notification.html,
-          idempotencyKey: `application-submitted-${submitted.id}`
-        });
-        if (process.env.DATA_BACKEND !== "supabase") {
-          demoStore().get(id)?.audit.push({ action: "application.admin_notification_queued", createdAt: new Date().toISOString() });
-        } else {
-          await supabaseService().from("client_application_audit_events").insert({
-            application_id: id,
-            actor_type: "system",
-            action: "application.admin_notification_queued",
-            request_context: { providerMessageId: delivery.providerMessageId, status: delivery.status }
-          });
+        for (const part of queuedParts) {
+          try {
+            const notification = await prepareApplicationSubmissionEmail({
+              applicationId: submitted.id,
+              fileIds: part.files.map((file) => file.id),
+              partIndex: part.partIndex,
+              partCount: fileGroups.length,
+              appBaseUrl
+            });
+            const delivery = await notifier.send({
+              to: recipient,
+              ...notification,
+              idempotencyKey: part.notificationKey.replaceAll(":", "-")
+            });
+            await repository.finishOwnerNotification(part.deliveryId, {
+              status: "sent",
+              providerMessageId: delivery.providerMessageId,
+              safeErrorCode: null,
+              nextAttemptAt: null
+            });
+            if (process.env.DATA_BACKEND !== "supabase") {
+              demoStore().get(id)?.audit.push({ action: "application.admin_notification_queued", createdAt: new Date().toISOString() });
+            } else {
+              await supabaseService().from("client_application_audit_events").insert({
+                application_id: id,
+                actor_type: "system",
+                action: "application.admin_notification_queued",
+                request_context: { providerMessageId: delivery.providerMessageId, status: delivery.status, partIndex: part.partIndex, partCount: fileGroups.length }
+              });
+            }
+          } catch (error) {
+            await repository.finishOwnerNotification(part.deliveryId, {
+              status: "failed",
+              providerMessageId: null,
+              safeErrorCode: error instanceof ApiError ? error.code : "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED",
+              nextAttemptAt: new Date(Date.now() + 5 * 60_000).toISOString()
+            });
+            if (process.env.DATA_BACKEND !== "supabase") {
+              demoStore().get(id)?.audit.push({ action: "application.admin_notification_failed", createdAt: new Date().toISOString() });
+            } else {
+              await supabaseService().from("client_application_audit_events").insert({
+                application_id: id,
+                actor_type: "system",
+                action: "application.admin_notification_failed",
+                request_context: { safeErrorCode: error instanceof ApiError ? error.code : "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED", partIndex: part.partIndex, partCount: fileGroups.length }
+              });
+            }
+          }
         }
       }
-    } catch {
+    } catch (error) {
       if (process.env.DATA_BACKEND !== "supabase") {
         demoStore().get(id)?.audit.push({ action: "application.admin_notification_failed", createdAt: new Date().toISOString() });
       } else {
@@ -658,7 +949,7 @@ export async function submitClientApplication(
           application_id: id,
           actor_type: "system",
           action: "application.admin_notification_failed",
-          request_context: { safeErrorCode: "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED" }
+          request_context: { safeErrorCode: error instanceof ApiError ? error.code : "APPLICATION_ADMIN_EMAIL_DELIVERY_FAILED" }
         });
       }
     }
@@ -672,19 +963,23 @@ export async function applicationReceipt(identity: ClientIdentity, id: string) {
   if (!application.submittedAt || !application.consentedAt) {
     throw new ApiError(409, "APPLICATION_NOT_SUBMITTED", "A receipt is available after submission.");
   }
-  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${APPLICATION_DOCUMENT_LABELS[file.documentType]}: ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n")}\n\nCorrection, withdrawal, access, or deletion review: ${PUBLIC_CONTACT_EMAIL}\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
+  const explanations = APPLICATION_REQUIRED_DOCUMENT_TYPES
+    .filter((type) => application.draft.documentExplanations[type])
+    .map((type) => `- ${APPLICATION_DOCUMENT_LABELS[type]}: ${application.draft.documentExplanations[type]}`)
+    .join("\n");
+  const text = `TING TING XU — APPLICATION SUBMISSION RECEIPT\n\nReference: ${application.id}\nProperty: ${application.propertyTitle}\nAddress: ${application.propertyAddress}\nStatus: ${application.status}\nSubmitted: ${application.submittedAt}\n\nOnline application version: ${application.formVersion}\nApplication SHA-256: ${application.formSha256}\nConsent version: ${application.termsVersion}\nConsent SHA-256: ${application.termsSha256}\nConsent recorded: ${application.consentedAt}\n\nSupporting files:\n${application.files.map((file) => `- ${APPLICATION_DOCUMENT_LABELS[file.documentType]}: ${file.originalFilename} (${file.byteSize} bytes; ${file.scanStatus})`).join("\n") || "- None"}\n\nDocument explanations:\n${explanations || "- None"}\n\nCorrection, withdrawal, access, or deletion review: ${PUBLIC_CONTACT_EMAIL}\nRetention review date: ${application.retainUntil ?? "To be determined"}\n`;
   return Buffer.from(text, "utf8");
 }
 
 export async function listApplicationsForStaff(admin: AdminIdentity) {
   void admin;
-  if (process.env.DATA_BACKEND !== "supabase") return [...demoStore().values()].map((item) => structuredClone(item));
+  if (process.env.DATA_BACKEND !== "supabase") return [...demoStore().values()].map((item) => ({ ...structuredClone(item), applicants: getMemoryApplicationApplicants(item.id), files: getMemoryAllApplicantFilesForStaff(item.id) }));
   const result = await supabaseService().from("client_applications")
     .select(APPLICATION_SELECT)
     .is("deleted_at", null)
     .order("submitted_at", { ascending: false, nullsFirst: false });
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
-  return (result.data ?? []).map((row) => mapApplication(row as unknown as Record<string, unknown>));
+  return (result.data ?? []).map((row) => mapApplication(row as unknown as Record<string, unknown>, { includeAllApplicantFiles: true }));
 }
 
 export async function getApplicationFileForStaff(admin: AdminIdentity, fileId: string) {
@@ -693,13 +988,18 @@ export async function getApplicationFileForStaff(admin: AdminIdentity, fileId: s
     const application = [...demoStore().values()].find((item) => item.files.some((file) => file.id === fileId));
     const file = application?.files.find((item) => item.id === fileId);
     const bytes = globalThis.__tingtingClientApplicationFileBytes?.get(fileId);
+    const guestFile = getMemoryGuestFileForStaff(fileId);
+    if (guestFile) {
+      if (guestFile.file.scanStatus === "rejected") throw new ApiError(409, "APPLICATION_FILE_REJECTED", "Rejected files cannot be downloaded.");
+      return guestFile;
+    }
     if (!application || !file || !bytes) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "Application file not found.");
     if (file.scanStatus === "rejected") throw new ApiError(409, "APPLICATION_FILE_REJECTED", "Rejected files cannot be downloaded.");
     return { file, bytes: Buffer.from(bytes) };
   }
   const service = supabaseService();
   const result = await service.from("client_application_files")
-    .select("id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at,storage_path,application_id")
+    .select("id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at,storage_path,application_id")
     .eq("id", fileId)
     .is("deleted_at", null)
     .maybeSingle();
@@ -711,6 +1011,7 @@ export async function getApplicationFileForStaff(admin: AdminIdentity, fileId: s
   return {
     file: {
       id: result.data.id,
+      applicantId: result.data.applicant_id,
       documentType: result.data.document_type as ApplicationDocumentType,
       originalFilename: result.data.original_filename,
       mimeType: result.data.mime_type as ApplicationFileRecord["mimeType"],
@@ -731,7 +1032,11 @@ export async function reviewApplicationFile(
   if (process.env.DATA_BACKEND !== "supabase") {
     const application = [...demoStore().values()].find((item) => item.files.some((file) => file.id === fileId));
     const file = application?.files.find((item) => item.id === fileId);
-    if (!application || !file) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "Application file not found.");
+    if (!application || !file) {
+      const guestFile = reviewMemoryApplicantFileForStaff(fileId, decision);
+      if (!guestFile) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "Application file not found.");
+      return guestFile;
+    }
     if (file.scanStatus !== "manual_review_required" && file.scanStatus !== "screening_pending") {
       throw new ApiError(409, "APPLICATION_FILE_ALREADY_REVIEWED", "This file already has a screening decision.");
     }
@@ -744,7 +1049,7 @@ export async function reviewApplicationFile(
     .update({ scan_status: decision, reviewed_at: now })
     .eq("id", fileId)
     .in("scan_status", ["manual_review_required", "screening_pending"])
-    .select("id,application_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at")
+    .select("id,application_id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at")
     .maybeSingle();
   if (updated.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The screening decision could not be saved.");
   if (!updated.data) throw new ApiError(409, "APPLICATION_FILE_ALREADY_REVIEWED", "This file is missing or already reviewed.");
@@ -757,6 +1062,7 @@ export async function reviewApplicationFile(
   });
   return {
     id: updated.data.id,
+    applicantId: updated.data.applicant_id,
     documentType: updated.data.document_type as ApplicationDocumentType,
     originalFilename: updated.data.original_filename,
     mimeType: updated.data.mime_type as ApplicationFileRecord["mimeType"],
@@ -798,7 +1104,7 @@ async function loadApplicationForStaff(id: string) {
     .is("deleted_at", null)
     .maybeSingle();
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
-  return result.data ? mapApplication(result.data as unknown as Record<string, unknown>) : null;
+  return result.data ? mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true }) : null;
 }
 
 export async function uploadSignedLeaseForStaff(admin: AdminIdentity, applicationId: string, file: File) {
@@ -998,7 +1304,7 @@ export async function updateApplicationStatus(
   else {
     const result = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("id", id).maybeSingle();
     if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
-    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>);
+    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
   }
   if (!current) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
   if (!staffTransitions[current.status].includes(next)) throw new ApiError(409, "INVALID_APPLICATION_STATUS", `Cannot move ${current.status} to ${next}.`);
@@ -1043,7 +1349,7 @@ export async function convertApprovedApplicationToTenant(
       .eq("id", id)
       .maybeSingle();
     if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
-    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>);
+    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
   }
   if (!current) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
   if (current.status !== "approved") {
@@ -1134,7 +1440,7 @@ export async function convertApprovedApplicationToTenant(
     throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The converted application could not be reloaded.");
   }
   return {
-    application: mapApplication(application.data as unknown as Record<string, unknown>),
+    application: mapApplication(application.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true }),
     tenant
   };
 }
@@ -1143,4 +1449,6 @@ export function resetDemoApplicationsForTests() {
   globalThis.__tingtingClientApplications = undefined;
   globalThis.__tingtingClientApplicationFileBytes = undefined;
   globalThis.__tingtingClientApplicationLeaseBytes = undefined;
+  resetMemoryApplicantSigningForTests();
+  void demoStore();
 }

@@ -78,6 +78,34 @@ describe("owner email notifications", () => {
     }));
   });
 
+  it("matches Resend delivery feedback to a durable owner email", async () => {
+    const repository = getRepository();
+    const deliveryId = await repository.enqueueOwnerNotification({
+      notificationKey: "delivery-feedback-test",
+      kind: "showing_confirmation",
+      tenantId: null,
+      payload: { subject: "Test", text: "Test", html: "<p>Test</p>" },
+      scheduledFor: new Date().toISOString()
+    });
+    await repository.finishOwnerNotification(deliveryId, {
+      status: "sent",
+      providerMessageId: "resend-owner-message",
+      safeErrorCode: null,
+      nextAttemptAt: null
+    });
+
+    await expect(repository.applyOwnerNotificationProviderStatus(
+      "resend-owner-message",
+      "delivered",
+      "email.delivered"
+    )).resolves.toBe(deliveryId);
+    await expect(repository.applyOwnerNotificationProviderStatus(
+      "unknown-message",
+      "delivered",
+      "email.delivered"
+    )).resolves.toBeNull();
+  });
+
   it("does not queue daily or weekly owner reports when their switches are disabled", async () => {
     vi.stubEnv("OWNER_DAILY_OVERDUE_ENABLED", "false");
     vi.stubEnv("OWNER_WEEKLY_SUMMARY_ENABLED", "false");

@@ -49,6 +49,8 @@ services:
         value: site-media-drafts
       - key: APPLICATION_UPLOAD_BUCKET
         value: client-applications
+      - key: APPLICATION_GUEST_SESSION_SECRET
+        sync: false
       - key: NEXT_PUBLIC_SUPABASE_URL
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -72,6 +74,8 @@ services:
       - key: EMAIL_FROM
         value: Ting Ting Xu <notifications@silverkey.ca>
       - key: CONTACT_TO_EMAIL
+        value: info@silverkey.ca
+      - key: APPLICATION_TO_EMAIL
         value: info@silverkey.ca
       - key: ALERT_TO_EMAIL
         value: info@silverkey.ca

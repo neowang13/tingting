@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { EMPTY_APPLICATION_DOCUMENT_EXPLANATIONS } from "@/features/applications/contracts";
 
 const optionalText = (maximum: number) => z.string().trim().max(maximum).default("");
 const requiredText = (maximum: number, message: string) => z.string().trim().min(1, message).max(maximum);
@@ -16,12 +17,22 @@ export const tenancyDraftSchema = z.object({
   desiredMoveInDate: optionalText(10),
   leaseTerm: z.enum(["", "month_to_month", "six_months", "one_year", "other"]).default(""),
   occupantCount: z.number().int().min(0).max(12).default(0),
+  adultCount: z.number().int().min(1).max(12).nullable().default(null),
+  childCount: z.number().int().min(0).max(12).nullable().default(null),
   hasPets: z.boolean().default(false),
   petDetails: optionalText(300),
   needsParking: z.boolean().default(false),
   needsShowing: z.enum(["", "yes", "no"]).default(""),
   reasonForChoosing: optionalText(500)
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.adultCount !== null && value.childCount !== null && value.adultCount + value.childCount > 12) {
+    context.addIssue({
+      code: "custom",
+      path: ["childCount"],
+      message: "Enter no more than 12 occupants in total."
+    });
+  }
+});
 
 export const housingDraftSchema = z.object({
   currentAddress: optionalText(240),
@@ -67,7 +78,12 @@ export const applicationDraftSchema = z.object({
   housing: housingDraftSchema.prefault({}),
   employment: employmentDraftSchema.prefault({}),
   references: referencesDraftSchema.prefault({}),
-  emergency: emergencyDraftSchema.prefault({})
+  emergency: emergencyDraftSchema.prefault({}),
+  documentExplanations: z.object({
+    rental_payment_history: optionalText(500),
+    credit_score_report: optionalText(500),
+    employment_income_proof: optionalText(500)
+  }).strict().prefault(EMPTY_APPLICATION_DOCUMENT_EXPLANATIONS)
 }).strict();
 
 export const applicationTenantConversionSchema = z.object({
@@ -92,7 +108,25 @@ export const applicationTenantConversionSchema = z.object({
 export type ApplicationTenantConversion = z.infer<typeof applicationTenantConversionSchema>;
 
 export type ApplicationDraft = z.infer<typeof applicationDraftSchema>;
-export type ApplicationDraftSection = keyof ApplicationDraft;
+export type ApplicationDraftSection = Exclude<keyof ApplicationDraft, "documentExplanations">;
+
+export const coApplicantInvitationSchema = z.object({
+  legalName: requiredText(160, "Enter the co-applicant's legal name."),
+  email: z.email("Enter a valid co-applicant email address.").max(254)
+}).strict();
+
+export const applicantSignatureSchema = z.object({
+  signatureLegalName: requiredText(160, "Type your legal name to sign."),
+  sharingAuthorization: z.literal(true),
+  screeningConsent: z.literal(true),
+  termsVersion: z.string().min(1).max(80),
+  termsSha256: z.string().regex(/^[0-9a-f]{64}$/),
+  formVersion: z.string().min(1).max(80),
+  formSha256: z.string().regex(/^[0-9a-f]{64}$/)
+}).strict();
+
+export type CoApplicantInvitationInput = z.infer<typeof coApplicantInvitationSchema>;
+export type ApplicantSignatureInput = z.infer<typeof applicantSignatureSchema>;
 
 export const completeApplicationStepSchemas = {
   personal: personalDraftSchema.extend({
@@ -101,12 +135,12 @@ export const completeApplicationStepSchemas = {
     phone,
     email: z.email("Enter a valid email address.").max(254)
   }),
-  tenancy: tenancyDraftSchema.extend({
+  tenancy: tenancyDraftSchema.safeExtend({
     desiredMoveInDate: z.iso.date("Choose a desired move-in date."),
     leaseTerm: z.enum(["month_to_month", "six_months", "one_year", "other"]),
-    occupantCount: z.number().int().min(1, "Enter at least one occupant.").max(12),
+    adultCount: z.number().int().min(1, "Enter at least one adult.").max(12),
+    childCount: z.number().int().min(0, "Enter zero if there are no children.").max(12),
     needsShowing: z.enum(["yes", "no"]),
-    reasonForChoosing: requiredText(500, "Tell us briefly why this home fits your needs.")
   }).superRefine((value, context) => {
     if (value.hasPets && !value.petDetails) {
       context.addIssue({ code: "custom", path: ["petDetails"], message: "Add a short description of your pets." });

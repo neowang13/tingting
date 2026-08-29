@@ -514,25 +514,30 @@ export const contactInputSchema = z
     }
   });
 
-export const showingRequestInputSchema = z
-  .object({
+export const showingRequestInputSchema = z.preprocess(
+  (value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+    const normalized = { ...(value as Record<string, unknown>) };
+    // Tolerate already-open clients from before the checkbox removal, but do
+    // not treat or persist any removed booking field as current information.
+    delete normalized.desiredMoveInDate;
+    delete normalized.hasPets;
+    delete normalized.needsParking;
+    delete normalized.consent;
+    delete normalized.representationDisclosureAcknowledged;
+    return normalized;
+  },
+  z.object({
     name: z.string().trim().min(1).max(120),
     phone: z.string().trim().min(7).max(30),
     email: z.email().max(254),
     propertySlug: z.string().trim().min(2).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-    desiredMoveInDate: z.iso.date(),
     requestedLocalDate: z.iso.date(),
     requestedLocalTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
     timezone: z.literal("America/Vancouver"),
     notes: z.string().trim().max(1000).optional().default(""),
-    hasPets: z.boolean().default(false),
-    needsParking: z.boolean().default(false),
-    representationDisclosureAcknowledged: z.literal(true),
-    consent: z.literal(true),
     website: z.string().trim().max(200).optional().default("")
-  })
-  .strict()
-  .superRefine((value, ctx) => {
+  }).strict().superRefine((value, ctx) => {
     if (value.website) return;
     const digits = value.phone.replace(/\D/g, "");
     if (digits.length < 7 || digits.length > 15) {
@@ -542,7 +547,8 @@ export const showingRequestInputSchema = z
         message: "Enter a valid phone number."
       });
     }
-  });
+  })
+);
 
 export const rentalSearchQuerySchema = z
   .object({

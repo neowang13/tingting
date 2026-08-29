@@ -4,6 +4,12 @@ export interface SendResult {
   providerStatus?: string;
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: string;
+  contentType: "application/pdf" | "image/jpeg" | "image/png";
+}
+
 export interface EmailProvider {
   send(input: {
     to: string;
@@ -11,6 +17,7 @@ export interface EmailProvider {
     html: string;
     text: string;
     idempotencyKey: string;
+    attachments?: EmailAttachment[];
   }): Promise<SendResult>;
 }
 

@@ -27,17 +27,14 @@ export function renderShowingRequestNotification(input: {
     timezone: input.request.timezone
   });
   const details = [
-    "Status: REQUESTED — not yet confirmed",
+    "Status: CONFIRMED",
     `Property: ${input.property.title}`,
     `Address: ${input.property.addressLine}, ${input.property.city}`,
     `Listing: /rentals/${input.property.slug}`,
-    `Requested time: ${when}`,
+    `Viewing time: ${when}`,
     `Name: ${input.request.name}`,
     `Phone: ${input.request.phone}`,
     `Email: ${input.request.email}`,
-    `Desired move-in: ${input.request.desiredMoveInDate}`,
-    `Pets: ${input.request.hasPets ? "Yes" : "No"}`,
-    `Parking required: ${input.request.needsParking ? "Yes" : "No"}`,
     `Request ID: ${input.requestId}`
   ];
   const notes = input.request.notes || "No additional notes.";
@@ -63,21 +60,21 @@ export function renderShowingRequestNotification(input: {
   ].filter((value): value is string => Boolean(value));
 
   return {
-    subject: `Showing requested: ${input.property.title}`,
+    subject: `Viewing confirmed: ${input.property.title}`,
     text: [
       ...details,
       "",
       "Additional notes",
       notes,
       "",
-      "Contact the requester to accept or arrange another time.",
+      "This viewing was confirmed automatically. Contact the requester if the time needs to change.",
       ...textActions
     ].join("\n"),
     html: [
-      `<p><strong>REQUESTED — not yet confirmed</strong></p>`,
+      `<p><strong>VIEWING CONFIRMED</strong></p>`,
       `<p>${details.slice(1).map(escapeHtml).join("<br>")}</p>`,
       `<p><strong>Additional notes</strong><br>${escapeHtml(notes).replaceAll("\n", "<br>")}</p>`,
-      `<p>Contact the requester to accept or arrange another time.</p>`,
+      `<p>This viewing was confirmed automatically. Contact the requester if the time needs to change.</p>`,
       htmlActions.length ? `<p>${htmlActions.join("")}</p>` : "",
       contactActions.call
         ? `<p style="color:#68736d;font-size:13px;">Direct phone number: <strong>${escapeHtml(contactActions.call.replace("tel:", ""))}</strong></p>`

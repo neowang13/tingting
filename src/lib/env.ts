@@ -22,12 +22,14 @@ const baseEnvSchema = z.object({
   SUPABASE_STORAGE_PUBLIC_BUCKET: z.string().min(1).default("site-media"),
   SUPABASE_STORAGE_DRAFT_BUCKET: z.string().min(1).default("site-media-drafts"),
   APPLICATION_UPLOAD_BUCKET: z.string().min(1).default("client-applications"),
+  APPLICATION_GUEST_SESSION_SECRET: z.string().min(32).optional(),
   REMINDER_CRON_SECRET: z.string().min(24).optional(),
   EMAIL_PROVIDER_MODE: z.enum(["mock", "disabled", "live"]).optional(),
   SMS_PROVIDER_MODE: z.enum(["mock", "disabled", "live"]).optional(),
   RESEND_API_KEY: z.string().min(1).optional(),
   EMAIL_FROM: z.string().min(3).optional(),
   CONTACT_TO_EMAIL: z.string().email().optional(),
+  APPLICATION_TO_EMAIL: z.string().email().optional(),
   ALERT_TO_EMAIL: z.string().email().optional(),
   OWNER_NOTIFICATION_TO_EMAIL: z.string().email().optional(),
   OWNER_DAILY_OVERDUE_ENABLED: z.enum(["true", "false"]).default("false"),
@@ -86,6 +88,7 @@ export function readServerEnvironment(
     if (!value.NEXT_PUBLIC_SUPABASE_URL) missing.push("NEXT_PUBLIC_SUPABASE_URL");
     if (!value.NEXT_PUBLIC_SUPABASE_ANON_KEY) missing.push("NEXT_PUBLIC_SUPABASE_ANON_KEY");
     if (!value.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
+    if (!value.APPLICATION_GUEST_SESSION_SECRET) missing.push("APPLICATION_GUEST_SESSION_SECRET");
     if (!value.REMINDER_CRON_SECRET) missing.push("REMINDER_CRON_SECRET");
     if (value.AUTOMATION_API_ENABLED === "true" && !value.AUTOMATION_TOKEN_PEPPER) {
       missing.push("AUTOMATION_TOKEN_PEPPER");

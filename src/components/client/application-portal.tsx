@@ -7,7 +7,9 @@ import {
   APPLICATION_DOCUMENT_LABELS,
   APPLICATION_DOCUMENT_TYPES,
   APPLICATION_REQUIRED_DOCUMENT_TYPES,
+  applicationDocumentRequirementSatisfied,
   type ApplicationDocumentType,
+  type ApplicationApplicantRecord,
   type ApplicationFileRecord,
   type ClientApplicationRecord
 } from "@/features/applications/contracts";
@@ -18,6 +20,7 @@ import {
   type ApplicationDraftSection
 } from "@/features/applications/schemas";
 import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
+import { activeCoApplicantsSigned, CoApplicantPanel } from "@/components/client/co-applicant-panel";
 
 const steps: ReadonlyArray<{ label: string; section?: ApplicationDraftSection }> = [
   { label: "Personal details", section: "personal" },
@@ -71,21 +74,36 @@ function ReviewGroup({ title, rows, onEdit }: { title: string; rows: Array<[stri
   return <section className="application-review-group"><div><h3>{title}</h3><button className="text-button" type="button" onClick={onEdit}>Edit</button></div><dl>{rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "—"}</dd></div>)}</dl></section>;
 }
 
+function occupantTotal(tenancy: ApplicationDraft["tenancy"]) {
+  return tenancy.adultCount !== null && tenancy.childCount !== null
+    ? tenancy.adultCount + tenancy.childCount
+    : tenancy.occupantCount;
+}
+
 export function ApplicationPortal({ application, termsText }: { application: ClientApplicationRecord; termsText: string }) {
   const router = useRouter();
   const [activeStep, setActiveStep] = useState(1);
   const [draft, setDraft] = useState<ApplicationDraft>(application.draft);
   const [files, setFiles] = useState(application.files);
+  const [applicants, setApplicants] = useState(application.applicants);
   const [busy, setBusy] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [busyApplicantId, setBusyApplicantId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [lastSaved, setLastSaved] = useState(application.draftUpdatedAt);
   const editable = application.status === "draft";
+  const coApplicants = applicants.filter((applicant) => applicant.role === "co_applicant");
+  const coApplicantsReady = activeCoApplicantsSigned(coApplicants);
   const requiredDocumentsComplete = useMemo(
     () => APPLICATION_REQUIRED_DOCUMENT_TYPES.every(
-      (documentType) => files.some((file) => file.documentType === documentType)
+      (documentType) => applicationDocumentRequirementSatisfied(
+        documentType,
+        files,
+        draft.documentExplanations
+      )
     ),
-    [files]
+    [draft.documentExplanations, files]
   );
 
   const completed = useMemo(() => steps.map((step, index) => {
@@ -103,6 +121,14 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     setMessage("");
   }
 
+  function updateDocumentExplanation(documentType: keyof ApplicationDraft["documentExplanations"], value: string) {
+    setDraft((current) => ({
+      ...current,
+      documentExplanations: { ...current.documentExplanations, [documentType]: value }
+    }));
+    setMessage("");
+  }
+
   async function persistDraft(options: { step?: number; exit?: boolean; validate?: boolean } = {}) {
     const step = options.step ?? activeStep;
     setError("");
@@ -117,9 +143,13 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     }
     if (options.validate && step === 7 && !requiredDocumentsComplete) {
       const missingDocumentType = APPLICATION_REQUIRED_DOCUMENT_TYPES.find(
-        (documentType) => !files.some((file) => file.documentType === documentType)
+        (documentType) => !applicationDocumentRequirementSatisfied(
+          documentType,
+          files,
+          draft.documentExplanations
+        )
       );
-      setError(`Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentType!].toLowerCase()} before continuing.`);
+      setError(`Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentType!].toLowerCase()} or provide an explanation of at least 10 characters before continuing.`);
       return false;
     }
     setBusy(true);
@@ -177,6 +207,73 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     }
   }
 
+  async function inviteCoApplicant(input: { legalName: string; email: string }) {
+    setInviting(true);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/client/applications/${application.id}/applicants`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input)
+      });
+      const body = await response.json().catch(() => ({})) as { data?: { applicant?: ApplicationApplicantRecord }; error?: { message?: string } };
+      if (!response.ok || !body.data?.applicant) {
+        setError(body.error?.message || "The co-applicant could not be invited.");
+        return false;
+      }
+      setApplicants((current) => [...current, body.data!.applicant!]);
+      setMessage(`Secure invitation sent to ${body.data.applicant.email}.`);
+      return true;
+    } catch {
+      setError("The invitation could not be sent. Check your connection and try again.");
+      return false;
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function resendCoApplicant(applicantId: string) {
+    setBusyApplicantId(applicantId);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/client/applications/${application.id}/applicants/${applicantId}/resend`, { method: "POST" });
+      const body = await response.json().catch(() => ({})) as { data?: { applicant?: ApplicationApplicantRecord }; error?: { message?: string } };
+      if (!response.ok || !body.data?.applicant) {
+        setError(body.error?.message || "The invitation could not be resent.");
+        return;
+      }
+      setApplicants((current) => current.map((applicant) => applicant.id === applicantId ? body.data!.applicant! : applicant));
+      setMessage(`A new secure invitation was sent to ${body.data.applicant.email}.`);
+    } catch {
+      setError("The invitation could not be resent. Check your connection and try again.");
+    } finally {
+      setBusyApplicantId(null);
+    }
+  }
+
+  async function revokeCoApplicant(applicantId: string) {
+    if (!window.confirm("Revoke this co-applicant's access? They will no longer be included in the final submission.")) return;
+    setBusyApplicantId(applicantId);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/client/applications/${application.id}/applicants/${applicantId}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({})) as { data?: { applicant?: ApplicationApplicantRecord }; error?: { message?: string } };
+      if (!response.ok || !body.data?.applicant) {
+        setError(body.error?.message || "Co-applicant access could not be revoked.");
+        return;
+      }
+      setApplicants((current) => current.map((applicant) => applicant.id === applicantId ? body.data!.applicant! : applicant));
+      setMessage(`${body.data.applicant.legalName}'s access was revoked.`);
+    } catch {
+      setError("Access could not be revoked. Check your connection and try again.");
+    } finally {
+      setBusyApplicantId(null);
+    }
+  }
+
   async function submitApplication(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -188,6 +285,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        signatureLegalName: data.get("signatureLegalName"),
         sharingAuthorization: data.get("sharingAuthorization") === "yes",
         screeningConsent: data.get("screeningConsent") === "yes",
         termsVersion: application.termsVersion,
@@ -211,6 +309,15 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
 
   return <div className="client-application-flow">
     <ApplicationOverview application={{ ...application, files }} completedCount={completedCount} />
+    <CoApplicantPanel
+      applicants={coApplicants}
+      inviting={inviting}
+      busyApplicantId={busyApplicantId}
+      onInvite={inviteCoApplicant}
+      onResend={resendCoApplicant}
+      onRevoke={revokeCoApplicant}
+      onRefresh={() => void persistDraft().then((saved) => saved && window.location.reload())}
+    />
     <div className="application-wizard">
       <aside className="application-stepper" aria-label="Application progress">
         <p>Application steps</p>
@@ -223,7 +330,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
 
       <section className="client-panel application-step-panel" aria-labelledby="application-step-title">
         <p className="step-number">Step {activeStep} of 8</p>
-        {activeStep === 1 && <form onSubmit={continueStep}><h2 id="application-step-title">Personal details</h2><p>Use your legal name and current contact details. We do not request a SIN through this portal.</p><div className="application-form-grid">
+        {activeStep === 1 && <form onSubmit={continueStep}><h2 id="application-step-title">Personal details</h2><p>Use your legal name and current contact details. We do not request a SIN through this portal.</p><details className="application-paper-fallback"><summary>Prefer a paper application?</summary><p>Download the fillable RE/MAX Application for Tenancy. Complete it, then upload the finished form under Other supporting document on the Documents step. Do not email the application or supporting documents.</p><a className="text-link" href={`/api/client/applications/${application.id}/paper-form`}>Download fillable paper application</a></details><div className="application-form-grid">
           <Field label="Legal first name *"><input value={draft.personal.legalFirstName} onChange={(event) => updateSection("personal", { legalFirstName: event.target.value })} autoComplete="given-name" required /></Field>
           <Field label="Legal last name *"><input value={draft.personal.legalLastName} onChange={(event) => updateSection("personal", { legalLastName: event.target.value })} autoComplete="family-name" required /></Field>
           <Field label="Phone number *"><input type="tel" value={draft.personal.phone} onChange={(event) => updateSection("personal", { phone: event.target.value })} autoComplete="tel" required /></Field>
@@ -234,11 +341,12 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
         {activeStep === 2 && <form onSubmit={continueStep}><h2 id="application-step-title">Household and tenancy request</h2><p>Tell us what you need from this tenancy. Occupant count is collected for occupancy planning; do not include ages or protected personal characteristics.</p><div className="application-form-grid">
           <Field label="Desired move-in date *"><input type="date" value={draft.tenancy.desiredMoveInDate} onChange={(event) => updateSection("tenancy", { desiredMoveInDate: event.target.value })} required /></Field>
           <Field label="Preferred lease term *"><select value={draft.tenancy.leaseTerm} onChange={(event) => updateSection("tenancy", { leaseTerm: event.target.value })} required><option value="" disabled>Choose a term</option><option value="month_to_month">Month to month</option><option value="six_months">Six months</option><option value="one_year">One year</option><option value="other">Other</option></select></Field>
-          <Field label="Total occupants *"><input type="number" min={1} max={12} value={draft.tenancy.occupantCount || ""} onChange={(event) => updateSection("tenancy", { occupantCount: Number(event.target.value) || 0 })} required /></Field>
+          <Field label="Adults *"><input type="number" min={1} max={12} value={draft.tenancy.adultCount ?? ""} onChange={(event) => updateSection("tenancy", { adultCount: event.target.value === "" ? null : Number(event.target.value) })} required /></Field>
+          <Field label="Children *"><input type="number" min={0} max={12} value={draft.tenancy.childCount ?? ""} onChange={(event) => updateSection("tenancy", { childCount: event.target.value === "" ? null : Number(event.target.value) })} required /></Field>
           <Field label="Do you still need a showing? *"><select value={draft.tenancy.needsShowing} onChange={(event) => updateSection("tenancy", { needsShowing: event.target.value })} required><option value="" disabled>Choose one</option><option value="yes">Yes</option><option value="no">No</option></select></Field>
           <Field label="Housing needs" wide group><div className="application-inline-checks"><label><input type="checkbox" checked={draft.tenancy.hasPets} onChange={(event) => updateSection("tenancy", { hasPets: event.target.checked })} />I have pets</label><label><input type="checkbox" checked={draft.tenancy.needsParking} onChange={(event) => updateSection("tenancy", { needsParking: event.target.checked })} />I require parking</label></div></Field>
           {draft.tenancy.hasPets && <Field label="Pet details *" wide><input value={draft.tenancy.petDetails} onChange={(event) => updateSection("tenancy", { petDetails: event.target.value })} maxLength={300} required /></Field>}
-          <Field label="Why does this home fit your needs? *" wide><textarea rows={4} maxLength={500} value={draft.tenancy.reasonForChoosing} onChange={(event) => updateSection("tenancy", { reasonForChoosing: event.target.value })} required /><small className="field-hint">{draft.tenancy.reasonForChoosing.length}/500</small></Field>
+          <Field label="Why does this home fit your needs? (optional)" wide><textarea rows={4} maxLength={500} value={draft.tenancy.reasonForChoosing} onChange={(event) => updateSection("tenancy", { reasonForChoosing: event.target.value })} /><small className="field-hint">{draft.tenancy.reasonForChoosing.length}/500</small></Field>
         </div><DisclosureNotice /><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(1)} onExit={() => void persistDraft({ exit: true })} /></form>}
 
         {activeStep === 3 && <form onSubmit={continueStep}><h2 id="application-step-title">Housing history</h2><p>Provide your current housing contact so the information can be verified with your authorization at submission.</p><div className="application-form-grid">
@@ -271,14 +379,14 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
 
         {activeStep === 7 && <div>
           <h2 id="application-step-title">Income and credit score verification</h2>
-          <p>Upload each of the three required document categories below. Bank statements are optional, and other supporting documents should be added only if needed.</p>
+          <p>For each required category, upload at least one file or explain why you cannot provide it. A bank statement is required if you cannot provide recent pay stubs. Other supporting documents should be added only if needed.</p>
           <div className="application-document-guidance">
             <strong>Required and optional documents</strong>
             <ol>
               <li>Rental payment history from your current landlord — required;</li>
               <li>current credit score report — required;</li>
               <li>recent pay stubs or your current employment contract — required;</li>
-              <li>bank statement — optional; and</li>
+              <li>bank statement — required if you cannot provide recent pay stubs; and</li>
               <li>other supporting documents — only if needed.</li>
             </ol>
             <p>Before uploading, redact your SIN, full bank or account numbers, login credentials, and unrelated personal information. Do not upload photo ID or credit card information unless specifically requested.</p>
@@ -287,34 +395,60 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <div className="application-document-categories">
             {APPLICATION_DOCUMENT_TYPES.map((documentType) => {
               const categoryFiles = files.filter((file) => file.documentType === documentType);
-              const required = APPLICATION_REQUIRED_DOCUMENT_TYPES.includes(documentType);
+              const requiredDocumentType = APPLICATION_REQUIRED_DOCUMENT_TYPES.find((type) => type === documentType);
+              const required = Boolean(requiredDocumentType);
+              const explanation = requiredDocumentType ? draft.documentExplanations[requiredDocumentType] : "";
+              const explanationId = `document-explanation-${documentType}`;
               return <section className="application-document-category" key={documentType}>
                 <div>
                   <strong>{APPLICATION_DOCUMENT_LABELS[documentType]}{required ? " *" : ""}</strong>
-                  <small>{required ? "Required" : "Optional"}</small>
+                  <small>{documentType === "bank_statement" ? "Conditional" : required ? "Required" : "Optional"}</small>
                 </div>
                 {categoryFiles.length > 0 && <ul className="application-file-list">{categoryFiles.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}
+                {documentType === "bank_statement" && <p className="field-hint">If you cannot provide recent pay stubs, you must upload a recent bank statement.</p>}
                 <label className={`application-file-picker${busy ? " is-disabled" : ""}`}>
                   <input aria-label={`Choose ${APPLICATION_DOCUMENT_LABELS[documentType]} file`} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadSelectedFile(event, documentType)} disabled={busy} />
                   <span className="application-file-picker-icon" aria-hidden="true">↑</span>
                   <span><strong>{busy ? "Uploading securely…" : categoryFiles.length > 0 ? "Upload another file" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span>
                 </label>
+                {required && <div className="application-document-explanation">
+                  <span className="application-document-or" aria-hidden="true">or</span>
+                  <label htmlFor={explanationId}>Explain why you cannot provide {APPLICATION_DOCUMENT_LABELS[documentType]}</label>
+                  <textarea
+                    id={explanationId}
+                    rows={3}
+                    minLength={10}
+                    maxLength={500}
+                    value={explanation}
+                    onChange={(event) => updateDocumentExplanation(requiredDocumentType!, event.target.value)}
+                    aria-describedby={`${explanationId}-hint ${explanationId}-count`}
+                  />
+                  <div className="application-document-explanation-meta">
+                    <small id={`${explanationId}-hint`}>10–500 characters. This explanation is stored privately with your application. Providing an explanation does not replace supporting evidence. If we cannot verify your information, your application may be declined.</small>
+                    <small id={`${explanationId}-count`}>{explanation.length}/500</small>
+                  </div>
+                </div>}
               </section>;
             })}
           </div>
-          <details className="application-paper-fallback"><summary>Need a paper application instead?</summary><p>The paper application is separate from the verification documents above. Download it only if you cannot complete the online fields, then upload the completed form under Other supporting document. Do not email the application or supporting documents.</p><a className="text-link" href={`/api/client/applications/${application.id}/form`}>Download fallback application form</a></details>
           <form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form>
         </div>}
 
         {activeStep === 8 && <form onSubmit={submitApplication}><h2 id="application-step-title">Review and submit</h2><p>Review every section before giving the required authorizations. You cannot edit the application after submission.</p><div className="application-review-list">
           <ReviewGroup title="Personal details" onEdit={() => setActiveStep(1)} rows={[["Legal name", `${draft.personal.legalFirstName} ${draft.personal.legalLastName}`], ["Phone", draft.personal.phone], ["Email", draft.personal.email]]} />
-          <ReviewGroup title="Household & tenancy" onEdit={() => setActiveStep(2)} rows={[["Move-in date", draft.tenancy.desiredMoveInDate], ["Lease term", draft.tenancy.leaseTerm.replaceAll("_", " ")], ["Occupants", String(draft.tenancy.occupantCount)], ["Showing required", draft.tenancy.needsShowing]]} />
+          <ReviewGroup title="Household & tenancy" onEdit={() => setActiveStep(2)} rows={[["Move-in date", draft.tenancy.desiredMoveInDate], ["Lease term", draft.tenancy.leaseTerm.replaceAll("_", " ")], ["Adults", draft.tenancy.adultCount === null ? "Not recorded" : String(draft.tenancy.adultCount)], ["Children", draft.tenancy.childCount === null ? "Not recorded" : String(draft.tenancy.childCount)], ["Total occupants", String(occupantTotal(draft.tenancy))], ["Showing required", draft.tenancy.needsShowing]]} />
           <ReviewGroup title="Housing history" onEdit={() => setActiveStep(3)} rows={[["Current address", draft.housing.currentAddress], ["Housing contact", draft.housing.landlordName], ["Current rent", `$${draft.housing.currentMonthlyRent.toLocaleString("en-CA")}`]]} />
           <ReviewGroup title="Employment & income" onEdit={() => setActiveStep(4)} rows={[["Status", draft.employment.employmentStatus.replaceAll("_", " ")], ["Employer / source", draft.employment.employerOrIncomeSource], ["Role", draft.employment.occupation], ["Gross monthly income", `$${draft.employment.grossMonthlyIncome.toLocaleString("en-CA")}`]]} />
           <ReviewGroup title="References" onEdit={() => setActiveStep(5)} rows={[["Primary reference", draft.references.primary.name], ["Relationship", draft.references.primary.relationship], ["Second reference", draft.references.secondary.name]]} />
           <ReviewGroup title="Emergency contact" onEdit={() => setActiveStep(6)} rows={[["Name", draft.emergency.name], ["Relationship", draft.emergency.relationship], ["Phone", draft.emergency.phone]]} />
-          <ReviewGroup title="Income and credit score verification" onEdit={() => setActiveStep(7)} rows={files.map((file) => [APPLICATION_DOCUMENT_LABELS[file.documentType], file.originalFilename])} />
-        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to the stated credit-score, reference, housing, and income-verification checks for this rental application. *</span></label><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}</form>}
+          <ReviewGroup title="Income and credit score verification" onEdit={() => setActiveStep(7)} rows={[
+            ...files.map((file): [string, string] => [`${APPLICATION_DOCUMENT_LABELS[file.documentType]} — file`, file.originalFilename]),
+            ...APPLICATION_REQUIRED_DOCUMENT_TYPES.flatMap((documentType): Array<[string, string]> => {
+              const explanation = draft.documentExplanations[documentType];
+              return explanation ? [[`${APPLICATION_DOCUMENT_LABELS[documentType]} — explanation`, explanation]] : [];
+            })
+          ]} />
+        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to the stated credit-score, reference, housing, and income-verification checks for this rental application. *</span></label><Field label="Type your full legal name to sign *" wide hint="Typing your legal name and selecting Submit application creates your electronic signature."><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></Field><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7 || !coApplicantsReady}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}{!coApplicantsReady && <p className="field-hint" role="status">Every active co-applicant must sign before you can submit.</p>}</form>}
 
         {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
         {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}

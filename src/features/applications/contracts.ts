@@ -19,17 +19,35 @@ export const APPLICATION_DOCUMENT_TYPES = [
 
 export type ApplicationDocumentType = typeof APPLICATION_DOCUMENT_TYPES[number];
 
-export const APPLICATION_REQUIRED_DOCUMENT_TYPES: readonly ApplicationDocumentType[] = [
+export const APPLICATION_REQUIRED_DOCUMENT_TYPES = [
   "rental_payment_history",
   "credit_score_report",
   "employment_income_proof"
-];
+] as const satisfies readonly ApplicationDocumentType[];
+
+export type RequiredApplicationDocumentType = typeof APPLICATION_REQUIRED_DOCUMENT_TYPES[number];
+export type ApplicationDocumentExplanations = Record<RequiredApplicationDocumentType, string>;
+
+export const EMPTY_APPLICATION_DOCUMENT_EXPLANATIONS: ApplicationDocumentExplanations = {
+  rental_payment_history: "",
+  credit_score_report: "",
+  employment_income_proof: ""
+};
+
+export function applicationDocumentRequirementSatisfied(
+  documentType: RequiredApplicationDocumentType,
+  files: ReadonlyArray<Pick<ApplicationFileRecord, "documentType">>,
+  explanations: ApplicationDocumentExplanations
+) {
+  return files.some((file) => file.documentType === documentType)
+    || explanations[documentType].trim().length >= 10;
+}
 
 export const APPLICATION_DOCUMENT_LABELS: Record<ApplicationDocumentType, string> = {
   rental_payment_history: "Rental payment history from current landlord",
   credit_score_report: "Credit score report",
   employment_income_proof: "Recent pay stubs or current employment contract",
-  bank_statement: "Bank statement (optional)",
+  bank_statement: "Bank statement",
   other: "Other supporting document (if needed)"
 };
 
@@ -105,12 +123,27 @@ export interface ClientIdentity {
 
 export interface ApplicationFileRecord {
   id: string;
+  applicantId?: string;
   documentType: ApplicationDocumentType;
   originalFilename: string;
   mimeType: "application/pdf" | "image/jpeg" | "image/png";
   byteSize: number;
   scanStatus: "screening_pending" | "manual_review_required" | "cleared" | "rejected";
   uploadedAt: string;
+}
+
+export type ApplicationApplicantRole = "primary" | "co_applicant";
+export type ApplicationApplicantStatus = "invited" | "in_progress" | "signed" | "revoked" | "expired";
+
+export interface ApplicationApplicantRecord {
+  id: string;
+  role: ApplicationApplicantRole;
+  legalName: string;
+  email: string;
+  status: ApplicationApplicantStatus;
+  invitationExpiresAt: string | null;
+  draftUpdatedAt: string | null;
+  signedAt: string | null;
 }
 
 export interface ApplicationLeaseDocumentRecord {
@@ -140,6 +173,7 @@ export interface ClientApplicationRecord {
   draft: ApplicationDraft;
   draftUpdatedAt: string | null;
   files: ApplicationFileRecord[];
+  applicants: ApplicationApplicantRecord[];
   leaseDocument: ApplicationLeaseDocumentRecord | null;
   convertedTenantId: string | null;
   convertedAt: string | null;

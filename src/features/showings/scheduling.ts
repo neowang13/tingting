@@ -1,4 +1,5 @@
 import { Temporal } from "@js-temporal/polyfill";
+import type { ViewingSchedule } from "@/features/showings/availability";
 
 export class ShowingScheduleError extends Error {
   constructor(public readonly code: string, message: string) {
@@ -8,21 +9,11 @@ export class ShowingScheduleError extends Error {
 
 export const SHOWING_TIMEZONE = "America/Vancouver" as const;
 export const SHOWING_MIN_NOTICE_HOURS = 2;
-export const SHOWING_MAX_DAYS_AHEAD = 60;
+export const SHOWING_BOOKING_WINDOW_MONTHS = 1;
 
-export const showingTimeOptions = Array.from({ length: 19 }, (_, index) => {
-  const totalMinutes = 9 * 60 + index * 30;
-  const hour = Math.floor(totalMinutes / 60);
-  const minute = totalMinutes % 60;
-  const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  const label = new Intl.DateTimeFormat("en-CA", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "UTC"
-  }).format(new Date(`2020-01-01T${value}:00Z`));
-  return { value, label };
-});
+// Kept temporarily for callers that still render the former day-based hint.
+// Scheduling itself uses a calendar month, not a fixed number of days.
+export const SHOWING_MAX_DAYS_AHEAD = 31;
 
 function plainDateFromInstant(now: Temporal.Instant) {
   return now.toZonedDateTimeISO(SHOWING_TIMEZONE).toPlainDate();
@@ -32,16 +23,23 @@ export function showingDateBounds(now: Temporal.Instant = Temporal.Now.instant()
   const minimum = plainDateFromInstant(now);
   return {
     minimum: minimum.toString(),
-    maximum: minimum.add({ days: SHOWING_MAX_DAYS_AHEAD }).toString()
+    maximum: minimum.add({ months: SHOWING_BOOKING_WINDOW_MONTHS }).toString()
   };
+}
+
+function configuredTimesForDate(date: Temporal.PlainDate, schedule: ViewingSchedule) {
+  const override = schedule.dateOverrides.find((entry) => entry.date === date.toString());
+  if (override) return override.times;
+  return schedule.weeklySlots.find((entry) => entry.weekday === date.dayOfWeek)?.times ?? [];
 }
 
 export function resolveShowingSlot(
   input: { requestedLocalDate: string; requestedLocalTime: string; timezone: string },
-  now: Temporal.Instant = Temporal.Now.instant()
+  now: Temporal.Instant,
+  schedule: ViewingSchedule
 ) {
-  if (input.timezone !== SHOWING_TIMEZONE) {
-    throw new ShowingScheduleError("SHOWING_TIMEZONE_INVALID", "Showing times must use Pacific Time.");
+  if (input.timezone !== SHOWING_TIMEZONE || schedule.timezone !== SHOWING_TIMEZONE) {
+    throw new ShowingScheduleError("SHOWING_TIMEZONE_INVALID", "Viewing times must use Pacific Time.");
   }
 
   let date: Temporal.PlainDate;
@@ -50,35 +48,44 @@ export function resolveShowingSlot(
   try {
     date = Temporal.PlainDate.from(input.requestedLocalDate);
     time = Temporal.PlainTime.from(input.requestedLocalTime);
-    start = date.toZonedDateTime({ timeZone: SHOWING_TIMEZONE, plainTime: time });
+    start = date.toZonedDateTime({ timeZone: schedule.timezone, plainTime: time });
   } catch {
-    throw new ShowingScheduleError("SHOWING_TIME_INVALID", "Choose a valid showing date and time.");
-  }
-
-  if (date.dayOfWeek === 7) {
-    throw new ShowingScheduleError("SHOWING_DAY_UNAVAILABLE", "Sunday showings are unavailable. Choose Monday through Saturday.");
-  }
-
-  const slotMinutes = time.hour * 60 + time.minute;
-  if (time.second !== 0 || time.millisecond !== 0 || slotMinutes < 9 * 60 || slotMinutes > 18 * 60 || slotMinutes % 30 !== 0) {
-    throw new ShowingScheduleError("SHOWING_SLOT_UNAVAILABLE", "Choose an available time between 9:00 AM and 6:00 PM.");
+    throw new ShowingScheduleError("SHOWING_TIME_INVALID", "Choose a valid viewing date and time.");
   }
 
   const bounds = showingDateBounds(now);
   if (Temporal.PlainDate.compare(date, Temporal.PlainDate.from(bounds.minimum)) < 0) {
-    throw new ShowingScheduleError("SHOWING_TIME_PAST", "Choose a future showing time.");
+    throw new ShowingScheduleError("SHOWING_TIME_PAST", "Choose a future viewing time.");
   }
-  if (Temporal.PlainDate.compare(date, Temporal.PlainDate.from(bounds.maximum)) > 0) {
-    throw new ShowingScheduleError("SHOWING_TIME_TOO_FAR", "Choose a showing within the next 60 days.");
+  if (Temporal.PlainDate.compare(date, Temporal.PlainDate.from(bounds.maximum)) >= 0) {
+    throw new ShowingScheduleError("SHOWING_TIME_TOO_FAR", "Choose a viewing within the next month.");
   }
+
+  const requestedTime = time.toString({ smallestUnit: "minute" });
+  if (
+    time.second !== 0 ||
+    time.millisecond !== 0 ||
+    time.microsecond !== 0 ||
+    time.nanosecond !== 0 ||
+    !configuredTimesForDate(date, schedule).includes(requestedTime)
+  ) {
+    throw new ShowingScheduleError("SHOWING_SLOT_UNAVAILABLE", "Choose one of the available viewing times.");
+  }
+  if (
+    !start.toPlainDate().equals(date) ||
+    start.toPlainTime().toString({ smallestUnit: "minute" }) !== requestedTime
+  ) {
+    throw new ShowingScheduleError("SHOWING_TIME_INVALID", "That local time does not exist because of the daylight-saving change.");
+  }
+
   if (Temporal.Instant.compare(start.toInstant(), now.add({ hours: SHOWING_MIN_NOTICE_HOURS })) < 0) {
-    throw new ShowingScheduleError("SHOWING_NOTICE_REQUIRED", "Please allow at least two hours before the requested showing time.");
+    throw new ShowingScheduleError("SHOWING_NOTICE_REQUIRED", "Please allow at least two hours before the viewing time.");
   }
 
   return {
     requestedStartAt: start.toInstant().toString(),
     requestedLocalDate: date.toString(),
-    requestedLocalTime: time.toString({ smallestUnit: "minute" }),
+    requestedLocalTime: requestedTime,
     timezone: SHOWING_TIMEZONE
   };
 }

@@ -6,11 +6,13 @@ import { AdminShell } from "@/components/admin/admin-shell";
 import { ApplicationQueue } from "@/components/admin/application-queue";
 import { RentalEditor } from "@/components/admin/rental-editor";
 import { TenantEditor } from "@/components/admin/tenant-editor";
+import { ViewingScheduleManager } from "@/components/admin/viewing-schedule-manager";
 import { RentalDetailPage } from "@/components/public/rental-detail-page";
 import { getRepository } from "@/data/repository";
 import { listMediaAssets } from "@/features/content/media-service";
 import { loadAdminRentalPreviewData } from "@/features/content/public-rental-detail";
 import { listApplicationsForStaff } from "@/features/applications/service";
+import { getViewingSchedule } from "@/features/showings/availability";
 import { requireAdminPage } from "@/lib/auth";
 import type { RentalListing, Tenant } from "@/lib/contracts";
 
@@ -145,6 +147,18 @@ export default async function AdminPage({ params, searchParams }: Props) {
         description="Review submitted applications, screen private documents, and record approval or rejection."
       >
         <ApplicationQueue initial={await listApplicationsForStaff(admin)} initialFilter={initialFilter} />
+      </AdminShell>
+    );
+  }
+
+  if (area === "viewings" && !id) {
+    return (
+      <AdminShell
+        admin={admin}
+        title="Viewing dates"
+        description="Set the weekly viewing schedule and make one-date changes. Visitors only see available times during the next month."
+      >
+        <ViewingScheduleManager initialSchedule={await getViewingSchedule()} />
       </AdminShell>
     );
   }

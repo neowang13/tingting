@@ -48,6 +48,11 @@ import {
   tokenRevokeSchema,
   tokenRotationSchema
 } from "@/features/automation/schemas";
+import {
+  getViewingSchedule,
+  saveViewingSchedule,
+  type ViewingScheduleInput
+} from "@/features/showings/availability";
 
 interface Context {
   params: Promise<{ segments: string[] }>;
@@ -129,6 +134,9 @@ export async function GET(request: Request, context: Context) {
     }
     if (resource === "settings" && id === "test-contacts" && !action) {
       return ok(await repository.getTestContacts(), requestId);
+    }
+    if (resource === "viewing-schedule" && !id) {
+      return ok(await getViewingSchedule(), requestId);
     }
     if (resource === "automation" && id === "summary" && !action) {
       return ok(await getAutomationRepository().automationSummary(), requestId);
@@ -495,6 +503,18 @@ export async function PATCH(request: Request, context: Context) {
     if (resource === "settings" && id === "test-contacts" && !action) {
       await assertRecentAuthentication(prepared.admin);
       return ok(await repository.setTestContacts(body, actorId), requestId);
+    }
+    if (resource === "viewing-schedule" && !id) {
+      const input = body as unknown as ViewingScheduleInput & { expectedUpdatedAt?: string };
+      await assertRecentAuthentication(prepared.admin);
+      await assertActionRateLimit(actorId, "viewing-schedule-publish", 20, 60 * 60);
+      if (typeof input.expectedUpdatedAt !== "string") {
+        throw new ApiError(400, "VIEWING_SCHEDULE_VERSION_REQUIRED", "Reload the viewing schedule and try again.");
+      }
+      return ok(await saveViewingSchedule(
+        input,
+        input.expectedUpdatedAt
+      ), requestId);
     }
     if (resource === "automation" && id === "service-accounts" && action) {
       await assertRecentAal2(prepared.admin);
