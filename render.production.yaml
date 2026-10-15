@@ -25,16 +25,6 @@ services:
         value: live
       - key: SMS_PROVIDER_MODE
         value: disabled
-      - key: AUTOMATION_API_ENABLED
-        value: "false"
-      - key: AUTOMATION_MUTATIONS_ENABLED
-        value: "false"
-      - key: AUTOMATION_CONFIRMATIONS_ENABLED
-        value: "false"
-      - key: AUTOMATION_TENANT_IMPORT_ENABLED
-        value: "false"
-      - key: AUTOMATION_IMPORT_BUCKET
-        value: automation-imports
       - key: SUPABASE_STORAGE_PUBLIC_BUCKET
         value: site-media
       - key: SUPABASE_STORAGE_DRAFT_BUCKET
@@ -50,8 +40,6 @@ services:
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: REMINDER_CRON_SECRET
-        sync: false
-      - key: AUTOMATION_TOKEN_PEPPER
         sync: false
       - key: APP_BASE_URL
         value: https://silverkey.ca

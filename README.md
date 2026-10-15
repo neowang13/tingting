@@ -2,7 +2,7 @@
 
 Next.js full-stack application for the public real-estate website, fixed-schema
 content administration, rentals, tenant management, monthly rent receipts,
-weekly owner reporting, rent reminders, and a separately authorized Client Login
+optional owner reporting, rent reminders, and a separately authorized Client Login
 for saved multi-step online rental applications, private supporting-document uploads,
 affirmative consent evidence, receipts, and staff status processing.
 
@@ -66,7 +66,6 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm test:e2e
-pnpm --dir integrations/openclaw test
 ```
 
 The production-authentication suite is intentionally separate and fail-closed:
@@ -111,9 +110,7 @@ operational alerts are implemented. Production health fails closed until the
 required Supabase configuration is present.
 
 The local memory adapter is intentionally non-durable and must not be used in
-production. The Render blueprint keeps notification delivery `disabled` until
-the provider accounts are provisioned. Changing it to `live`, importing real
-tenant data, unpausing reminders, or deploying are explicit owner actions.
+production. The current Render blueprint enables live email; SMS remains disabled. Production credentials and database migration changes are managed separately from the build.
 
 See [Operations and Launch Runbook](./docs/OPERATIONS.md) and
 [PRD Completion Report](./docs/PRD-COMPLETION.md).
@@ -127,16 +124,15 @@ The implemented global reminder scheduling policy is documented in
 The matching verification matrix is in
 [Reminder Global Scheduling Test Plan](./docs/Reminder%20Global%20Scheduling%20Test%20Plan.md).
 
-## OpenClaw operations integration
+## Current product baseline
 
-The repository includes a private, versioned Automation API, scoped show-once
-service-account tokens, durable idempotency and confirmations, rental
-draft/publication operations, values-only tenant import preview/atomic commit,
-disabled reminder schedule preparation/confirmed enable, private rent-receipt
-collection, scoped payment and Agent-notification commands, Admin controls, and
-the restricted `tingting-operations` Skill/CLI.
+[PRD.md](./PRD.md) is the current product scope and deployment baseline.
+The 2026-10-15 cleanup starts from the last successful production commit
+`418b420e7f3c45d973879f2ee139ac75389fca81` and retires the external agent integration.
+Historical SQL migrations remain for database replay and audit compatibility.
 
-All production automation flags default to `false`. OpenClaw never receives a
-Supabase credential or admin session and never sends email/SMS directly. See
-[OpenClaw Operations Integration Specs](./docs/openclaw-integration/README.md)
-and [OpenClaw installation guide](./integrations/openclaw/README.md).
+Render deploys main on commit. The build installs dependencies and builds Next.js;
+it does not run database migrations or the complete test suite automatically.
+Local demo mode must use memory data, mock email, disabled SMS, and paused reminders.
+A production build preview needs explicit configuration; do not point local write
+or E2E tests at the production database.

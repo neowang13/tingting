@@ -114,7 +114,7 @@ describe("Rental Listing V2 aggregate", () => {
     expect(saved.draftDigest).toMatch(/^v2-/);
   });
 
-  it("keeps v1 automation input as a review-required private draft", () => {
+  it("keeps legacy listing input as a review-required private draft", () => {
     const saved = store.createRental({
       slug: "legacy-v1-draft",
       title: "Legacy V1 Draft",

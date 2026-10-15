@@ -775,32 +775,6 @@ export class SupabaseRepository implements DataRepository {
     }));
   }
 
-  async executeAutomationResourceConfirmation(input: {
-    confirmationId: string;
-    serviceAccountId: string;
-    idempotencyKey: string;
-    targetId: string;
-    action: "rental.publish" | "rental.unpublish" | "rental.archive" | "schedule.enable" | "schedule.disable";
-  }) {
-    let media: Array<{ id: string; path: string; url: string }> = [];
-    if (input.action === "rental.publish") {
-      const rental = await this.getRental(input.targetId);
-      media = await this.promoteMediaForPublish(
-        rental.images.map((image) => image.mediaAssetId)
-      );
-    }
-    const result = await this.rpc("execute_automation_resource_confirmation", {
-      p_confirmation_id: input.confirmationId,
-      p_service_account_id: input.serviceAccountId,
-      p_idempotency_key: input.idempotencyKey,
-      p_now: new Date().toISOString(),
-      p_media: media
-    });
-    return input.action.startsWith("rental.")
-      ? mapRental(result)
-      : mapSchedule(result);
-  }
-
   async listTenants(filters: TenantListFilters = {}) {
     await this.materializeRentPeriods(rentReportWindow(
       new Date().toISOString(),
@@ -1438,7 +1412,7 @@ export class SupabaseRepository implements DataRepository {
     originalFilename: string;
     declaredMimeType: string;
     bytes: Uint8Array;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
   }) {
     const period = paymentPeriod(input.paymentPeriod);
@@ -1495,7 +1469,7 @@ export class SupabaseRepository implements DataRepository {
     tenantId: string;
     paymentPeriod: string;
     receiptId: string;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
     collectedAt?: string | null;
     note?: string | null;
@@ -1582,64 +1556,6 @@ export class SupabaseRepository implements DataRepository {
       instant,
       timezone
     });
-  }
-
-  async findTenantsForPayment(fullName: string, email: string) {
-    const normalizedName = fullName.trim().toLocaleLowerCase("en-CA");
-    const { data, error } = await this.client()
-      .from("tenants")
-      .select("*")
-      .eq("email", email.trim().toLocaleLowerCase("en-CA"))
-      .limit(10);
-    if (error) databaseError(error);
-    return asRows(data)
-      .map(mapTenant)
-      .filter((tenant) =>
-        tenant.fullName.trim().toLocaleLowerCase("en-CA") === normalizedName
-      );
-  }
-
-  async enqueueAgentNotification(input: {
-    eventKey: string;
-    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
-    payload: Record<string, unknown>;
-    availableAt: string;
-  }) {
-    const { data, error } = await this.client()
-      .from("agent_notification_events")
-      .upsert({
-        event_key: input.eventKey,
-        kind: input.kind,
-        payload: input.payload,
-        available_at: input.availableAt
-      }, { onConflict: "event_key", ignoreDuplicates: true })
-      .select("id")
-      .maybeSingle();
-    if (error) databaseError(error);
-    if (data) return text(asRow(data), "id");
-    const { data: existing, error: existingError } = await this.client()
-      .from("agent_notification_events")
-      .select("id")
-      .eq("event_key", input.eventKey)
-      .single();
-    if (existingError) databaseError(existingError);
-    return text(asRow(existing), "id");
-  }
-
-  async claimAgentNotification(serviceAccountId: string, now: string) {
-    const result = await this.rpc("claim_agent_notification", {
-      p_service_account_id: serviceAccountId,
-      p_now: now
-    });
-    return result === null ? null : asRow(result);
-  }
-
-  async acknowledgeAgentNotification(eventId: string, serviceAccountId: string, now: string) {
-    return asRow(await this.rpc("ack_agent_notification", {
-      p_event_id: eventId,
-      p_service_account_id: serviceAccountId,
-      p_now: now
-    }));
   }
 
   async runDailyMaintenance() {

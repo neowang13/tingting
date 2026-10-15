@@ -117,7 +117,6 @@ describe("owner email notifications", () => {
     }, crypto.randomUUID());
     await repository.materializeRentPeriods("2026-08-10");
     const enqueueOwner = vi.spyOn(repository, "enqueueOwnerNotification");
-    const enqueueAgent = vi.spyOn(repository, "enqueueAgentNotification");
 
     await expect(enqueueDailyOverdueRentSummary(
       new Date("2026-08-10T16:01:00.000Z")
@@ -132,7 +131,6 @@ describe("owner email notifications", () => {
       reason: "weekly_summary_disabled"
     });
     expect(enqueueOwner).not.toHaveBeenCalled();
-    expect(enqueueAgent).not.toHaveBeenCalled();
   });
 
   it("terminally skips queued disabled reports while still delivering tenant uploads", async () => {
@@ -201,18 +199,9 @@ describe("owner email notifications", () => {
       html: expect.stringMatching(/<p style="color:#FFFFFF;margin:0">[\s\S]*本周收款[\s\S]*本周收款活动（包含补收往期）[\s\S]*下周到期[\s\S]*逾期未收[\s\S]*租客动态[\s\S]*固定租约即将到期/),
       text: expect.stringMatching(/本周应收[\s\S]*本周已收[\s\S]*本周还差[\s\S]*下周应收[\s\S]*已提前收到[\s\S]*下周待收[\s\S]*逾期未收[\s\S]*过去 7 天新增[\s\S]*Month to month[\s\S]*未来 7 天到期 Fixed contract[\s\S]*未来 30 天到期 Fixed contract/)
     }));
-    await expect(getRepository().claimAgentNotification(
-      crypto.randomUUID(),
-      "2026-08-03T16:06:00.000Z"
-    )).resolves.toMatchObject({
-      kind: "weekly_report_sent",
-      payload: expect.objectContaining({
-        text: "今天的租客周报已经发送到你的邮箱，请你查看。"
-      })
-    });
   });
 
-  it("queues overdue email and Agent reminders once per local day after 09:00", async () => {
+  it("queues overdue email reminders once per local day after 09:00", async () => {
     const repository = getRepository();
     await repository.createTenant({
       ...tenantPayload("Overdue Tenant"),
@@ -232,8 +221,7 @@ describe("owner email notifications", () => {
       new Date("2026-08-10T16:01:00.000Z")
     )).resolves.toMatchObject({
       queued: true,
-      emailQueued: true,
-      agentQueued: true
+      emailQueued: true
     });
     await expect(enqueueDailyOverdueRentSummary(
       new Date("2026-08-10T16:05:00.000Z")
@@ -241,16 +229,9 @@ describe("owner email notifications", () => {
       queued: true
     });
 
-    await expect(repository.claimAgentNotification(
-      crypto.randomUUID(),
-      "2026-08-10T16:06:00.000Z"
-    )).resolves.toMatchObject({
-      kind: "daily_overdue_rent_summary",
-      payload: expect.objectContaining({ localDate: "2026-08-10" })
-    });
   });
 
-  it("still queues the Agent overdue reminder when the email queue is unavailable", async () => {
+  it("reports an unavailable overdue email queue to the worker", async () => {
     const repository = getRepository();
     await repository.createTenant({
       ...tenantPayload("Independent Channel Tenant"),
@@ -264,11 +245,7 @@ describe("owner email notifications", () => {
 
     await expect(enqueueDailyOverdueRentSummary(
       new Date("2026-08-11T16:01:00.000Z")
-    )).resolves.toMatchObject({
-      queued: true,
-      emailQueued: false,
-      agentQueued: true
-    });
+    )).rejects.toThrow("email queue unavailable");
   });
 
   it("skips a stale daily overdue email instead of sending it on a later day", async () => {
@@ -317,13 +294,10 @@ describe("owner email notifications", () => {
     })).resolves.toMatchObject({ claimed: 1, sent: 1 });
   });
 
-  it("retries the weekly completion event with the same email idempotency key", async () => {
+  it("retries a weekly email failure with the same idempotency key", async () => {
     const scheduled = new Date("2026-08-03T16:05:00.000Z");
-    const repository = getRepository();
     await enqueueWeeklyTenantSummary(scheduled);
-    vi.spyOn(repository, "enqueueAgentNotification")
-      .mockRejectedValueOnce(new Error("Agent outbox unavailable"));
-    const send = vi.fn().mockResolvedValue({
+    const send = vi.fn().mockRejectedValueOnce(new Error("email provider unavailable")).mockResolvedValue({
       providerMessageId: "email-weekly-retry",
       status: "queued"
     });
@@ -342,9 +316,5 @@ describe("owner email notifications", () => {
         "owner-notification:weekly-tenant-summary:2026-08-03T16:00:00Z",
         "owner-notification:weekly-tenant-summary:2026-08-03T16:00:00Z"
       ]);
-    await expect(repository.claimAgentNotification(
-      crypto.randomUUID(),
-      "2026-08-03T16:12:00.000Z"
-    )).resolves.toMatchObject({ kind: "weekly_report_sent" });
   });
 });

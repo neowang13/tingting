@@ -48,20 +48,22 @@ submission continue to fail closed if either approval is withdrawn.
    reference-screening consent. Neither box is pre-checked. Submission verifies the
    exact form/terms versions and hashes, then stores displayed consent text, hashes,
    timestamp, authenticated user, application ID, and minimized request context.
-7. After the database accepts the submission, the email provider notifies the Admin
-   recipient configured in `CONTACT_TO_EMAIL` (falling back to `ALERT_TO_EMAIL` or
-   `LOCAL_ADMIN_EMAIL`). The message contains only the application reference,
-   applicant/contact summary, property, submission time, and authenticated Admin link;
-   supporting documents are never attached. Delivery success or failure is audited,
-   and an email-provider failure does not undo the applicant's completed submission.
+7. After the database accepts the submission, a durable Admin email contains
+   the completed applicant details and uploaded PDF/JPEG/PNG attachments.
+   `APPLICATION_TO_EMAIL` selects the recipient, with the configured contact,
+   alert, and local administrator mailboxes as fallbacks. Large attachments
+   are split across numbered emails using a 25 MB raw-file budget. File size
+   and SHA-256 are checked before delivery. Failures are audited and retried;
+   an email failure does not undo a completed application submission. Attachment
+   messages state that staff security screening is still pending.
 8. Applicant downloads a receipt showing the reference, files, status, versions,
    hashes, consent time, correction route, and retention-review date.
 
 ## Staff processing
 
 Use `/admin/applications`. This is a need-to-know queue and does not expose private
-object paths or public download URLs. Do not copy application content into email,
-chat, analytics, issue trackers, or general admin notes.
+object paths or public download URLs. The configured submission email is the operational delivery path. Do not manually
+copy private application details into chat, analytics, issue trackers, or general admin notes.
 
 Allowed progression:
 

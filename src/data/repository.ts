@@ -63,13 +63,6 @@ export interface DataRepository {
     expectedVersion: unknown,
     actorId: string
   ): Promise<RentalListing>;
-  executeAutomationResourceConfirmation(input: {
-    confirmationId: string;
-    serviceAccountId: string;
-    idempotencyKey: string;
-    targetId: string;
-    action: "rental.publish" | "rental.unpublish" | "rental.archive" | "schedule.enable" | "schedule.disable";
-  }): Promise<unknown>;
   listTenants(filters?: TenantListFilters): Promise<Tenant[]>;
   listClientAccounts(): Promise<ClientAccount[]>;
   linkClientToTenant(clientUserId: string, payload: unknown, actorId: string): Promise<ClientAccount>;
@@ -155,14 +148,14 @@ export interface DataRepository {
     originalFilename: string;
     declaredMimeType: string;
     bytes: Uint8Array;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
   }): Promise<TenantRentPaymentReceipt>;
   markTenantRentCollected(input: {
     tenantId: string;
     paymentPeriod: string;
     receiptId: string;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
     collectedAt?: string | null;
     note?: string | null;
@@ -176,19 +169,6 @@ export interface DataRepository {
   }): Promise<TenantRentPayment>;
   tenantRentReceiptUrl(receiptId: string, actorId: string): Promise<string>;
   rentReportSnapshot(instant: string, timezone: string): Promise<RentReportSnapshot>;
-  findTenantsForPayment(fullName: string, email: string): Promise<Tenant[]>;
-  enqueueAgentNotification(input: {
-    eventKey: string;
-    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
-    payload: Record<string, unknown>;
-    availableAt: string;
-  }): Promise<string>;
-  claimAgentNotification(serviceAccountId: string, now: string): Promise<Record<string, unknown> | null>;
-  acknowledgeAgentNotification(
-    eventId: string,
-    serviceAccountId: string,
-    now: string
-  ): Promise<Record<string, unknown>>;
 }
 
 const memoryOperationalAlertBuckets = new Map<string, string>();
@@ -208,17 +188,6 @@ const memoryRentReceipts = new Map<
   string,
   TenantRentPaymentReceipt & { tenantId: string; paymentPeriod: string; bytes: Uint8Array }
 >();
-const memoryAgentNotifications = new Map<string, {
-  id: string;
-  eventKey: string;
-  kind: "weekly_report_sent" | "daily_overdue_rent_summary";
-  payload: Record<string, unknown>;
-  status: "pending" | "claimed" | "acknowledged";
-  availableAt: string;
-  claimedAt: string | null;
-  claimedBy: string | null;
-  acknowledgedAt: string | null;
-}>();
 
 function memoryPaymentKey(tenantId: string, period: string) {
   return `${tenantId}:${paymentPeriod(period)}`;
@@ -274,9 +243,6 @@ class MemoryRepository implements DataRepository {
   }
   async setRentalStatus(id: string, action: "publish" | "unpublish" | "archive", expectedVersion: unknown) {
     return store.setRentalStatus(id, action, expectedVersion);
-  }
-  async executeAutomationResourceConfirmation() {
-    throw new Error("Durable Automation confirmation execution is unavailable in memory mode.");
   }
   async listTenants(filters: TenantListFilters = {}) {
     const period = currentPaymentPeriod();
@@ -532,7 +498,7 @@ class MemoryRepository implements DataRepository {
     originalFilename: string;
     declaredMimeType: string;
     bytes: Uint8Array;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
   }) {
     store.getTenant(input.tenantId);
@@ -567,7 +533,7 @@ class MemoryRepository implements DataRepository {
     tenantId: string;
     paymentPeriod: string;
     receiptId: string;
-    actorType: "admin" | "automation";
+    actorType: "admin";
     actorId: string;
     collectedAt?: string | null;
     note?: string | null;
@@ -641,64 +607,6 @@ class MemoryRepository implements DataRepository {
       timezone
     });
   }
-  async findTenantsForPayment(fullName: string, email: string) {
-    const normalizedName = fullName.trim().toLocaleLowerCase("en-CA");
-    const normalizedEmail = email.trim().toLocaleLowerCase("en-CA");
-    return store.listTenants({ limit: 500 }).filter((tenant) =>
-      tenant.fullName.trim().toLocaleLowerCase("en-CA") === normalizedName
-      && tenant.email?.trim().toLocaleLowerCase("en-CA") === normalizedEmail
-    );
-  }
-  async enqueueAgentNotification(input: {
-    eventKey: string;
-    kind: "weekly_report_sent" | "daily_overdue_rent_summary";
-    payload: Record<string, unknown>;
-    availableAt: string;
-  }) {
-    const existing = memoryAgentNotifications.get(input.eventKey);
-    if (existing) return existing.id;
-    const event = {
-      id: crypto.randomUUID(),
-      ...input,
-      status: "pending" as const,
-      claimedAt: null,
-      claimedBy: null,
-      acknowledgedAt: null
-    };
-    memoryAgentNotifications.set(input.eventKey, event);
-    return event.id;
-  }
-  async claimAgentNotification(serviceAccountId: string, now: string) {
-    const event = [...memoryAgentNotifications.values()]
-      .filter((candidate) =>
-        candidate.availableAt <= now
-        && (
-          candidate.status === "pending"
-          || (
-            candidate.status === "claimed"
-            && candidate.claimedAt
-            && Date.parse(candidate.claimedAt) <= Date.parse(now) - 10 * 60_000
-          )
-        )
-      )
-      .sort((left, right) => left.availableAt.localeCompare(right.availableAt))[0];
-    if (!event) return null;
-    event.status = "claimed";
-    event.claimedAt = now;
-    event.claimedBy = serviceAccountId;
-    return structuredClone(event);
-  }
-  async acknowledgeAgentNotification(eventId: string, serviceAccountId: string, now: string) {
-    const event = [...memoryAgentNotifications.values()].find((candidate) =>
-      candidate.id === eventId
-      && candidate.status === "claimed"
-      && candidate.claimedBy === serviceAccountId
-    );
-    if (!event) throw new Error("Claimed Agent notification was not found.");
-    event.status = "acknowledged";
-    event.acknowledgedAt = now;
-    return structuredClone(event);
-  }
 }
 
 let repository: DataRepository | undefined;
@@ -721,5 +629,4 @@ export function resetRepositoryForTests() {
   memoryOwnerNotifications.clear();
   memoryRentPayments.clear();
   memoryRentReceipts.clear();
-  memoryAgentNotifications.clear();
 }

@@ -296,6 +296,7 @@ export interface TenantRentPayment extends Versioned {
   status: RentPaymentStatus;
   receiptId: string | null;
   collectedAt: string | null;
+  // Historical records may retain the retired service-account actor type.
   collectedByType: "admin" | "automation" | null;
   collectedById: string | null;
   note: string | null;

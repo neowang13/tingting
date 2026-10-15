@@ -20,3 +20,8 @@ supabase/.temp
 .gstack/deploy-reports
 .gstack/
 .tmp/
+
+# Local recovery archives and generated preview output
+.recovery/
+.next-*/
+.pnpm-store/

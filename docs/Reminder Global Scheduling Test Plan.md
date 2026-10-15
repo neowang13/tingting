@@ -1,3 +1,6 @@
+> 历史资料：不再作为现行开发或上线依据。当前范围见 [PRD](../PRD.md)。
+> 旧文中的外部 Agent 接入、相关测试命令和兼容要求已取消；不要据此重新接入。
+
 # Reminder 全局排程测试计划
 
 **状态：** Planned，随全局 Reminder 改造逐步落地  
@@ -99,7 +102,6 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm test:e2e
-pnpm --dir integrations/openclaw test
 ```
 
 ### 6.2 Memory-mode Playwright
@@ -1003,7 +1005,6 @@ pnpm typecheck
 pnpm test
 pnpm build
 pnpm test:e2e
-pnpm --dir integrations/openclaw test
 ```
 
 ### 涉及 migration、RPC、worker 或 Auth

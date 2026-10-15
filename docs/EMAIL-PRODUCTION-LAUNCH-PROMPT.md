@@ -1,3 +1,6 @@
+> 历史资料：不再作为现行开发或上线依据。当前范围见 [PRD](../PRD.md)。
+> 旧文中的外部 Agent 接入、相关测试命令和兼容要求已取消；不要据此重新接入。
+
 # Ting Ting Email-only 生产上线执行 Prompt
 
 你是本项目的生产上线工程师。目标是在不启用 SMS/Twilio、不向租客误发消息、
@@ -40,7 +43,6 @@ dry run、签名回调、Owner 批准准备以及生产备份恢复演练。
    pnpm test
    pnpm build
    pnpm test:e2e
-   pnpm --dir integrations/openclaw test
    pnpm audit --prod
    ```
 

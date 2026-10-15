@@ -1,3 +1,6 @@
+> 历史资料：不再作为现行开发或上线依据。当前范围见 [PRD](../PRD.md)。
+> 旧文中的外部 Agent 接入、相关测试命令和兼容要求已取消；不要据此重新接入。
+
 # Ting Ting Website and Admin — Full Project Development Prompt
 
 You are the senior full-stack engineer responsible for completing the entire

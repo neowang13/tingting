@@ -3133,56 +3133,6 @@ a {
   outline-offset: 3px;
 }
 
-.token-reveal {
-  border: 2px solid #8a650e;
-  background: #fffbeb;
-}
-
-.token-value {
-  display: block;
-  margin: 1rem 0;
-  padding: 1rem;
-  overflow-wrap: anywhere;
-  border: 1px solid #dccb94;
-  border-radius: 8px;
-  color: #3d320f;
-  background: #fff;
-  user-select: all;
-}
-
-.automation-scope-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.65rem;
-}
-
-.scope-choice {
-  display: flex;
-  min-height: 52px;
-  align-items: flex-start;
-  gap: 0.65rem;
-  padding: 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.scope-choice input {
-  width: 22px;
-  height: 22px;
-}
-
-.scope-choice span,
-.scope-choice small {
-  display: block;
-}
-
-.scope-choice small {
-  margin-top: 0.25rem;
-  color: #53645b;
-  line-height: 1.4;
-}
-
 .scope-editor {
   min-width: 250px;
   padding: 0.75rem 0;
@@ -3242,12 +3192,6 @@ a {
 .status-list dd {
   margin: 0;
   font-weight: 750;
-}
-
-@media (max-width: 760px) {
-  .automation-scope-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .status {
@@ -5879,7 +5823,6 @@ a {
 }
 
 .admin-route code,
-.admin-route .token-value,
 .admin-route .mfa-secret {
   font-family: var(--font-admin-mono), "IBM Plex Mono", monospace;
 }
@@ -6980,20 +6923,6 @@ a {
   text-align: center;
 }
 
-.token-reveal {
-  border-color: #eed9a8;
-  background: #fdf3e3;
-}
-
-.automation-scope-grid {
-  gap: 8px;
-}
-
-.scope-choice {
-  border-color: var(--admin-line);
-  border-radius: 8px;
-}
-
 .media-card,
 .template-preview,
 .message-sample,
@@ -7163,8 +7092,7 @@ a {
   .send-review-counts,
   .media-grid,
   .media-upload-queue,
-  .tenant-checklist,
-  .automation-scope-grid {
+  .tenant-checklist {
     grid-template-columns: 1fr;
   }
 
@@ -7294,9 +7222,7 @@ a {
 .rentals-list-page,
 .tenants-list-page,
 .email-activity-page,
-.email-templates-page,
-.automation-overview-page,
-.automation-detail-page {
+.email-templates-page {
   max-width: 1100px;
 }
 
@@ -7308,8 +7234,7 @@ a {
   max-width: 760px;
 }
 
-.send-email-page,
-.service-accounts-page {
+.send-email-page {
   max-width: 900px;
 }
 
@@ -7344,15 +7269,10 @@ a {
   flex: 0 0 auto;
 }
 
-.overview-page .metric-grid,
-.automation-overview-page .metric-grid {
+.overview-page .metric-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
-}
-
-.automation-overview-page .metric-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .metric strong.danger {
@@ -7507,8 +7427,7 @@ a {
   white-space: nowrap;
 }
 
-.rentals-list-page .admin-table td:first-child small,
-.automation-detail-page .admin-table td:first-child small {
+.rentals-list-page .admin-table td:first-child small {
   color: var(--admin-subtle);
 }
 
@@ -7552,16 +7471,14 @@ a {
 }
 
 .rental-prototype-form .field-grid,
-.tenant-step-panel .field-grid,
-.service-accounts-page .field-grid {
+.tenant-step-panel .field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
 .rental-prototype-form .field-wide,
-.tenant-step-panel .field-wide,
-.service-accounts-page .field-wide {
+.tenant-step-panel .field-wide {
   grid-column: 1 / -1;
 }
 
@@ -7982,44 +7899,6 @@ a {
   cursor: default;
 }
 
-.prototype-scope-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-  border: 0;
-  padding: 0;
-}
-
-.prototype-scope-grid > legend {
-  margin-bottom: 8px;
-  padding: 0;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.prototype-token-reveal {
-  border: 1px solid #eed9a8;
-  border-radius: 12px;
-  padding: 20px;
-  background: #fdf3e3;
-}
-
-.prototype-token-reveal h2 {
-  margin: 0 0 8px;
-  font-size: 13px;
-}
-
-.prototype-token-reveal .token-value {
-  display: block;
-  margin-bottom: 10px;
-  border: 1px solid var(--admin-line);
-  border-radius: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  word-break: break-all;
-}
-
 .prototype-more-actions {
   position: relative;
   font-size: 12px;
@@ -8039,10 +7918,6 @@ a {
   margin-top: 4px;
 }
 
-.automation-detail-page .admin-table {
-  min-width: 900px;
-}
-
 .admin-auth-help {
   margin: 16px 4px 0;
   color: var(--admin-subtle);
@@ -8052,8 +7927,7 @@ a {
 }
 
 @media (max-width: 1180px) {
-  .overview-page .metric-grid,
-  .automation-overview-page .metric-grid {
+  .overview-page .metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -8071,18 +7945,14 @@ a {
   }
 
   .overview-page .metric-grid,
-  .automation-overview-page .metric-grid,
   .prototype-action-grid,
   .rental-prototype-form .field-grid,
-  .tenant-step-panel .field-grid,
-  .service-accounts-page .field-grid,
-  .prototype-scope-grid {
+  .tenant-step-panel .field-grid {
     grid-template-columns: 1fr;
   }
 
   .rental-prototype-form .field-wide,
-  .tenant-step-panel .field-wide,
-  .service-accounts-page .field-wide {
+  .tenant-step-panel .field-wide {
     grid-column: auto;
   }
 

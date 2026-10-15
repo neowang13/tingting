@@ -18,8 +18,7 @@ also verify the active administrator profile, AAL2, the 30-minute idle limit,
 the 12-hour absolute limit, and same-origin writes. Local memory mode supplies
 a signed demo administrator session.
 
-Bearer credentials are intentionally not accepted by `/api/admin/*`. Machine
-clients use the separately scoped `/api/automation/v1/*` service-account API;
+Bearer credentials are intentionally not accepted by `/api/admin/*`. External service-account clients are no longer supported;
 the reminder worker uses its own `REMINDER_CRON_SECRET` boundary.
 
 `/api/client/*` uses the independently authorized Client Login session. It
@@ -129,20 +128,8 @@ batch confirmation, retry, pause changes, and test-contact changes are
 rate-limited and/or require recent authentication. Provider callbacks require
 valid provider signatures and are receipt-idempotent.
 
-## OpenClaw Automation API
+## Retired external integration
 
-The server-to-server API is implemented at `/api/automation/v1`. It uses opaque
-service-account bearer tokens, exact per-route scopes, UUID idempotency keys,
-version-bound single-use confirmations, masked tenant reads, and feature flags
-that default off. Its route/schema contract is documented in
-[OpenClaw Automation API Specification](./openclaw-integration/03-automation-api.md)
-and [openapi.yaml](./openclaw-integration/openapi.yaml).
-
-High-impact actions—rental status changes, tenant-import commit, permission
-grants, tenant archive, and schedule enable/disable—cannot be executed without
-an unexpired confirmation intent owned by the same service account. Production
-mutations fail closed unless `DATA_BACKEND=supabase`.
-
-Admin control endpoints are available under `/api/admin/automation/*` and use
-the existing interactive admin session plus recent AAL2 for credential changes.
-Raw tokens are returned only by create/rotate responses and never by reads.
+`/api/automation/v1/*` and `/api/admin/automation/*` have been removed.
+Old bearer tokens do not provide an application entry point. Staff operations
+continue through authenticated Admin routes; reminder Cron authentication is separate.

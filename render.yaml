@@ -33,16 +33,6 @@ services:
         value: "false"
       - key: SMS_PROVIDER_MODE
         value: disabled
-      - key: AUTOMATION_API_ENABLED
-        value: "false"
-      - key: AUTOMATION_MUTATIONS_ENABLED
-        value: "false"
-      - key: AUTOMATION_CONFIRMATIONS_ENABLED
-        value: "false"
-      - key: AUTOMATION_TENANT_IMPORT_ENABLED
-        value: "false"
-      - key: AUTOMATION_IMPORT_BUCKET
-        value: automation-imports
       - key: SUPABASE_STORAGE_PUBLIC_BUCKET
         value: site-media
       - key: SUPABASE_STORAGE_DRAFT_BUCKET
@@ -65,8 +55,6 @@ services:
         value: "https://maps.google.com/?cid=2476808551384498873"
       - key: NEXT_PUBLIC_GOOGLE_REVIEW_URL
         value: "https://www.google.com/maps/place//data=!4m3!3m2!1s0x6cd8b047951f8987:0x225f644139ec42b9!12e1"
-      - key: AUTOMATION_TOKEN_PEPPER
-        sync: false
       - key: REMINDER_CRON_SECRET
         sync: false
       - key: RESEND_API_KEY

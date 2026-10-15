@@ -45,12 +45,6 @@ const baseEnvSchema = z.object({
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   DEFAULT_TIMEZONE: z.string().min(1).default("America/Vancouver"),
   REMINDERS_FORCE_PAUSED: z.enum(["true", "false"]).default("true"),
-  AUTOMATION_API_ENABLED: z.enum(["true", "false"]).default("false"),
-  AUTOMATION_MUTATIONS_ENABLED: z.enum(["true", "false"]).default("false"),
-  AUTOMATION_CONFIRMATIONS_ENABLED: z.enum(["true", "false"]).default("false"),
-  AUTOMATION_TENANT_IMPORT_ENABLED: z.enum(["true", "false"]).default("false"),
-  AUTOMATION_TOKEN_PEPPER: z.string().min(32).optional(),
-  AUTOMATION_IMPORT_BUCKET: z.string().min(1).default("automation-imports")
 });
 
 export type ServerEnvironment = z.infer<typeof baseEnvSchema> & {
@@ -90,9 +84,6 @@ export function readServerEnvironment(
     if (!value.SUPABASE_SERVICE_ROLE_KEY) missing.push("SUPABASE_SERVICE_ROLE_KEY");
     if (!value.APPLICATION_GUEST_SESSION_SECRET) missing.push("APPLICATION_GUEST_SESSION_SECRET");
     if (!value.REMINDER_CRON_SECRET) missing.push("REMINDER_CRON_SECRET");
-    if (value.AUTOMATION_API_ENABLED === "true" && !value.AUTOMATION_TOKEN_PEPPER) {
-      missing.push("AUTOMATION_TOKEN_PEPPER");
-    }
   }
   if (emailProviderMode === "live") {
     if (!value.RESEND_API_KEY) missing.push("RESEND_API_KEY");

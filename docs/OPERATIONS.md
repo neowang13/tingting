@@ -1,16 +1,20 @@
+> Current baseline: see [PRD.md](../PRD.md). Production already uses Supabase
+> and live email. Provisioning and rollout instructions below apply to new or
+> replacement environments, not evidence that the current site is undeployed.
+
 # Operations and Launch Runbook
 
-## Current safe state
+## Current production state
 
-The application is complete for local/demo use and is prepared for a durable
-Supabase deployment. No Supabase, Resend, domain, or Render resource has been
-created by this repository. The Owner has selected an Email-only launch;
-Twilio/SMS is deferred because provisioning a sender incurs cost. The Render
-blueprint keeps `EMAIL_PROVIDER_MODE=disabled`, `SMS_PROVIDER_MODE=disabled`,
-and `REMINDERS_FORCE_PAUSED=true`.
+As checked on 2026-10-15, silverkey.ca is deployed on Render with Supabase
+persistence and live Resend email. SMS is disabled, the global reminder pause
+is off, and the scheduled worker is running. Owner daily-overdue and weekly
+reports have separate opt-in switches. The public viewing calendar is empty.
 
-Do not import real tenants or unpause reminders until the owner has approved the
-retention period, templates, recipients, and provider dry-run results.
+The external agent integration is retired. Use the current authenticated staff
+workflow and the website's reminder Cron. The following provisioning sections
+are for a new or replacement deployment; do not reset existing production data
+or flags as part of routine code deployment.
 
 ## Production provisioning
 
@@ -29,11 +33,10 @@ retention period, templates, recipients, and provider dry-run results.
    HTTPS `APP_BASE_URL` in the web and Cron services. The blueprint declares
    the Cron schedule as `*/5 * * * *` (Render evaluates schedules in UTC).
    Set `OWNER_NOTIFICATION_TO_EMAIL` to the owner's approved mailbox. Upload
-   confirmations are queued after a successful single-tenant Automation API
-   upload. The weekly tenant summary defaults to Monday at `09:00` in
+   confirmations are queued after a successful staff tenant creation. The weekly tenant summary defaults to Monday at `09:00` in
    `DEFAULT_TIMEZONE`; change `OWNER_WEEKLY_SUMMARY_DAY` (1=Monday, 7=Sunday)
    and `OWNER_WEEKLY_SUMMARY_TIME` only with owner approval. Daily overdue
-   Email and Agent events are deduplicated by local date and are not queued
+   Email events are deduplicated by local date and are not queued
    before `OWNER_DAILY_OVERDUE_TIME` (default `09:00`).
 7. The Cron service invokes:
 
@@ -45,8 +48,7 @@ retention period, templates, recipients, and provider dry-run results.
    Each invocation materializes due occurrences, drains at most 200 durable
    events with concurrency 10 and a 45-second work budget, performs once-daily
    retention/reconciliation, drains retryable owner-email notifications, queues
-   one deduplicated weekly tenant summary, queues daily overdue-rent Email and
-   Agent events, and sends operational alerts. While
+   one deduplicated weekly tenant summary, queues daily overdue-rent Email events, and sends operational alerts. While
    either pause is active, it cannot claim scheduled/manual work; it may claim
    at most 20 `source=test` events created from the saved administrator-owned
    test destination. This is the only outbound dry-run path before unpause.
@@ -63,7 +65,7 @@ retention period, templates, recipients, and provider dry-run results.
 
 The root `render.yaml` is a Web-only Free blueprint for customer demos. It
 preserves production authentication and Supabase persistence while keeping
-Email, SMS, reminders, and automation mutations disabled.
+the email and reminder flags declared in that file. Do not use this blueprint as an isolated test environment.
 
 Render does not provide a Free Cron service. The free demo therefore has no
 scheduled worker and must not be presented as production-ready or as evidence
@@ -129,56 +131,13 @@ migration `202607300032`. Access is only through a five-minute signed Admin URL
 and every signed-link request writes `rent.receipt.viewed` to the audit log.
 Never make this bucket public or copy receipt URLs into logs or Agent messages.
 
-## OpenClaw operations integration
+## Retired external integration
 
-The integration code and append-only migrations `202607260010` through
-`202607260013` are implemented. Keep these production flags off until each
-staged gate in the [specification index](./openclaw-integration/README.md)
-passes:
-
-```text
-AUTOMATION_API_ENABLED=false
-AUTOMATION_MUTATIONS_ENABLED=false
-AUTOMATION_CONFIRMATIONS_ENABLED=false
-AUTOMATION_TENANT_IMPORT_ENABLED=false
-```
-
-Provision `AUTOMATION_TOKEN_PEPPER` as a separate server-only random secret of
-at least 32 characters. It is used for HMAC-SHA-256 token digests and must not
-be given to OpenClaw.
-
-Create the first account in Admin → Automation → Service Accounts while signed
-in with recent AAL2. Save the raw token immediately in OpenClaw secret
-configuration; it cannot be retrieved again. Start with read-only scopes.
-Rotate through the same Admin screen. Emergency response is: revoke/deactivate
-the token/account, set `AUTOMATION_MUTATIONS_ENABLED=false`, review Automation
-Audit, and leave reminder force/global pause active.
-
-Install the Skill using
-[integrations/openclaw/README.md](../integrations/openclaw/README.md). The
-dedicated agent must deny browser, general network, general shell, database,
-provider, hosting, and arbitrary Cron tools.
-
-Import troubleshooting:
-
-- `IMPORT_HAS_ERRORS`: correct invalid/conflict rows in the source and upload a
-  new file;
-- `PREVIEW_STALE`: regenerate preview because a matched tenant changed;
-- `DURABLE_BACKEND_REQUIRED`: configure Supabase before commit;
-- raw import files are private and due for deletion after seven days;
-- normalized PII is redacted after 30 days unless held.
-
-Do not:
-
-- Give OpenClaw the Supabase service-role key or an admin session token.
-- Use browser automation as a production integration.
-- Import real tenant data through OpenClaw before the launch gates pass.
-- Create per-tenant OpenClaw Cron jobs.
-- Enable provider delivery or unpause reminders before the launch gates pass.
-
-The final two bullets remain launch gates: real tenant import needs retention
-approval and a tested encrypted backup/restore; real reminder delivery needs
-provider dry-run/callback approval and the existing unpause sequence.
+The external agent API, service-account management, and local adapter are removed.
+Do not run old installation or token-provisioning commands. Existing SQL migration
+history and audit records are retained. They do not enable an HTTP integration.
+Scheduled website reminders, owner email delivery, and provider callbacks are separate
+and remain supported.
 
 ## Launch gates
 

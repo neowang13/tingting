@@ -1,7 +1,6 @@
 import { sectionKeySchema } from "@/features/content/schemas";
 import { handleApiError, ok, readJson, ApiError } from "@/lib/api";
 import {
-  assertRecentAal2,
   assertRecentAuthentication,
   assertSameOrigin,
   requireAdminRequest
@@ -41,13 +40,6 @@ import {
   formatRentDueDate
 } from "@/features/reminders/due-date";
 import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
-import { getAutomationRepository } from "@/data/automation-repository";
-import {
-  serviceAccountCreateSchema,
-  serviceAccountUpdateSchema,
-  tokenRevokeSchema,
-  tokenRotationSchema
-} from "@/features/automation/schemas";
 import {
   getViewingSchedule,
   saveViewingSchedule,
@@ -69,19 +61,12 @@ function routeNotFound(): never {
   throw new ApiError(404, "ROUTE_NOT_FOUND", "The API route was not found.");
 }
 
-function rejectDisabledAdminAutomation(resource: string | undefined) {
-  if (resource === "automation" && process.env.AUTOMATION_API_ENABLED !== "true") {
-    routeNotFound();
-  }
-}
-
 export async function GET(request: Request, context: Context) {
   let requestId = crypto.randomUUID();
   try {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action] = prepared.segments;
-    rejectDisabledAdminAutomation(resource);
     const repository = getRepository();
 
     if (resource === "dashboard" && !id) return ok(await repository.dashboard(), requestId);
@@ -138,35 +123,6 @@ export async function GET(request: Request, context: Context) {
     if (resource === "viewing-schedule" && !id) {
       return ok(await getViewingSchedule(), requestId);
     }
-    if (resource === "automation" && id === "summary" && !action) {
-      return ok(await getAutomationRepository().automationSummary(), requestId);
-    }
-    if (resource === "automation" && id === "service-accounts" && !action) {
-      return ok(await getAutomationRepository().listServiceAccounts(), requestId);
-    }
-    if (resource === "automation" && id === "imports" && !action) {
-      return ok(await getAutomationRepository().listImportsForAdmin(), requestId);
-    }
-    if (
-      resource === "automation" &&
-      id === "imports" &&
-      action &&
-      prepared.segments[3] === "errors.csv"
-    ) {
-      const report = await getAutomationRepository().tenantImportErrorReportForAdmin(action);
-      return new Response(report.csv, {
-        status: 200,
-        headers: {
-          "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="${report.filename}"`,
-          "cache-control": "private, no-store",
-          "x-request-id": requestId
-        }
-      });
-    }
-    if (resource === "automation" && id === "audit" && !action) {
-      return ok(await getAutomationRepository().listAutomationAudit(), requestId);
-    }
     routeNotFound();
   } catch (error) {
     return handleApiError(error, requestId);
@@ -180,7 +136,6 @@ export async function POST(request: Request, context: Context) {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action, nested] = prepared.segments;
-    rejectDisabledAdminAutomation(resource);
     const body = await readJson(request);
     const repository = getRepository();
     const actorId = prepared.admin.userId;
@@ -190,32 +145,6 @@ export async function POST(request: Request, context: Context) {
       const payload = body as { expectedVersion?: unknown };
       return ok(
         await repository.publishSection(sectionKeySchema.parse(id), payload.expectedVersion, actorId),
-        requestId
-      );
-    }
-    if (
-      resource === "automation" &&
-      id === "imports" &&
-      action &&
-      nested === "cancel"
-    ) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-import-cancel", 10, 60 * 60);
-      return ok(
-        await getAutomationRepository().cancelTenantImportForAdmin(action, actorId),
-        requestId
-      );
-    }
-    if (
-      resource === "automation" &&
-      id === "imports" &&
-      action &&
-      nested === "delete-source"
-    ) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-import-source-delete", 10, 60 * 60);
-      return ok(
-        await getAutomationRepository().deleteTenantImportSourceForAdmin(action, actorId),
         requestId
       );
     }
@@ -403,49 +332,6 @@ export async function POST(request: Request, context: Context) {
       await assertRecentAuthentication(prepared.admin);
       return ok(await repository.retryEvent(action, actorId), requestId, 201);
     }
-    if (resource === "automation" && id === "service-accounts" && !action) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-service-account-create", 5, 60 * 60);
-      const input = serviceAccountCreateSchema.parse(body);
-      return ok(
-        await getAutomationRepository().createServiceAccount(input, actorId),
-        requestId,
-        201
-      );
-    }
-    if (
-      resource === "automation" &&
-      id === "service-accounts" &&
-      action &&
-      nested === "tokens" &&
-      prepared.segments[4] &&
-      prepared.segments[5] === "revoke"
-    ) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-token-revoke", 10, 60 * 60);
-      tokenRevokeSchema.parse(body);
-      await getAutomationRepository().revokeToken(
-        action,
-        prepared.segments[4],
-        actorId
-      );
-      return ok({ revoked: true }, requestId);
-    }
-    if (
-      resource === "automation" &&
-      id === "service-accounts" &&
-      action &&
-      nested === "tokens"
-    ) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-token-rotate", 5, 60 * 60);
-      const input = tokenRotationSchema.parse(body);
-      return ok(
-        await getAutomationRepository().rotateToken(action, input, actorId),
-        requestId,
-        201
-      );
-    }
     routeNotFound();
   } catch (error) {
     return handleApiError(error, requestId);
@@ -459,7 +345,6 @@ export async function PATCH(request: Request, context: Context) {
     const prepared = await prepare(request, context);
     requestId = prepared.requestId;
     const [resource, id, action] = prepared.segments;
-    rejectDisabledAdminAutomation(resource);
     const body = (await readJson(request)) as Record<string, unknown>;
     const repository = getRepository();
     const actorId = prepared.admin.userId;
@@ -515,15 +400,6 @@ export async function PATCH(request: Request, context: Context) {
         input,
         input.expectedUpdatedAt
       ), requestId);
-    }
-    if (resource === "automation" && id === "service-accounts" && action) {
-      await assertRecentAal2(prepared.admin);
-      await assertActionRateLimit(actorId, "automation-service-account-update", 10, 60 * 60);
-      const input = serviceAccountUpdateSchema.parse(body);
-      return ok(
-        await getAutomationRepository().updateServiceAccount(action, input, actorId),
-        requestId
-      );
     }
     routeNotFound();
   } catch (error) {
