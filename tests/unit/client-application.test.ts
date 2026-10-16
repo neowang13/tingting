@@ -167,6 +167,9 @@ describe("client application workflow", () => {
   });
 
   it("sniffs content and rejects active PDF content or extension mismatches", async () => {
+    const safeView = await uploadApplicationFile(client, applicationId,
+      pdfFile("%PDF-1.3\n<< /Type /Catalog /OpenAction [3 0 R /FitH null] >>"), "employment_income_proof");
+    expect(safeView.mimeType).toBe("application/pdf");
     await expect(uploadApplicationFile(client, applicationId, pdfFile("%PDF-1.7\n/OpenAction /JavaScript"), "employment_income_proof"))
       .rejects.toMatchObject({ code: "UNSAFE_APPLICATION_FILE" });
     await expect(uploadApplicationFile(

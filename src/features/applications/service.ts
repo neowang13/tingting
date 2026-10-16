@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { getRepository } from "@/data/repository";
 import { ApiError } from "@/lib/api";
+import { hasUnsafePdfFeatures } from "@/lib/pdf-safety";
 import type { AdminIdentity } from "@/lib/auth";
 import { tenantCreateInputSchema } from "@/lib/schemas";
 import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
@@ -681,8 +682,7 @@ function inspectUpload(file: File, bytes: Uint8Array) {
   if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
     mimeType = "application/pdf";
     extension = "pdf";
-    const searchable = Buffer.from(bytes).toString("latin1");
-    if (/\/(?:JavaScript|JS|OpenAction|Launch|EmbeddedFile)\b/i.test(searchable)) {
+    if (hasUnsafePdfFeatures(bytes)) {
       throw new ApiError(400, "UNSAFE_APPLICATION_FILE", "PDFs with scripts, launch actions, or embedded files are not accepted.");
     }
   } else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -1086,8 +1086,7 @@ function inspectLeaseUpload(file: File, bytes: Uint8Array) {
   if (file.type && file.type !== "application/octet-stream" && file.type !== "application/pdf") {
     throw new ApiError(400, "LEASE_FILE_TYPE_MISMATCH", "The selected file is not a valid PDF.");
   }
-  const searchable = Buffer.from(bytes).toString("latin1");
-  if (/\/(?:JavaScript|JS|OpenAction|Launch|EmbeddedFile)\b/i.test(searchable)) {
+  if (hasUnsafePdfFeatures(bytes)) {
     throw new ApiError(400, "UNSAFE_LEASE_FILE", "PDFs with scripts, launch actions, or embedded files are not accepted.");
   }
   return { name };

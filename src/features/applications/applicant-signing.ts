@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api";
+import { hasUnsafePdfFeatures } from "@/lib/pdf-safety";
 import { createGuestBearerToken, hashGuestToken } from "@/lib/application-guest-auth";
 import {
   APPLICATION_DOCUMENT_LABELS,
@@ -642,7 +643,7 @@ function inspectGuestUpload(file: File, bytes: Uint8Array) {
   if (bytes.length < 4 || bytes.length > APPLICATION_MAX_FILE_BYTES) throw new ApiError(400, "INVALID_APPLICATION_FILE_SIZE", "Each file must be between 1 byte and 10 MB.");
   const name = file.name.replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 180) || "application-file";
   let mimeType: ApplicationFileRecord["mimeType"]; let extension: string;
-  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) { mimeType = "application/pdf"; extension = "pdf"; if (/\/(?:JavaScript|JS|OpenAction|Launch|EmbeddedFile)\b/i.test(Buffer.from(bytes).toString("latin1"))) throw new ApiError(400, "UNSAFE_APPLICATION_FILE", "Unsafe PDFs are not accepted."); }
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) { mimeType = "application/pdf"; extension = "pdf"; if (hasUnsafePdfFeatures(bytes)) throw new ApiError(400, "UNSAFE_APPLICATION_FILE", "Unsafe PDFs are not accepted."); }
   else if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) { mimeType = "image/jpeg"; extension = "jpg"; }
   else if (Buffer.from(bytes.subarray(0, 8)).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) { mimeType = "image/png"; extension = "png"; }
   else throw new ApiError(400, "UNSUPPORTED_APPLICATION_FILE", "Upload a PDF, JPEG, or PNG file.");
