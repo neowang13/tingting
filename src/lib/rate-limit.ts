@@ -40,7 +40,7 @@ export async function assertActionRateLimit(
     p_actor_key: actorKey,
     p_action_key: actionKey,
     p_limit: limit,
-    p_window: `00:${Math.floor(windowSeconds / 60).toString().padStart(2, "0")}:${(windowSeconds % 60).toString().padStart(2, "0")}`
+    p_window: `${windowSeconds} seconds`
   });
   if (error) throw new ApiError(503, "RATE_LIMIT_UNAVAILABLE", "Rate limiting is unavailable.");
   if (!data) throw new ApiError(429, "RATE_LIMITED", "Please wait before trying this action again.");
