@@ -3,7 +3,7 @@ import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
 
 export const APPLICATION_FORM_KEY = "residential-rental-application";
 export const APPLICATION_FORM_VERSION = "2026-07-31.1";
-export const APPLICATION_TERMS_VERSION = "2026-08-08.1";
+export const APPLICATION_TERMS_VERSION = "2026-10-15.1";
 export const APPLICATION_UPLOAD_BUCKET = "client-applications";
 export const APPLICATION_MAX_FILE_BYTES = 10 * 1024 * 1024;
 export const APPLICATION_LEASE_MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -88,11 +88,14 @@ Ting Ting Xu/property management collects the completed application and supporti
 documents to assess the rental application, verify the information supplied, contact
 references, and communicate about the application. Information may be shared with the
 landlord of the unit being applied for and with service providers used for authorized
-screening and secure processing, only for those purposes.
+verification and secure processing, only for those purposes.
 
 By affirmatively agreeing at submission, the applicant authorizes the property manager
-to share application information with the landlord of the unit and consents to credit-
-score and reference checks for the rental application. Declining means the application
+to share application information with the landlord of the unit and consents to reference,
+housing and income verification and review of documents voluntarily provided. The
+website does not request credit checks from credit agencies. Each applicant who uploads
+a credit score report must personally confirm that they voluntarily provide it for
+assessment of their rental application. Declining the required verification means the application
 cannot be submitted through this workflow. This consent does not include marketing.
 
 Access is limited to authorized applicant and staff accounts. Submitted records are
@@ -137,6 +140,10 @@ export type ApplicationApplicantStatus = "invited" | "in_progress" | "signed" | 
 
 export interface ApplicationApplicantRecord {
   id: string;
+  userId?: string | null;
+  creditReportVoluntaryAt?: string | null;
+  creditReportConsentVersion?: string | null;
+  invitationDeliveryStatus?: "scheduled" | "sent" | "delivered" | "failed" | null;
   role: ApplicationApplicantRole;
   legalName: string;
   email: string;
@@ -156,6 +163,8 @@ export interface ApplicationLeaseDocumentRecord {
 
 export interface ClientApplicationRecord {
   id: string;
+  participatingApplicantId?: string;
+  applicantDetails?: import("@/features/applications/notification").ApplicationNotificationApplicant[];
   ownerUserId: string;
   propertySlug: string | null;
   propertyTitle: string;

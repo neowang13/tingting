@@ -29,7 +29,7 @@ export async function POST(request: Request) {
         setAll: (items) => items.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
       }
     });
-    await client.auth.signOut();
+    await client.auth.signOut({ scope: "local" });
   }
   cookieStore.delete(LOCAL_ADMIN_SESSION_COOKIE);
   cookieStore.delete("tt-last-active");

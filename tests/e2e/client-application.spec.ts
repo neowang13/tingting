@@ -97,7 +97,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   const documentReview = page.locator(".application-review-group").filter({ hasText: "Income and credit score verification" });
   await expect(documentReview).toContainText("My landlord cannot provide a rental payment history.");
   const sharing = page.getByLabel(/I authorize the property manager/);
-  const screening = page.getByLabel(/I consent to the stated credit-score/);
+  const screening = page.getByLabel(/I consent to reference, housing and income verification/);
   await expect(sharing).not.toBeChecked();
   await expect(screening).not.toBeChecked();
 
@@ -125,11 +125,12 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await page.getByRole("button", { name: "Review application" }).click();
   const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
   await expect(reviewDialog).toBeVisible();
-  const requestedTenancy = reviewDialog.locator(".application-detail-card").filter({ hasText: "Requested tenancy" });
-  await expect(requestedTenancy).toContainText("Adults2");
-  await expect(requestedTenancy).toContainText("Children1");
-  await expect(requestedTenancy).toContainText("Total occupants3");
+  const requestedTenancy = reviewDialog.getByRole("region", { name: "Joint application and linked users" });
+  await expect(requestedTenancy).toContainText("2 adults");
+  await expect(requestedTenancy).toContainText("1 children");
+  await expect(requestedTenancy).toContainText("3 occupants");
   await expect(reviewDialog.getByText("No files to screen. Review the applicant explanations below.")).toBeVisible();
+  await reviewDialog.getByRole("button", { name: "View applicant details \u2192" }).click();
   await expect(reviewDialog.getByText("My employment documents are not currently available.")).toBeVisible();
   await page.getByRole("button", { name: "Mark received" }).click();
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();
@@ -153,7 +154,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await reviewDialog.getByLabel(/I confirm the tenancy agreement has been signed/).check();
   await expect(createTenant).toBeEnabled();
   await createTenant.click();
-  await expect(reviewDialog.getByText("Tenant status confirmed and linked to this user account.")).toBeVisible();
+  await expect(reviewDialog.getByRole("status")).toContainText("Tenant status confirmed and linked to the signed applicants");
   await expect(reviewDialog.getByRole("link", { name: "Manage tenant" })).toBeVisible();
 
   const modalResults = await new AxeBuilder({ page })

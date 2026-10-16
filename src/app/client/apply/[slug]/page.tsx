@@ -32,7 +32,7 @@ export default async function ClientApplyPage({ params }: { params: Promise<{ sl
             <div><span>Bathrooms</span><strong>{rental.bathrooms}</strong></div>
           </div>
           <div className="client-apply-actions"><ClientStartApplicationButton propertySlug={rental.slug} /><Link className="text-link" href="/client/applications">View all my applications</Link></div>
-          <div className="client-security-note"><span aria-hidden>◇</span><p>Your progress saves to your account. Application documents are private and are not attached to email.</p></div>
+          <div className="client-security-note"><span aria-hidden>◇</span><p>Your progress saves to your account. Application documents are shared only with the property management team for review, including its application notification email.</p></div>
         </section>
         <aside className="client-property-preview" aria-label="Selected property">
           <div className="client-property-preview-image">{rental.coverImageUrl ? <Image src={rental.coverImageUrl} alt="" width={660} height={440} unoptimized /> : <span>Silverkey property</span>}</div>

@@ -67,6 +67,6 @@ describe("multi-applicant route boundaries", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(mocks.exchangeInvitation).toHaveBeenCalledWith(token, expect.objectContaining({ requestId: expect.any(String) }));
+    expect(mocks.exchangeInvitation).toHaveBeenCalledWith(token, expect.objectContaining({ requestId: expect.any(String) }), expect.objectContaining({ email: "owner@example.test" }));
   });
 });

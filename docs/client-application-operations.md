@@ -43,9 +43,12 @@ submission continue to fail closed if either approval is withdrawn.
 5. Objects use random keys in the private `client-applications` bucket. New files are
    `manual_review_required`; an approved malware-screening workstation or future
    scanner integration must clear them before staff opens or distributes them.
-6. Server submission revalidates all required online sections. Applicant separately
-   checks the landlord-sharing authorization and the credit/
-   reference-screening consent. Neither box is pre-checked. Submission verifies the
+6. Server submission revalidates all required online sections. Each applicant uses
+   their own verified User account and separately checks the landlord-sharing and
+   reference/housing/income verification authorizations. An uploaded credit report
+   also requires a personal voluntary-submission checkbox below the uploader; a new
+   upload clears it. No external credit-agency query is created. No box is pre-checked.
+   Submission verifies the
    exact form/terms versions and hashes, then stores displayed consent text, hashes,
    timestamp, authenticated user, application ID, and minimized request context.
 7. After the database accepts the submission, a durable Admin email contains

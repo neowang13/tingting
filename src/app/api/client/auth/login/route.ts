@@ -1,3 +1,4 @@
+import { store } from "@/data/store";
 import { cookies } from "next/headers";
 import { z } from "zod";
 import { ApiError, handleApiError, ok, readJson } from "@/lib/api";
@@ -7,6 +8,7 @@ import {
   createLocalClientSession,
   LOCAL_CLIENT_SESSION_COOKIE,
   LOCAL_CLIENT_SESSION_SECONDS,
+  verifyLocalClientSession,
   verifyLocalClientCredentials
 } from "@/lib/local-client-auth";
 
@@ -31,7 +33,9 @@ export async function POST(request: Request) {
       path: "/",
       maxAge: LOCAL_CLIENT_SESSION_SECONDS
     };
-    cookieStore.set(LOCAL_CLIENT_SESSION_COOKIE, createLocalClientSession(input.email), options);
+    const token = createLocalClientSession(input.email);
+    store.registerDemoClient(verifyLocalClientSession(token)!);
+    cookieStore.set(LOCAL_CLIENT_SESSION_COOKIE, token, options);
     cookieStore.set("tt-client-last-active", String(Date.now()), options);
     cookieStore.set("tt-client-session-started", String(Date.now()), options);
     return ok({ signedIn: true }, requestId);

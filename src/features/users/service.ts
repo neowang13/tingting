@@ -9,15 +9,15 @@ export interface AdminUser extends ClientAccount {
   tenantStatus: UserStatus;
   applications: Array<Pick<ClientApplicationRecord,
     "id" | "propertyTitle" | "propertyAddress" | "status" | "convertedTenantId" | "convertedAt"
-  > & { hasSignedLease: boolean }>;
+  > & { hasSignedLease: boolean; role: "primary" | "co_applicant"; relatedUsers: Array<{ userId: string; legalName: string }> }>;
 }
 
 // A manual link or an application signature alone is never evidence of a signed lease.
 export function buildAdminUsers(accounts: ClientAccount[], applications: ClientApplicationRecord[]): AdminUser[] {
   return accounts.map((account) => {
-    const owned = applications.filter((application) => application.ownerUserId === account.userId);
+    const owned = applications.filter((application) => application.ownerUserId === account.userId || application.applicants.some(a => a.role === "co_applicant" && a.userId === account.userId && a.status !== "revoked"));
     const verifiedTenantIds = new Set(owned.filter((application) =>
-      application.status === "approved" && application.convertedTenantId && application.convertedAt && application.leaseDocument
+      application.status === "approved" && (application.ownerUserId === account.userId || application.applicants.some(a => a.role === "co_applicant" && a.userId === account.userId && a.status === "signed")) && application.convertedTenantId && application.convertedAt && application.leaseDocument
     ).map((application) => application.convertedTenantId));
     const tenantStatus: UserStatus = account.currentTenant && verifiedTenantIds.has(account.currentTenant.id)
       ? "tenant"
@@ -34,7 +34,9 @@ export function buildAdminUsers(accounts: ClientAccount[], applications: ClientA
         status: application.status,
         convertedTenantId: application.convertedTenantId,
         convertedAt: application.convertedAt,
-        hasSignedLease: Boolean(application.leaseDocument)
+        hasSignedLease: Boolean(application.leaseDocument),
+        role: application.ownerUserId === account.userId ? "primary" : "co_applicant",
+        relatedUsers: application.applicants.filter(a => a.userId && a.userId !== account.userId && a.status !== "revoked").map(a => ({ userId: a.userId!, legalName: a.legalName }))
       }))
     };
   });

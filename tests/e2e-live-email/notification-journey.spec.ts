@@ -123,9 +123,10 @@ test('client completes an application with files and sends a real notification',
     await expect(page.locator('.application-file-list').getByText(name, { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Save and continue' })).toBeEnabled();
   }
+  await page.getByLabel('I confirm that I voluntarily provide this credit score report for assessment of my rental application.').check();
   await page.getByRole('button', { name: 'Save and continue' }).click();
   await page.getByLabel(/I authorize the property manager/).check();
-  await page.getByLabel(/I consent to the stated credit-score/).check();
+  await page.getByLabel(/I consent to reference, housing and income verification/).check();
   await page.getByLabel('Type your full legal name to sign *').fill(`${run} Test Applicant`);
   console.info('Supporting files uploaded');
   const submitted = page.waitForResponse(r => r.url().endsWith(`/applications/${applicationId}/submit`) && r.request().method() === 'POST');

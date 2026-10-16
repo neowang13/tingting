@@ -73,6 +73,7 @@ export const emergencyDraftSchema = z.object({
 }).strict();
 
 export const applicationDraftSchema = z.object({
+  creditReportVoluntary: z.boolean().default(false),
   personal: personalDraftSchema.prefault({}),
   tenancy: tenancyDraftSchema.prefault({}),
   housing: housingDraftSchema.prefault({}),
@@ -109,7 +110,7 @@ export const applicationTenantConversionSchema = z.object({
 export type ApplicationTenantConversion = z.infer<typeof applicationTenantConversionSchema>;
 
 export type ApplicationDraft = z.infer<typeof applicationDraftSchema>;
-export type ApplicationDraftSection = Exclude<keyof ApplicationDraft, "documentExplanations">;
+export type ApplicationDraftSection = Exclude<keyof ApplicationDraft, "documentExplanations" | "creditReportVoluntary">;
 
 export const coApplicantInvitationSchema = z.object({
   legalName: requiredText(160, "Enter the co-applicant's legal name."),

@@ -1,3 +1,5 @@
+import { requireClientRequest } from "@/lib/client-auth";
+import { assertGuestAccount } from "@/features/applications/applicant-signing";
 import { z } from "zod";
 import { handleApiError, ok, readJson } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/auth";
@@ -13,7 +15,9 @@ export async function PATCH(request: Request) {
   const requestId = crypto.randomUUID();
   try {
     assertSameOrigin(request);
+    const identity = await requireClientRequest(request);
     const session = readGuestCookie(request);
+    await assertGuestAccount(session, identity);
     await assertActionRateLimit(hashGuestToken(session), "application-guest-draft", 60, 15 * 60);
     return ok(await saveGuestApplicantDraft(session, schema.parse(await readJson(request)), applicationRequestContext(request, requestId)), requestId);
   } catch (error) {

@@ -1,3 +1,5 @@
+import { requireClientRequest } from "@/lib/client-auth";
+import { assertGuestAccount } from "@/features/applications/applicant-signing";
 import { handleApiError, ok, readJson } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/auth";
 import { assertActionRateLimit } from "@/lib/rate-limit";
@@ -10,7 +12,9 @@ export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   try {
     assertSameOrigin(request);
+    const identity = await requireClientRequest(request);
     const session = readGuestCookie(request);
+    await assertGuestAccount(session, identity);
     await assertActionRateLimit(hashGuestToken(session), "application-guest-sign", 5, 15 * 60);
     const applicant = await signGuestApplicant(session, applicantSignatureSchema.parse(await readJson(request)), applicationRequestContext(request, requestId));
     return ok({ applicant }, requestId);

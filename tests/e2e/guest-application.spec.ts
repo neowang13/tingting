@@ -63,7 +63,7 @@ function bootstrap(status: "in_progress" | "signed" = "in_progress") {
       propertyAddress: "123 Example Street, Vancouver",
       formVersion: "2026-07-31.1",
       formSha256: "a".repeat(64),
-      termsVersion: "2026-08-08.1",
+      termsVersion: "2026-10-15.1",
       termsSha256: "b".repeat(64),
       termsText: "Application collection and consent notice\n\nYour information is used only to assess this application."
     },
@@ -80,7 +80,15 @@ function bootstrap(status: "in_progress" | "signed" = "in_progress") {
   };
 }
 
-test("co-applicant exchanges the invitation without creating an account and signs on the website", async ({ page }) => {
+test.beforeEach(async ({ page }) => {
+  await page.goto('/client/login?next=%2Fclient%2Fapplications');
+  await page.getByLabel('Email', { exact: true }).fill('second@example.test');
+  await page.getByLabel('Password', { exact: true }).fill('test-admin-password');
+  await page.getByRole('button', { name: 'Sign in securely' }).click();
+  await expect(page).toHaveURL(/\/client\/applications$/);
+});
+
+test("signed-in co-applicant accepts the invitation and signs their own information", async ({ page }) => {
   let signPayload: Record<string, unknown> | null = null;
 
   await page.route("**/api/application-guests/session", async (route) => {
@@ -97,20 +105,21 @@ test("co-applicant exchanges the invitation without creating an account and sign
   });
 
   await page.goto("/application/guest#token=one-time-token");
-  await expect(page).toHaveURL(/\/application\/guest$/);
+  await page.getByRole("button", { name: "Accept invitation", exact: true }).click();
+  await expect(page).toHaveURL(/\/client\/invitations$/);
   await expect(page.getByRole("heading", { level: 1, name: "Bright Downtown One Bedroom" })).toBeVisible();
-  await expect(page.getByText("No account or password is required.")).toBeVisible();
+
 
   await page.getByRole("button", { name: /Review & sign/ }).click();
   await page.getByLabel(/I authorize the property manager/).check();
-  await page.getByLabel(/I consent to the stated credit-score/).check();
+  await page.getByLabel(/I consent to reference, housing and income verification/).check();
   await page.getByLabel("Type your full legal name to sign *").fill("Jordan Lee");
 
   const results = await new AxeBuilder({ page })
     .include(".guest-application-main")
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();
-  expect(results.violations.map(({ id }) => id)).toEqual([]);
+  expect(results.violations.map(({ id, nodes }) => ({ id, nodes: nodes.map(node => ({ html: node.html, summary: node.failureSummary })) }))).toEqual([]);
 
   await page.getByRole("button", { name: "Sign my application" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Your part of the application is complete" })).toBeVisible();
@@ -118,7 +127,7 @@ test("co-applicant exchanges the invitation without creating an account and sign
     signatureLegalName: "Jordan Lee",
     sharingAuthorization: true,
     screeningConsent: true,
-    termsVersion: "2026-08-08.1",
+    termsVersion: "2026-10-15.1",
     formVersion: "2026-07-31.1"
   });
 });
@@ -131,8 +140,9 @@ test("expired guest invitation shows a clear recovery path", async ({ page }) =>
   }));
 
   await page.goto("/application/guest#token=expired-token");
-  await expect(page).toHaveURL(/\/application\/guest$/);
-  await expect(page.getByRole("heading", { level: 1, name: "We cannot open this invitation" })).toBeVisible();
+  await page.getByRole("button", { name: "Accept invitation", exact: true }).click();
+  await expect(page).toHaveURL(/\/client\/invitations$/);
+  await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText(/Ask the primary applicant to send a new invitation/)).toBeVisible();
 });
 
@@ -141,14 +151,15 @@ test("guest invitation token is removed before a failed exchange request", async
 
   await page.goto("/");
   await page.goto("/application/guest#token=network-failure-secret");
-  await expect(page).toHaveURL(/\/application\/guest$/);
-  await expect(page.getByRole("heading", { level: 1, name: "We cannot open this invitation" })).toBeVisible();
+  await page.getByRole("button", { name: "Accept invitation", exact: true }).click();
+  await expect(page).toHaveURL(/\/client\/invitations$/);
+  await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText(/Check your connection and try again/)).toBeVisible();
 
   await page.goBack();
   await expect(page).toHaveURL(/\/$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\/application\/guest$/);
+  await expect(page).toHaveURL(/\/client\/invitations$/);
   expect(page.url()).not.toContain("network-failure-secret");
 });
 
@@ -161,6 +172,7 @@ test("guest application remains usable on a narrow mobile viewport", async ({ pa
   }));
 
   await page.goto("/application/guest#token=mobile-token");
+  await page.getByRole("button", { name: "Accept invitation", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Bright Downtown One Bedroom" })).toBeVisible();
   await expect(page.getByLabel("Legal first name *")).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

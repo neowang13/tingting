@@ -159,6 +159,29 @@ and remain supported.
 
 ## Backup and restore
 
+### Joint applications and Admin sessions (2026-10-15)
+
+Migration `202610150064` requires a verified, active Client account matching the
+invitation email. Invitations and their outbox entry commit together; failed sends
+retain the applicant and are retried by the existing notification worker. Resending
+rotates the invitation and revokes the previous guest session. A linked applicant
+resumes their own part from My applications after invitation expiry.
+
+Each uploaded credit report requires that person's affirmative voluntary-submission
+checkbox. Signing records its timestamp and version; new uploads clear the checkbox.
+No external credit-check request is created. Existing signatures retain their original
+terms without retroactive voluntary-submission metadata. Admin reviews one shared
+household with separate applicant cards. Signed, account-linked applicants share one
+tenancy after signed-lease upload and explicit Admin confirmation.
+
+Admin inactivity expires after 60 minutes of no trusted pointer, keyboard, touch or
+scroll activity. Activity GET and background polling do not renew it; same-origin
+activity POST renews an unexpired session only. Tabs synchronize activity/logout and
+redirect on expiry. The existing 12-hour absolute limit remains. Routine privileged
+actions use recent activity instead of a fixed ten-minute interval.
+
+### Recovery process
+
 Accepted MVP recovery point: up to seven days. Target recovery time: four hours
 after credentials and a clean Supabase project are available. Create an
 encrypted logical export weekly and before material imports or migrations.

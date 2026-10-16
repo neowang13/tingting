@@ -9236,6 +9236,7 @@ a {
 
 .guest-application-main { --portal-green: #00800a; --portal-green-dark: #005e03; min-height: 100vh; padding-bottom: 70px; background: #f4f6f4; }
 .guest-application-header { display: flex; min-height: 62px; align-items: center; justify-content: space-between; gap: 20px; padding: 0 max(24px, calc((100vw - 1180px) / 2)); color: #fff; background: #050505; }
+.guest-application-header a { color: #fff; }
 .guest-application-header span { color: rgb(255 255 255 / 65%); font-size: .76rem; letter-spacing: .08em; text-transform: uppercase; }
 .guest-wordmark { color: #fff !important; font-size: 1.05rem; font-weight: 800; text-decoration: none; }
 .guest-application-state { display: grid; width: min(660px, calc(100% - 32px)); min-height: 380px; place-content: center; justify-items: center; gap: 8px; margin: 70px auto 0; border: 1px solid #e0e5e0; border-radius: 18px; padding: 42px; background: #fff; text-align: center; box-shadow: 0 16px 45px rgb(18 20 18 / 8%); }
@@ -12883,3 +12884,27 @@ a {
 .media-upload-dropzone .button:focus-visible { outline: 3px solid #267746; outline-offset: 3px; }
 .rental-images .media-grid > .media-library[open] { flex-basis: 100%; }
 .rental-images .media-upload-queue .media-card { width: auto; }
+
+/* Joint applications: shared tenancy once, personal evidence per linked User. */
+.joint-application-review { display: grid; gap: 16px; }
+.joint-tenancy-summary { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 20px; padding: 18px; border: 1px solid var(--admin-line); border-radius: 12px; background: #f6f4ef; }
+.joint-tenancy-summary > div { display: grid; align-content: start; gap: 5px; }
+.joint-tenancy-summary small,.joint-tenancy-summary span { color: #6b6f6d; font-size: 12px; }
+.joint-applicant-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; }
+.joint-applicant-card { border: 1px solid var(--admin-line); border-radius: 12px; padding: 18px; background: white; min-width: 0; }
+.joint-applicant-heading,.joint-applicant-signature,.joint-applicant-footer,.joint-credit-file { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.joint-applicant-heading small { color: #6b6f6d; font-size: 11px; text-transform: uppercase; }
+.joint-applicant-heading h4 { margin: 5px 0; font-size: 21px; }
+.joint-applicant-heading a,.joint-credit-file a { font-size: 12px; color: #2f6f5e; white-space: nowrap; }
+.joint-applicant-card > p,.joint-applicant-footer { color: #6b6f6d; font-size: 12px; overflow-wrap: anywhere; }
+.joint-applicant-signature { border-top: 1px solid var(--admin-line); margin: 14px 0; padding-top: 14px; font-size: 12px; }
+.joint-applicant-signature strong { color: #2f6f5e; font-weight: 600; }
+.joint-credit-report { padding: 14px; border: 1px solid var(--admin-line); border-radius: 8px; font-size: 13px; }
+.joint-credit-file { align-items: start; margin-top: 10px; overflow-wrap: anywhere; }
+.joint-credit-file small,.joint-report-confirmation small { display: block; color: #6b6f6d; font-size: 11px; margin-top: 4px; }
+.joint-report-confirmation { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--admin-line); color: #936c1e; font-size: 12px; }
+.joint-report-confirmation.confirmed { color: #2f6f5e; }
+.joint-applicant-footer { margin-top: 16px; }.joint-waiting { color: #936c1e; font-size: 12px; }
+.joint-selected-applicant { display: grid; gap: 14px; }.joint-invitation-status { line-height: 1.6; }
+.credit-report-consent { margin: 14px 0; }.credit-report-consent .application-consent { align-items: start; }
+@media(max-width:760px) { .joint-applicant-cards { grid-template-columns: 1fr; }.joint-tenancy-summary { grid-template-columns: repeat(2,minmax(0,1fr)); }.joint-applicant-heading,.joint-credit-file { flex-wrap: wrap; } }

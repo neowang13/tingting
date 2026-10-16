@@ -1,3 +1,4 @@
+import { getOptionalClientIdentity } from "@/lib/client-auth";
 import type { Metadata } from "next";
 import { GuestApplicationEntry } from "@/components/guest/guest-application-entry";
 
@@ -7,6 +8,6 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false }
 };
 
-export default function GuestApplicationPage() {
-  return <GuestApplicationEntry />;
+export default async function GuestApplicationPage() {
+  return <GuestApplicationEntry signedIn={Boolean(await getOptionalClientIdentity())} />;
 }

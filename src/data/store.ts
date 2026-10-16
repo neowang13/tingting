@@ -553,6 +553,11 @@ export const store = {
       .slice(0, filters.limit ?? 500));
   },
 
+  registerDemoClient(identity: { userId: string; email: string; displayName: string }) {
+    if (process.env.DATA_BACKEND === "supabase") throw new ApiError(403, "DEMO_ONLY", "Demo accounts are unavailable.");
+    if (!state().clients.some(client => client.userId === identity.userId)) state().clients.push({ ...identity, isActive: true, createdAt: new Date().toISOString(), emailConfirmedAt: new Date().toISOString(), deactivatedAt: null });
+  },
+
   listClientAccounts(): ClientAccount[] {
     return clone(state().clients
       .map((client) => {

@@ -44,11 +44,14 @@ function pdfFile(content = "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%E
 }
 
 async function uploadRequiredFiles() {
-  return Promise.all([
+  const files = await Promise.all([
     uploadApplicationFile(client, applicationId, pdfFile(), "rental_payment_history"),
     uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report"),
     uploadApplicationFile(client, applicationId, pdfFile(), "employment_income_proof")
   ]);
+  const application = await getClientApplication(client, applicationId);
+  await saveApplicationDraft(client, applicationId, { draft: { ...application.draft, creditReportVoluntary: true }, activeStep: 7 });
+  return files;
 }
 
 function completeDraft() {
@@ -113,7 +116,7 @@ describe("client application workflow", () => {
   });
 
   it("uses the finalized approved consent copy", () => {
-    expect(APPLICATION_TERMS_VERSION).toBe("2026-08-08.1");
+    expect(APPLICATION_TERMS_VERSION).toBe("2026-10-15.1");
     expect(applicationTermsText).not.toMatch(/draft|pre-production|before production/i);
     expect(applicationTermsText).toContain("info@silverkey.ca");
   });

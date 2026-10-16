@@ -357,6 +357,7 @@ export type OwnerNotificationKind =
   | "weekly_tenant_summary"
   | "daily_overdue_rent_summary"
   | "showing_confirmation"
+  | "co_applicant_invitation"
   | "application_submission";
 
 export interface OwnerNotificationDelivery {
