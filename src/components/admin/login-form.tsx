@@ -1,10 +1,15 @@
 "use client";
 
+import { useHydrated } from "@/components/shared/use-hydrated";
 import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
+export function LoginForm({ authMode, onAuthenticated, initialEmail = "" }: {
+  authMode: "local" | "supabase";
+  onAuthenticated?: () => void;
+  initialEmail?: string;
+}) {
   const router = useRouter();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -13,6 +18,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
     [anonKey, url]
   );
   const [error, setError] = useState("");
+  const ready = useHydrated();
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState<"password" | "challenge" | "enroll">("password");
   const [factorId, setFactorId] = useState("");
@@ -55,12 +61,17 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
         return;
       }
     }
+    if (onAuthenticated) {
+      setBusy(false);
+      onAuthenticated();
+      return;
+    }
     router.replace("/admin");
     router.refresh();
   }
 
   return (
-    <form
+    <form method="post"
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -161,7 +172,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
         <>
           <div className="field">
             <label htmlFor="admin-email">Email</label>
-            <input id="admin-email" name="email" type="email" autoComplete="username" required />
+            <input id="admin-email" name="email" type="email" autoComplete="username" defaultValue={initialEmail} readOnly={Boolean(onAuthenticated)} required />
           </div>
           <div className="field">
             <label htmlFor="admin-password">Password</label>
@@ -211,7 +222,7 @@ export function LoginForm({ authMode }: { authMode: "local" | "supabase" }) {
           </div>
         </>
       )}
-      <button className="button" disabled={busy} type="submit">
+      <button className="button" disabled={!ready || busy} type="submit">
         {busy ? "Checking…" : stage === "password" ? "Sign In" : "Verify and continue"}
       </button>
       {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}

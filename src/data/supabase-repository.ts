@@ -1,3 +1,4 @@
+import { mapViewingDraft, type PropertyPublicationResult } from "@/features/showings/draft";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { validateSection } from "@/features/content/schemas";
 import { upgradePropertyServicesContent } from "@/features/content/property-services";
@@ -752,6 +753,13 @@ export class SupabaseRepository implements DataRepository {
     }));
   }
 
+  async deleteRental(id: string, expectedVersion: unknown, actorId: string) {
+    await this.rpc("delete_rental_listing", {
+      p_id: id, p_expected_updated_at: expectedVersion, p_actor_id: actorId
+    });
+    return { id };
+  }
+
   async setRentalStatus(
     id: string,
     action: "publish" | "unpublish" | "archive",
@@ -773,6 +781,22 @@ export class SupabaseRepository implements DataRepository {
       p_actor_id: actorId,
       p_media: media
     }));
+  }
+
+  async publishRentalWithViewingSchedule(
+    id: string, expectedVersion: unknown, draftVersion: string, publishedVersion: string | null, actorId: string
+  ): Promise<PropertyPublicationResult> {
+    const rental = await this.getRental(id);
+    const coverCount = rental.images.filter((image) => image.isCover).length;
+    if (coverCount !== 1 && !rental.coverImageUrl) {
+      throw new ApiError(400, "COVER_IMAGE_REQUIRED", "Choose exactly one cover image before publishing.");
+    }
+    const media = await this.promoteMediaForPublish(rental.images.map((image) => image.mediaAssetId));
+    const data = asRow(await this.rpc("publish_rental_with_viewing_dates", {
+      p_id: id, p_expected_updated_at: expectedVersion, p_actor_id: actorId, p_media: media,
+      p_expected_draft_updated_at: draftVersion, p_expected_published_updated_at: publishedVersion
+    }));
+    return { rental: mapRental(data.rental), viewingSchedule: mapViewingDraft(asRow(data.viewing_schedule)) };
   }
 
   async listTenants(filters: TenantListFilters = {}) {

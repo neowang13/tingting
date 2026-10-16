@@ -1,9 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import { usePublishConfirmation } from "@/components/admin/publish-confirmation";
+import { LoginForm } from "@/components/admin/login-form";
+import { ViewingScheduleManager } from "@/components/admin/viewing-schedule-manager";
+import type { ViewingScheduleDraft, PropertyPublicationResult } from "@/features/showings/draft";
+import { calendarScheduleInput, selectedViewingDates, type ViewingDateWindow } from "@/features/showings/calendar";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MediaLibrary } from "@/components/admin/media-library";
 import {
   amenityGroups,
@@ -17,19 +22,52 @@ import type { MediaAsset, RentalFee, RentalListing } from "@/lib/contracts";
 type FeeRow = RentalFee & { key: string };
 
 export function RentalEditor({
+  authMode,
+  adminEmail,
   rental,
-  initialMedia
+  initialMedia,
+  initialViewingSchedule,
+  dateWindow
 }: {
+  authMode: "local" | "supabase";
+  adminEmail: string;
   rental: RentalListing | null;
   initialMedia: MediaAsset[];
+  initialViewingSchedule: ViewingScheduleDraft;
+  dateWindow: ViewingDateWindow;
 }) {
   const router = useRouter();
+  const { showPublishConfirmation, dismissPublishConfirmation } = usePublishConfirmation();
   const formRef = useRef<HTMLFormElement>(null);
   const initial = useMemo(() => rental ? rentalToV2(rental) : emptyRental(), [rental]);
   const [current, setCurrent] = useState(rental);
   const [slug, setSlug] = useState(rental?.slug ?? "");
   const [busy, setBusy] = useState(false);
+  const [mediaBusy, setMediaBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [actionError, setActionError] = useState<Error | null>(null);
+  const [reauthOpen, setReauthOpen] = useState(false);
+  const reauthRef = useRef<HTMLDialogElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const dialog = reauthRef.current;
+    if (reauthOpen && !dialog?.open) dialog?.showModal();
+    if (!reauthOpen && dialog?.open) dialog.close();
+  }, [reauthOpen]);
+  useEffect(() => {
+    if (actionError && !reauthOpen) errorRef.current?.focus();
+  }, [actionError, reauthOpen]);
+
+  function reportError(error: unknown, fallback: string) {
+    const failure = error instanceof Error ? error : new Error(fallback);
+    setActionError(failure);
+    setMessage(failure.message);
+    if (failure instanceof RentalActionError && ["RECENT_AUTHENTICATION_REQUIRED", "UNAUTHORIZED", "SESSION_EXPIRED"].includes(failure.code ?? "")) {
+      setReauthOpen(true);
+    }
+  }
+  const [viewingDraft, setViewingDraft] = useState(initialViewingSchedule);
+  const [viewingDates, setViewingDates] = useState(() => selectedViewingDates(initialViewingSchedule, dateWindow));
   const [media, setMedia] = useState(initialMedia);
   const [availability, setAvailability] = useState(initial.availability.status ?? "");
   const [leaseType, setLeaseType] = useState(initial.availability.leaseType ?? "");
@@ -184,76 +222,105 @@ export function RentalEditor({
       body: JSON.stringify(current ? { rental: parsed.data, expectedVersion: current.updatedAt } : parsed.data)
     });
     const result = await response.json();
-    if (!response.ok || !result.success) throw new Error(rentalSaveError(result));
+    if (!response.ok || !result.success) throw new RentalActionError(result);
     setCurrent(result.data);
     return result.data as RentalListing;
   }
 
+  async function saveViewingDraft(rentalId: string) {
+    const response = await fetch(`/api/admin/rentals/${rentalId}/viewing-draft`, {
+      method: "PATCH", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ...calendarScheduleInput(viewingDraft, viewingDates, dateWindow),
+        expectedUpdatedAt: viewingDraft.updatedAt,
+        expectedPublishedUpdatedAt: viewingDraft.publishedUpdatedAt
+      })
+    });
+    const body = await response.json() as { data?: ViewingScheduleDraft; error?: { code?: string; message?: string } };
+    if (!response.ok || !body.data) throw new RentalActionError(body);
+    setViewingDraft(body.data);
+    return body.data;
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (mediaBusy) return;
+    if (current?.status === "published") {
+      await publishCurrentForm();
+      return;
+    }
+    setActionError(null);
     setBusy(true);
     setMessage("Saving…");
     try {
       const saved = await saveForm(event.currentTarget);
-      setMessage("Saved privately. The public website has not changed.");
+      await saveViewingDraft(saved.id);
+      setMessage("Property details and viewing dates saved privately. The public website has not changed.");
       if (!current) router.replace(`/admin/properties/${saved.id}`);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Property could not be saved.");
+      reportError(error, "Property could not be saved.");
     } finally {
       setBusy(false);
     }
   }
 
   async function publishCurrentForm() {
+    if (mediaBusy) return;
+    dismissPublishConfirmation();
     const formElement = formRef.current;
-    if (!current || !formElement) return;
+    if (!formElement) return;
     if (!formElement.reportValidity()) {
-      setMessage("Complete the required listing fields before publishing.");
+      reportError(new Error("Complete the highlighted required fields before publishing."), "Complete the required fields before publishing.");
       return;
     }
-    if (!window.confirm("Publish this saved version to the public website?")) return;
+    setActionError(null);
     setBusy(true);
     setMessage("Saving the current changes and publishing…");
     try {
       const saved = await saveForm(formElement);
+      const savedViewingDraft = await saveViewingDraft(saved.id);
       const response = await fetch(`/api/admin/rentals/${saved.id}/publish`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ expectedVersion: saved.updatedAt })
+        body: JSON.stringify({ expectedVersion: saved.updatedAt, expectedViewingDraftVersion: savedViewingDraft.updatedAt, expectedViewingPublishedVersion: savedViewingDraft.publishedUpdatedAt })
       });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(rentalSaveError(result));
-      setCurrent(result.data);
-      setMessage("Published. This rental is now live on the website.");
+      if (!response.ok || !result.success) throw new RentalActionError(result);
+      const published = result.data as PropertyPublicationResult;
+      setCurrent(published.rental);
+      setViewingDraft(published.viewingSchedule);
+      setMessage("");
+      showPublishConfirmation();
+      if (!current) router.replace(`/admin/properties/${published.rental.id}`);
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "The property could not be published.");
+      reportError(error, "The property could not be published.");
     } finally {
       setBusy(false);
     }
   }
 
-  async function statusAction(action: "unpublish" | "archive") {
-    if (!current || !window.confirm(`Are you sure you want to ${action} this property?`)) return;
+  async function deleteProperty() {
+    if (!current) {
+      router.push("/admin/properties");
+      return;
+    }
+    if (!window.confirm(`Permanently delete “${current.title}” from the website and admin? This cannot be undone. Existing applications and viewing request history will be kept.`)) return;
+    setActionError(null);
     setBusy(true);
-    setMessage("Updating status…");
+    setMessage("Deleting…");
     try {
-      const response = await fetch(`/api/admin/rentals/${current.id}/${action}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
+      const response = await fetch(`/api/admin/rentals/${current.id}`, {
+        method: "DELETE", headers: { "content-type": "application/json" },
         body: JSON.stringify({ expectedVersion: current.updatedAt })
       });
       const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error?.message ?? "Status could not be updated.");
-      setCurrent(result.data);
-      setMessage(result.data.status === "draft"
-        ? "Removed from the public website. The listing remains saved privately."
-        : "Listing archived and removed from the public website.");
+      if (!response.ok || !result.success) throw new RentalActionError(result);
+      router.push("/admin/properties");
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Status could not be updated.");
-    } finally {
+      reportError(error, "Property could not be deleted.");
       setBusy(false);
     }
   }
@@ -270,6 +337,11 @@ export function RentalEditor({
         </div>
         <strong className="listing-state">{statusLabel(current, liveHasChanges)}</strong>
       </header>
+      {current && <nav className="property-section-links" aria-label="Property sections">
+        <a href="#rental-card-1">Property details</a>
+        <a href="#property-viewing-dates">Viewing dates</a>
+      </nav>}
+
       <form className="admin-form rental-v2-form" ref={formRef} onSubmit={submit}>
         <FormCard number={1} title="Home and address">
           <div className="field-grid">
@@ -432,7 +504,7 @@ export function RentalEditor({
                   </div>
                 </div>
               </article>)}
-              <MediaLibrary assets={media} onAssetsChanged={updateMedia} showExistingAssets={false} summaryLabel="+ Add" />
+              <MediaLibrary assets={media} onAssetsChanged={updateMedia} showExistingAssets={false} summaryLabel="Add photos" maximumFiles={20 - selectedImages.length} disabled={busy} onBusyChange={setMediaBusy} />
             </div>
           </fieldset>
         </FormCard>
@@ -446,17 +518,43 @@ export function RentalEditor({
           </details>
         </section>
 
+        <ViewingScheduleManager selectedDates={viewingDates} dateWindow={dateWindow} onChange={setViewingDates} busy={busy} />
+
+        {actionError && <div ref={errorRef} tabIndex={-1} className="client-panel property-action-error" role="alert" aria-label="Property action error">
+          <h2>Action could not be completed</h2>
+          <p>{actionError.message}</p>
+          {actionError instanceof RentalActionError && actionError.fields.length > 0 && <ul>
+            {actionError.fields.map((field) => <li key={field}>{publishFieldLabels[field] ?? field}</li>)}
+          </ul>}
+          {actionError instanceof RentalActionError && ["RECENT_AUTHENTICATION_REQUIRED", "UNAUTHORIZED", "SESSION_EXPIRED"].includes(actionError.code ?? "") &&
+            <button type="button" className="button" onClick={() => setReauthOpen(true)}>Sign in again</button>}
+        </div>}
+
         <div className="sticky-rental-actions">
-          <div>{current && current.status !== "archived" && <button className="button danger-outline" disabled={busy} type="button" onClick={() => void statusAction("archive")}>Archive</button>}</div>
+          <div><button className="button danger-outline" disabled={busy || mediaBusy} type="button" onClick={() => void deleteProperty()}>Delete</button></div>
           <div className="admin-action-bar">
-            <button className="button secondary" disabled={busy} type="submit">Save privately</button>
-            {current && current.status !== "archived" && <Link className="button secondary" href={`/admin/properties/${current.id}/preview`}>Preview public page</Link>}
-            {current && current.status !== "archived" && <button className="button" disabled={busy} type="button" onClick={() => void publishCurrentForm()}>{current.status === "published" ? "Publish updates" : "Publish to website"}</button>}
-            {current?.status === "published" && <button className="button secondary" disabled={busy} type="button" onClick={() => void statusAction("unpublish")}>Remove from website</button>}
+            {current?.status !== "published" && <button className="button secondary" disabled={busy || mediaBusy} type="submit">Save draft</button>}
+            <button className="button" disabled={busy || mediaBusy} type="button"
+              onClick={() => void publishCurrentForm()}>
+              Publish
+            </button>
           </div>
         </div>
-        {message && <p className="admin-save-status" aria-live="polite">{message}</p>}
+        {message && !actionError && <p className="admin-save-status" aria-live="polite">{message}</p>}
       </form>
+      <dialog ref={reauthRef} className="contact-dialog" aria-labelledby="property-reauth-title"
+        aria-describedby="property-reauth-description" onCancel={() => setReauthOpen(false)} onClose={() => setReauthOpen(false)}>
+        <div className="contact-dialog-panel">
+          <button className="dialog-close" type="button" aria-label="Close sign-in" onClick={() => setReauthOpen(false)}>×</button>
+          <h2 id="property-reauth-title">Sign in again to continue</h2>
+          <p id="property-reauth-description">This action requires a recent sign-in. Your property edits and selected viewing dates will stay here.</p>
+          {reauthOpen && <LoginForm authMode={authMode} initialEmail={adminEmail} onAuthenticated={() => {
+            setReauthOpen(false);
+            setActionError(null);
+            setMessage("Signed in again. Your edits are still here. Try the action again.");
+          }} />}
+        </div>
+      </dialog>
     </div>
   );
 }
@@ -499,7 +597,7 @@ function statusLabel(rental: RentalListing | null, hasChanges: boolean) {
   if (!rental) return "Not saved";
   if (rental.status === "archived") return "Archived";
   if (rental.status === "published") return hasChanges ? "Live with unpublished changes" : "Live on website";
-  return "Saved privately";
+  return rental.publishedAt ? "Unpublished" : "Draft — not published";
 }
 
 function moveImage(id: string, direction: -1 | 1, images: string[], setImages: (images: string[]) => void) {
@@ -517,17 +615,33 @@ function normalizeRentalSlug(value: string) {
     .replace(/-{2,}/g, "-").slice(0, 100).replace(/-+$/g, "");
 }
 
-function rentalSaveError(result: {
-  error?: { code?: string; message?: string; details?: Array<{ path?: Array<string | number> }>; };
-}) {
-  if (result.error?.code === "VALIDATION_ERROR") {
-    const path = result.error.details?.[0]?.path?.join(".");
-    return path ? `Check ${path} and try again.` : "Check the rental fields and try again.";
+const publishFieldLabels: Record<string, string> = {
+  "property.propertyType": "Property type", "property.provinceCode": "Province",
+  "property.postalCode": "Postal code", "availability.status": "Availability",
+  "layout.furnishedStatus": "Furnishing", "availability.leaseType": "Lease type",
+  "smokingPolicy": "Smoking policy", "pets.status": "Pet policy",
+  "images": "At least one property photo", "images.cover": "One cover photo"
+};
+
+class RentalActionError extends Error {
+  code?: string;
+  fields: string[];
+  constructor(result: { error?: { code?: string; message?: string; details?: unknown } }) {
+    const error = result.error;
+    const details = error?.details as { fields?: string[] } | undefined;
+    let message = error?.message ?? "Property could not be saved.";
+    if (error?.code === "PUBLISH_REQUIREMENTS_MISSING") {
+      message = "Your edits are saved privately. Complete these fields before publishing:";
+    } else if (error?.code === "RECENT_AUTHENTICATION_REQUIRED") {
+      message = "Sign in again to continue. Your property edits and viewing dates are still here.";
+    } else if (error?.code === "VERSION_CONFLICT") {
+      message = "This listing or property changed in another tab. Refresh before saving again.";
+    } else if (error?.code === "VALIDATION_ERROR" && Array.isArray(error.details)) {
+      const path = (error.details[0] as { path?: string[] })?.path?.join(".");
+      message = path ? `Check ${publishFieldLabels[path] ?? path} and try again.` : "Check the rental fields and try again.";
+    }
+    super(message);
+    this.code = error?.code;
+    this.fields = Array.isArray(details?.fields) ? details.fields : [];
   }
-  if (result.error?.code === "PUBLISH_REQUIREMENTS_MISSING") {
-    return "This draft is saved, but it is not ready to publish. Complete the missing publish fields and choose one cover image.";
-  }
-  if (result.error?.code === "DATABASE_ERROR") return "The listing could not be saved because the database is unavailable. Your last confirmed save is unchanged.";
-  if (result.error?.code === "VERSION_CONFLICT") return "This listing or property changed in another tab. Refresh before saving again.";
-  return result.error?.message ?? "Rental could not be saved.";
 }

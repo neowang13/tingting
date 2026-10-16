@@ -65,7 +65,7 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
-pnpm test:e2e
+pnpm exec playwright test --config=playwright.qa.config.ts
 ```
 
 The production-authentication suite is intentionally separate and fail-closed:
@@ -75,6 +75,16 @@ It refuses to run against the declared production project.
 
 Database migrations can additionally be syntax- and behavior-tested against
 PostgreSQL 17 using [tests/sql/migration-behavior.sql](./tests/sql/migration-behavior.sql).
+
+## Property calendars and publication
+
+Admin navigation contains Properties, Applications, and Users. Each property has its
+own date-only viewing calendar; multiple groups may book the same date. Dates and
+listing details publish together. Photos support automatic multi-file and drag-and-drop
+upload; the selected cover appears first on the public gallery. Registered accounts
+remain users until an approved application's signed lease is explicitly confirmed.
+See [viewing operations](./docs/showing-request-operations.md) for the `060–063`
+database rollout and the property Publish/Unpublish, Save draft, and Delete rules.
 
 ## Supabase provisioning
 

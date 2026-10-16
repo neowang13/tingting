@@ -1,19 +1,22 @@
 import Link from "next/link";
 import Image from "next/image";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { Temporal } from "@js-temporal/polyfill";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ApplicationQueue } from "@/components/admin/application-queue";
+import { PropertyListActions } from "@/components/admin/property-list-actions";
 import { RentalEditor } from "@/components/admin/rental-editor";
 import { TenantEditor } from "@/components/admin/tenant-editor";
-import { ViewingScheduleManager } from "@/components/admin/viewing-schedule-manager";
+import { UserManager, UserDetails } from "@/components/admin/user-manager";
+import { listAdminUsers } from "@/features/users/service";
 import { RentalDetailPage } from "@/components/public/rental-detail-page";
 import { getRepository } from "@/data/repository";
 import { listMediaAssets } from "@/features/content/media-service";
 import { loadAdminRentalPreviewData } from "@/features/content/public-rental-detail";
 import { listApplicationsForStaff } from "@/features/applications/service";
-import { getViewingSchedule } from "@/features/showings/availability";
-import { requireAdminPage } from "@/lib/auth";
+import { showingDateBounds } from "@/features/showings/scheduling";
+import { emptyViewingDraft, getViewingScheduleDraft } from "@/features/showings/draft";
+import { isDemoMode, requireAdminPage } from "@/lib/auth";
 import type { RentalListing, Tenant } from "@/lib/contracts";
 
 interface Props {
@@ -55,8 +58,12 @@ export default async function AdminPage({ params, searchParams }: Props) {
             : "Review and update the complete operational and public record for this property."}
         >
           <RentalEditor
+            authMode={isDemoMode() ? "local" : "supabase"}
+            adminEmail={admin.email}
             rental={id === "new" ? null : await repository.getRental(id)}
             initialMedia={await listMediaAssets()}
+            initialViewingSchedule={id === "new" ? emptyViewingDraft("") : await getViewingScheduleDraft(id)}
+            dateWindow={showingDateBounds()}
           />
         </AdminShell>
       );
@@ -125,7 +132,7 @@ export default async function AdminPage({ params, searchParams }: Props) {
                 <code>{propertyNumber(rental)}</code>
                 <div className="property-address"><strong>{rental.addressLine}</strong><small>{rental.city}</small></div>
                 <span className={`property-status ${rentalState}`}>{propertyStatusLabel(rentalState)}</span>
-                <Link className="property-view-action" href={`/admin/properties/${rental.id}`}>View property</Link>
+                <PropertyListActions rental={{ id: rental.id, title: rental.title, status: rental.status, updatedAt: rental.updatedAt }} />
               </article>;
             })}
           </div>
@@ -146,29 +153,31 @@ export default async function AdminPage({ params, searchParams }: Props) {
         title="Client applications"
         description="Review submitted applications, screen private documents, and record approval or rejection."
       >
-        <ApplicationQueue initial={await listApplicationsForStaff(admin)} initialFilter={initialFilter} />
+        <ApplicationQueue initial={await listApplicationsForStaff(admin)} initialFilter={initialFilter} initialApplicationId={typeof query.application === "string" ? query.application : undefined} />
       </AdminShell>
     );
   }
 
-  if (area === "viewings" && !id) {
-    return (
-      <AdminShell
-        admin={admin}
-        title="Viewing dates"
-        description="Set the weekly viewing schedule and make one-date changes. Visitors only see available times during the next month."
-      >
-        <ViewingScheduleManager initialSchedule={await getViewingSchedule()} />
-      </AdminShell>
-    );
+  if (area === "viewings") redirect("/admin/properties");
+
+  if (area === "users") {
+    const users = await listAdminUsers(admin);
+    const user = id ? users.find((entry) => entry.userId === id) : null;
+    if (id && !user) notFound();
+    return <AdminShell admin={admin} title={user ? "User detail" : "Users"}
+      description="All registered users. Tenant status requires a signed lease confirmed by an administrator.">
+      {user ? <UserDetails user={user} /> : <UserManager users={users} />}
+    </AdminShell>;
   }
 
   if (area === "tenants") {
     const query = await searchParams;
     const value = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
 
+    if (id === "new") redirect("/admin/users");
+
     if (id) {
-      const initialTenant = id === "new" ? null : await repository.getTenant(id);
+      const initialTenant = await repository.getTenant(id);
       return (
         <AdminShell
           admin={admin}
@@ -215,7 +224,7 @@ export default async function AdminPage({ params, searchParams }: Props) {
               <option value="needs_details">Needs lease details</option>
             </select>
             <button className="button secondary" type="submit">Apply filters</button>
-            <Link className="button" href="/admin/tenants/new">Add tenant</Link>
+            <Link className="button secondary" href="/admin/users">All registered users</Link>
           </form>
 
           <div className="table-scroll">

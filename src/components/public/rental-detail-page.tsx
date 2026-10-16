@@ -48,7 +48,7 @@ export function RentalDetailPage({
   sections
 }: PublicRentalDetailData) {
   const images = rental.images.length
-    ? rental.images
+    ? [...rental.images].sort((a, b) => Number(b.isCover) - Number(a.isCover) || a.sortOrder - b.sortOrder)
     : rental.coverImageUrl
       ? [{
           mediaAssetId: `cover-${rental.id}`,

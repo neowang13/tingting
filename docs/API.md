@@ -35,7 +35,8 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | GET | `/api/public/site` | Published sections and rentals |
 | GET | `/api/public/rentals` | Published rentals |
 | POST | `/api/public/contact` | Validate and accept a contact enquiry |
-| POST | `/api/public/showings` | Validate, persist, and notify on a requested (not confirmed) property showing |
+| GET | `/api/public/showings?propertySlug=...` | List open dates for one published property; no time slots |
+| POST | `/api/public/showings` | Register a viewing date; multiple groups may book the same day; agent arranges the time |
 
 ## Content
 
@@ -65,6 +66,7 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
 | PATCH | `/api/admin/applications/:id` | Perform a documented staff status transition |
+| POST | `/api/admin/applications/:id/tenant` | Convert an approved application with a signed lease PDF and `signedAgreementConfirmed: true` to a linked tenant |
 
 Application starts and draft writes are same-origin, rate-limited, owner-scoped, and
 rejected after submission. Starting an application accepts only a published rental
@@ -84,18 +86,23 @@ malware-risk process clears them. See the
 |---|---|---|
 | GET/POST | `/api/admin/rentals` | List or create |
 | GET/PATCH | `/api/admin/rentals/:id` | Read or update |
-| POST | `/api/admin/rentals/:id/publish` | Publish |
+| DELETE | `/api/admin/rentals/:id` | Permanently delete from admin and public website; requires recent admin authentication and `expectedVersion`; retains application/booking history |
+| POST | `/api/admin/rentals/:id/publish` | Publish property and calendar together when `expectedViewingDraftVersion` and `expectedViewingPublishedVersion` accompany `expectedVersion`; returns `{ rental, viewingSchedule }` |
 | POST | `/api/admin/rentals/:id/unpublish` | Unpublish |
 | POST | `/api/admin/rentals/:id/archive` | Archive |
+| GET/PATCH | `/api/admin/rentals/:id/viewing-draft` | Read/save private calendar; PATCH requires `expectedUpdatedAt` and `expectedPublishedUpdatedAt` (nullable version tokens), plus schedule fields |
+| GET/PATCH | `/api/admin/rentals/:id/viewing-schedule` | Read/publish this property’s calendar using `openWeekdays`, date overrides, timezone, and `expectedUpdatedAt` |
 
-## Tenants and schedules
+## Users, tenancies, and schedules
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/admin/clients` | List registered Client accounts with verification and current-tenant status |
-| POST | `/api/admin/clients/:userId/link` | Explicitly link a Client account to a current tenant |
+| GET | `/api/admin/users` | List all registered client users with verified tenancy status and minimal application summaries |
+| GET | `/api/admin/clients` | Legacy registered-account and link projection |
+| POST | `/api/admin/clients/:userId/link` | Returns `409 SIGNED_LEASE_REQUIRED`; use signed application conversion |
 | POST | `/api/admin/clients/:userId/unlink` | End the current tenant link while preserving history |
-| GET/POST | `/api/admin/tenants` | List or create |
+| GET | `/api/admin/tenants` | List current and historical tenancy records |
+| POST | `/api/admin/tenants` | Returns `409 SIGNED_LEASE_REQUIRED`; use signed application conversion |
 | GET/PATCH | `/api/admin/tenants/:id` | Read or update |
 | POST | `/api/admin/tenants/:id/archive` | Archive |
 | POST | `/api/admin/tenants/:id/schedule` | Create or update monthly schedule |

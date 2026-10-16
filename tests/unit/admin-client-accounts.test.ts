@@ -12,7 +12,7 @@ describe("administrator client account management", () => {
 
   it("lists registered client profiles without matching a tenant by email", async () => {
     const repository = getRepository();
-    const [client] = await repository.listClientAccounts();
+    const client = (await repository.listClientAccounts()).find((entry) => entry.userId === "00000000-0000-4000-8000-000000000101")!;
 
     expect(client).toMatchObject({
       displayName: "Demo Client",
@@ -26,7 +26,7 @@ describe("administrator client account management", () => {
 
   it("links only when an admin explicitly selects a current tenant", async () => {
     const repository = getRepository();
-    const [client] = await repository.listClientAccounts();
+    const client = (await repository.listClientAccounts()).find((entry) => entry.userId === "00000000-0000-4000-8000-000000000101")!;
     const [firstTenant] = await repository.listTenants();
 
     const linked = await repository.linkClientToTenant(
@@ -48,7 +48,7 @@ describe("administrator client account management", () => {
 
   it("archives the old link on reassignment and keeps only one current tenant", async () => {
     const repository = getRepository();
-    const [client] = await repository.listClientAccounts();
+    const client = (await repository.listClientAccounts()).find((entry) => entry.userId === "00000000-0000-4000-8000-000000000101")!;
     const [firstTenant] = await repository.listTenants();
     const secondTenant = await repository.createTenant({
       fullName: "Second Tenant",
@@ -85,7 +85,7 @@ describe("administrator client account management", () => {
 
   it("unlinks the current tenant while preserving link history", async () => {
     const repository = getRepository();
-    const [client] = await repository.listClientAccounts();
+    const client = (await repository.listClientAccounts()).find((entry) => entry.userId === "00000000-0000-4000-8000-000000000101")!;
     const [tenant] = await repository.listTenants();
     await repository.linkClientToTenant(client.userId, { tenantId: tenant.id }, "admin-1");
 
@@ -98,12 +98,12 @@ describe("administrator client account management", () => {
 
   it("archives the current link when its tenant is archived", async () => {
     const repository = getRepository();
-    const [client] = await repository.listClientAccounts();
+    const client = (await repository.listClientAccounts()).find((entry) => entry.userId === "00000000-0000-4000-8000-000000000101")!;
     const [tenant] = await repository.listTenants();
     await repository.linkClientToTenant(client.userId, { tenantId: tenant.id }, "admin-1");
 
     await repository.archiveTenant(tenant.id, tenant.updatedAt, "admin-2");
-    const [updated] = await repository.listClientAccounts();
+    const updated = (await repository.listClientAccounts()).find((entry) => entry.userId === client.userId)!;
 
     expect(updated.currentTenant).toBeNull();
     expect(updated.linkHistory).toHaveLength(1);

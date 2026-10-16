@@ -1,3 +1,5 @@
+import { getViewingScheduleDraft, saveViewingScheduleDraft } from "@/features/showings/draft";
+import { listAdminUsers } from "@/features/users/service";
 import { sectionKeySchema } from "@/features/content/schemas";
 import { handleApiError, ok, readJson, ApiError } from "@/lib/api";
 import {
@@ -13,7 +15,6 @@ import {
   reminderSettingsInputSchema,
   notificationEventFilterSchema,
   schedulePreviewSchema,
-  tenantCreateInputSchema,
   tenantListFilterSchema,
   testNotificationConfirmationSchema,
   testNotificationSchema
@@ -33,13 +34,8 @@ import {
   verifyTestSendPreviewToken
 } from "@/features/notifications/test-send-preview";
 import {
-  deliverOwnerNotifications,
-  enqueueTenantUploadNotification
-} from "@/features/notifications/owner-notifications";
-import {
   formatRentDueDate
 } from "@/features/reminders/due-date";
-import { attemptImmediateReminderCatchUp } from "@/features/reminders/catch-up";
 import {
   getViewingSchedule,
   saveViewingSchedule,
@@ -93,6 +89,7 @@ export async function GET(request: Request, context: Context) {
       return ok(await repository.listTenants(filters), requestId);
     }
     if (resource === "tenants" && id && !action) return ok(await repository.getTenant(id), requestId);
+    if (resource === "users" && !id) return ok(await listAdminUsers(prepared.admin), requestId);
     if (resource === "clients" && !id) return ok(await repository.listClientAccounts(), requestId);
     if (resource === "templates" && !id) return ok(await repository.listTemplates(), requestId);
     if (resource === "notifications" && id === "events" && !action) {
@@ -120,8 +117,13 @@ export async function GET(request: Request, context: Context) {
     if (resource === "settings" && id === "test-contacts" && !action) {
       return ok(await repository.getTestContacts(), requestId);
     }
-    if (resource === "viewing-schedule" && !id) {
-      return ok(await getViewingSchedule(), requestId);
+    if (resource === "rentals" && id && action === "viewing-draft") {
+      await repository.getRental(id);
+      return ok(await getViewingScheduleDraft(id), requestId);
+    }
+    if (resource === "rentals" && id && action === "viewing-schedule") {
+      await repository.getRental(id);
+      return ok(await getViewingSchedule(id), requestId);
     }
     routeNotFound();
   } catch (error) {
@@ -161,6 +163,16 @@ export async function POST(request: Request, context: Context) {
       );
     }
     if (resource === "rentals" && !id) return ok(await repository.createRental(body, actorId), requestId, 201);
+    if (resource === "rentals" && id && action === "publish" && body && typeof body === "object" && "expectedViewingDraftVersion" in body) {
+      const input = body as { expectedVersion?: unknown; expectedViewingDraftVersion?: unknown; expectedViewingPublishedVersion?: unknown };
+      if (typeof input.expectedViewingDraftVersion !== "string"
+        || (input.expectedViewingPublishedVersion !== null && typeof input.expectedViewingPublishedVersion !== "string")) {
+        throw new ApiError(400, "VIEWING_DRAFT_VERSION_REQUIRED", "Reload this property before publishing.");
+      }
+      await assertRecentAuthentication(prepared.admin);
+      return ok(await repository.publishRentalWithViewingSchedule(id, input.expectedVersion,
+        input.expectedViewingDraftVersion, input.expectedViewingPublishedVersion, actorId), requestId);
+    }
     if (resource === "rentals" && id && ["publish", "unpublish", "archive"].includes(action ?? "")) {
       const payload = body as { expectedVersion?: unknown };
       return ok(
@@ -174,15 +186,7 @@ export async function POST(request: Request, context: Context) {
       );
     }
     if (resource === "tenants" && !id) {
-      const tenant = await repository.createTenant(
-        tenantCreateInputSchema.parse(body),
-        actorId
-      );
-      await enqueueTenantUploadNotification(tenant)
-        .then(() => deliverOwnerNotifications({ limit: 1 }))
-        .catch(() => undefined);
-      const reminderCatchUp = await attemptImmediateReminderCatchUp(tenant.id);
-      return ok({ ...tenant, reminderCatchUp }, requestId, 201);
+      throw new ApiError(409, "SIGNED_LEASE_REQUIRED", "Create tenants from an approved application after uploading and confirming a signed lease.");
     }
     if (resource === "tenants" && id && action === "archive") {
       const payload = body as { expectedVersion?: unknown };
@@ -193,10 +197,7 @@ export async function POST(request: Request, context: Context) {
       return ok(await repository.saveSchedule(id, payload.schedule, payload.expectedVersion, actorId), requestId);
     }
     if (resource === "clients" && id && action === "link") {
-      return ok(
-        await repository.linkClientToTenant(clientUserIdSchema.parse(id), body, actorId),
-        requestId
-      );
+      throw new ApiError(409, "SIGNED_LEASE_REQUIRED", "Link users through their approved application after confirming a signed lease.");
     }
     if (resource === "clients" && id && action === "unlink") {
       return ok(
@@ -389,19 +390,52 @@ export async function PATCH(request: Request, context: Context) {
       await assertRecentAuthentication(prepared.admin);
       return ok(await repository.setTestContacts(body, actorId), requestId);
     }
-    if (resource === "viewing-schedule" && !id) {
-      const input = body as unknown as ViewingScheduleInput & { expectedUpdatedAt?: string };
+    if (resource === "rentals" && id && action === "viewing-draft") {
+      await assertRecentAuthentication(prepared.admin);
+      const input = body as unknown as ViewingScheduleInput & { expectedUpdatedAt?: unknown; expectedPublishedUpdatedAt?: unknown };
+      if ((input.expectedUpdatedAt !== null && typeof input.expectedUpdatedAt !== "string")
+        || (input.expectedPublishedUpdatedAt !== null && typeof input.expectedPublishedUpdatedAt !== "string")) {
+        throw new ApiError(400, "VIEWING_DRAFT_VERSION_REQUIRED", "Reload this property before saving.");
+      }
+      await repository.getRental(id);
+      return ok(await saveViewingScheduleDraft(id,
+        { timezone: input.timezone, openWeekdays: input.openWeekdays, dateOverrides: input.dateOverrides },
+        input.expectedUpdatedAt, input.expectedPublishedUpdatedAt, actorId), requestId);
+    }
+    if (resource === "rentals" && id && action === "viewing-schedule") {
+      const input = body as unknown as ViewingScheduleInput & { expectedUpdatedAt?: string | null };
       await assertRecentAuthentication(prepared.admin);
       await assertActionRateLimit(actorId, "viewing-schedule-publish", 20, 60 * 60);
-      if (typeof input.expectedUpdatedAt !== "string") {
+      if (input.expectedUpdatedAt !== null && typeof input.expectedUpdatedAt !== "string") {
         throw new ApiError(400, "VIEWING_SCHEDULE_VERSION_REQUIRED", "Reload the viewing schedule and try again.");
       }
+      await repository.getRental(id);
       return ok(await saveViewingSchedule(
-        input,
+        id,
+        { timezone: input.timezone, openWeekdays: input.openWeekdays, dateOverrides: input.dateOverrides },
         input.expectedUpdatedAt
       ), requestId);
     }
     routeNotFound();
+  } catch (error) {
+    return handleApiError(error, requestId);
+  }
+}
+
+export async function DELETE(request: Request, context: Context) {
+  let requestId = crypto.randomUUID();
+  try {
+    assertSameOrigin(request);
+    const prepared = await prepare(request, context);
+    requestId = prepared.requestId;
+    const [resource, id, action] = prepared.segments;
+    if (resource !== "rentals" || !id || action) routeNotFound();
+    await assertRecentAuthentication(prepared.admin);
+    const body = await readJson(request) as { expectedVersion?: unknown } | null;
+    if (!body || typeof body.expectedVersion !== "string") {
+      throw new ApiError(400, "EXPECTED_VERSION_REQUIRED", "Reload this property before deleting.");
+    }
+    return ok(await getRepository().deleteRental(id, body.expectedVersion, prepared.admin.userId), requestId);
   } catch (error) {
     return handleApiError(error, requestId);
   }

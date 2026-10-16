@@ -18,6 +18,7 @@ const admin = {
   assuranceLevel: "aal2" as const
 };
 const conversionInput = {
+      signedAgreementConfirmed: true as const,
   propertyLabel: "1231 Howe Street",
   unitLabel: "1104",
   moveInDate: "2026-09-01",

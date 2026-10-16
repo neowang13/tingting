@@ -56,6 +56,12 @@ values (
   '{"display_name":"Self Start Client","account_type":"client"}'::jsonb
 );
 
+-- Later migrations activate reviewed materials. Explicitly arrange the pending
+-- state instead of depending on a pre-approval migration baseline.
+update public.application_form_versions set legal_review_status = 'pending'
+where form_key = 'residential-rental-application' and is_active;
+update public.application_terms_versions set legal_review_status = 'pending' where is_active;
+
 do $$
 declare
   v_slug text;

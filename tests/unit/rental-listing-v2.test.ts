@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import sharp from "sharp";
+import { uploadMediaAsset } from "../../src/features/content/media-service";
 import { store } from "../../src/data/store";
 import {
   publishRequirementPaths,
@@ -85,6 +87,35 @@ describe("Rental Listing V2 aggregate", () => {
     expect(publishRequirementPaths(parsed)).toEqual(["images", "images.cover"]);
   });
 
+  it("allows all five optional publication fields to be blank", () => {
+    const input = completeInput();
+    const parsed = rentalListingV2InputSchema.parse({ ...input,
+      property: { ...input.property, postalCode: null },
+      layout: { ...input.layout, furnishedStatus: null },
+      availability: { ...input.availability, leaseType: null, minimumLeaseMonths: null },
+      smokingPolicy: null, pets: { ...input.pets, status: null }
+    });
+    expect(publishRequirementPaths(parsed)).toEqual(["images", "images.cover"]);
+  });
+
+  it("publishes with blank optional fields even when they have legacy review flags", async () => {
+    const bytes = await sharp({ create: { width: 800, height: 600, channels: 3, background: "#e2e8de" } }).png().toBuffer();
+    const media = await uploadMediaAsset(new File([Uint8Array.from(bytes)], "optional-fields.png", { type: "image/png" }), "Synthetic property", "admin");
+    const input = completeInput();
+    const rental = store.createRental({ ...input,
+      property: { ...input.property, postalCode: null },
+      layout: { ...input.layout, furnishedStatus: null },
+      availability: { ...input.availability, leaseType: null, minimumLeaseMonths: null },
+      smokingPolicy: null, pets: { ...input.pets, status: null },
+      images: [{ mediaAssetId: media.id, sortOrder: 0, isCover: true }]
+    });
+    globalThis.__tingtingMemoryState!.rentals.find((item) => item.id === rental.id)!.reviewRequiredFields = [
+      "property.postalCode", "layout.furnishedStatus", "availability.leaseType", "smokingPolicy", "pets.status"
+    ];
+    expect(store.setRentalStatus(rental.id, "publish", rental.updatedAt).status).toBe("published");
+    expect(store.getPublicRentalBySlug(rental.slug)?.furnishedStatus).toBeNull();
+  });
+
   it("rejects contradictory hidden conditional values", () => {
     const input = completeInput();
     input.parking = {
@@ -135,5 +166,18 @@ describe("Rental Listing V2 aggregate", () => {
     expect(saved.status).toBe("draft");
     expect(saved.property?.streetAddress).toBe("101 Test Street");
     expect(saved.reviewRequiredFields).toContain("property.propertyType");
+  });
+});
+
+describe("memory property numbering", () => {
+  it("allocates permanent unique numbers and does not reuse a deleted property's number", () => {
+    store.reset();
+    const first = store.createRental(completeInput());
+    expect(first.propertyNumber).toMatch(/^P-\d{6}$/);
+    expect(store.listRentals().filter((rental) => rental.propertyNumber === first.propertyNumber)).toHaveLength(1);
+    store.deleteRental(first.id, first.updatedAt);
+    const next = store.createRental({ ...completeInput(), slug: "next-numbered-property" });
+    expect(next.propertyNumber).toMatch(/^P-\d{6}$/);
+    expect(Number(next.propertyNumber!.slice(2))).toBeGreaterThan(Number(first.propertyNumber!.slice(2)));
   });
 });

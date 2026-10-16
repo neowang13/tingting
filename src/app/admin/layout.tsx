@@ -1,3 +1,4 @@
+import { PublishConfirmationProvider } from "@/components/admin/publish-confirmation";
 import { Bricolage_Grotesque, IBM_Plex_Mono, Karla } from "next/font/google";
 
 const adminSans = Karla({
@@ -21,7 +22,7 @@ const adminMono = IBM_Plex_Mono({
 export default function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <div className={`admin-route ${adminSans.variable} ${adminDisplay.variable} ${adminMono.variable}`}>
-      {children}
+      <PublishConfirmationProvider>{children}</PublishConfirmationProvider>
     </div>
   );
 }

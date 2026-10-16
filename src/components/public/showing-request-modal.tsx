@@ -1,5 +1,7 @@
 "use client";
 
+import { DateCalendar } from "@/components/shared/date-calendar";
+import { formatCalendarDate } from "@/features/showings/calendar";
 import { CalendarCheck, X } from "lucide-react";
 import {
   type FormEvent,
@@ -11,7 +13,6 @@ import {
   useState
 } from "react";
 import {
-  SHOWING_MIN_NOTICE_HOURS,
   SHOWING_TIMEZONE
 } from "@/features/showings/scheduling";
 
@@ -27,18 +28,17 @@ interface ViewingAvailability {
   dates: Array<{
     date: string;
     label: string;
-    spots: Array<{ time: string; label: string }>;
   }>;
 }
 
-async function fetchViewingAvailability(signal?: AbortSignal) {
-  const response = await fetch("/api/public/showings", { cache: "no-store", signal });
+async function fetchViewingAvailability(propertySlug: string, signal?: AbortSignal) {
+  const response = await fetch(`/api/public/showings?propertySlug=${encodeURIComponent(propertySlug)}`, { cache: "no-store", signal });
   const body = await response.json() as {
     data?: ViewingAvailability;
     error?: { message?: string };
   };
   if (!response.ok || !body.data) {
-    throw new Error(body.error?.message || "Viewing times are temporarily unavailable.");
+    throw new Error(body.error?.message || "Viewing dates are temporarily unavailable.");
   }
   return body.data;
 }
@@ -58,12 +58,10 @@ export function ShowingRequestModalProvider({
   const [availability, setAvailability] = useState<ViewingAvailability | null>(null);
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedTime, setSelectedTime] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const applicationHref = `/client/apply/${encodeURIComponent(property.slug)}`;
-  const selectedDateEntry = availability?.dates.find((entry) => entry.date === selectedDate);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -78,20 +76,20 @@ export function ShowingRequestModalProvider({
   useEffect(() => {
     if (!open) return;
     const controller = new AbortController();
-    fetchViewingAvailability(controller.signal)
+    fetchViewingAvailability(property.slug, controller.signal)
       .then(setAvailability)
       .catch((error) => {
         if (controller.signal.aborted) return;
         setStatus({
           type: "error",
-          message: error instanceof Error ? error.message : "Viewing times are temporarily unavailable."
+          message: error instanceof Error ? error.message : "Viewing dates are temporarily unavailable."
         });
       })
       .finally(() => {
         if (!controller.signal.aborted) setAvailabilityLoading(false);
       });
     return () => controller.abort();
-  }, [open]);
+  }, [open, property.slug]);
 
   function openShowingRequest(trigger?: HTMLElement) {
     triggerRef.current = trigger ?? null;
@@ -99,7 +97,6 @@ export function ShowingRequestModalProvider({
     setAvailabilityLoading(true);
     setAvailability(null);
     setSelectedDate("");
-    setSelectedTime("");
     setOpen(true);
   }
 
@@ -112,9 +109,13 @@ export function ShowingRequestModalProvider({
     const form = event.currentTarget;
     setStatus(null);
     if (!form.reportValidity()) return;
+    if (!selectedDate) {
+      setStatus({ type: "error", message: "Choose an available viewing date." });
+      return;
+    }
     const data = new FormData(form);
     if (data.get("website")) {
-      setStatus({ type: "success", message: "Your viewing is confirmed." });
+      setStatus({ type: "success", message: "Your viewing date is registered. An agent will contact you to arrange the time." });
       form.reset();
       return;
     }
@@ -130,7 +131,6 @@ export function ShowingRequestModalProvider({
           email: data.get("email"),
           propertySlug: property.slug,
           requestedLocalDate: data.get("requestedLocalDate"),
-          requestedLocalTime: data.get("requestedLocalTime"),
           timezone: SHOWING_TIMEZONE,
           notes: data.get("notes"),
           website: data.get("website")
@@ -141,38 +141,28 @@ export function ShowingRequestModalProvider({
         error?: { code?: string; message?: string };
       };
       if (!response.ok) {
-        if (body.error?.code === "SHOWING_SLOT_TAKEN") {
+        if (body.error?.code === "SHOWING_DATE_UNAVAILABLE") {
           setAvailabilityLoading(true);
-          setSelectedTime("");
           try {
-            const refreshed = await fetchViewingAvailability();
+            const refreshed = await fetchViewingAvailability(property.slug);
             setAvailability(refreshed);
             if (!refreshed.dates.some((entry) => entry.date === selectedDate)) setSelectedDate("");
           } finally {
             setAvailabilityLoading(false);
           }
         }
-        throw new Error(body.error?.message || "Choose another available time and try again.");
+        throw new Error(body.error?.message || "Choose another available date and try again.");
       }
       setStatus({
         type: "success",
-        message: body.data?.message || "Your viewing is confirmed."
+        message: body.data?.message || "Your viewing date is registered. An agent will contact you to arrange the time."
       });
-      setAvailability((current) => current ? {
-        ...current,
-        dates: current.dates
-          .map((entry) => entry.date === selectedDate
-            ? { ...entry, spots: entry.spots.filter((spot) => spot.time !== selectedTime) }
-            : entry)
-          .filter((entry) => entry.spots.length > 0)
-      } : current);
       form.reset();
       setSelectedDate("");
-      setSelectedTime("");
     } catch (error) {
       setStatus({
         type: "error",
-        message: error instanceof Error ? error.message : "The request could not be sent. Choose another time or contact Ting Ting."
+        message: error instanceof Error ? error.message : "The request could not be sent. Choose another date or contact Ting Ting."
       });
     } finally {
       setBusy(false);
@@ -201,9 +191,9 @@ export function ShowingRequestModalProvider({
             <X aria-hidden />
           </button>
           <div className="eyebrow">REQUEST A SHOWING</div>
-          <h2 id="showing-dialog-title">Choose a time to view this home</h2>
+          <h2 id="showing-dialog-title">Choose a date to view this home</h2>
           <p id="showing-dialog-description">
-            Choose one of Ting Ting&apos;s available viewing times. Your appointment is confirmed immediately after you book.
+            Choose an available date for this home. An agent will contact you to arrange the specific time.
           </p>
 
           <div className="showing-property" aria-label="Selected property">
@@ -225,46 +215,24 @@ export function ShowingRequestModalProvider({
                 <label htmlFor="showing-email">Email address *</label>
                 <input id="showing-email" name="email" type="email" required autoComplete="email" />
               </div>
-              <div className="field">
-                <label htmlFor="showing-date">Viewing date *</label>
-                <select
-                  id="showing-date"
-                  name="requestedLocalDate"
-                  required
-                  value={selectedDate}
-                  disabled={availabilityLoading || !availability?.dates.length}
-                  onChange={(event) => {
-                    setSelectedDate(event.target.value);
-                    setSelectedTime("");
-                  }}
-                >
-                  <option value="" disabled>{availabilityLoading ? "Loading dates…" : "Choose a viewing date"}</option>
-                  {availability?.dates.map((entry) => <option key={entry.date} value={entry.date}>{entry.label}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="showing-time">Viewing time *</label>
-                <select
-                  id="showing-time"
-                  name="requestedLocalTime"
-                  required
-                  value={selectedTime}
-                  disabled={!selectedDateEntry}
-                  onChange={(event) => setSelectedTime(event.target.value)}
-                >
-                  <option value="" disabled>Choose a viewing time</option>
-                  {selectedDateEntry?.spots.map((option) => (
-                    <option key={option.time} value={option.time}>{option.label}</option>
-                  ))}
-                </select>
-              </div>
             </div>
+            <fieldset className="showing-date-picker" disabled={availabilityLoading || busy}>
+              <legend>Viewing date *</legend>
+              <input type="hidden" name="requestedLocalDate" value={selectedDate} />
+              {availabilityLoading ? <p role="status">Loading viewing dates…</p> : availability && <>
+                <DateCalendar label="Choose a viewing date" minimum={availability.window.start} maximum={availability.window.end}
+                  selectedDates={selectedDate ? [selectedDate] : []} availableDates={availability.dates.map((entry) => entry.date)}
+                  onSelect={setSelectedDate} disabled={busy} />
+                <div className="viewing-calendar-legend"><span><i aria-hidden />Available date</span><span>Grey dates are unavailable</span></div>
+              </>}
+              {selectedDate && <p className="showing-selected-date" role="status">Selected: {formatCalendarDate(selectedDate)}</p>}
+            </fieldset>
             <p className="showing-availability-note">
-              Pacific Time · available appointments for the next month · at least {SHOWING_MIN_NOTICE_HOURS} hours&apos; notice
+              Available dates for the next month · an agent will contact you to arrange the time
             </p>
             {!availabilityLoading && availability && availability.dates.length === 0 && (
               <div className="form-status" role="status">
-                No viewing times are currently available. Please check again later or contact Ting Ting directly.
+                No viewing dates are currently available. Please check again later or contact Ting Ting directly.
               </div>
             )}
             <div className="field">
@@ -281,16 +249,16 @@ export function ShowingRequestModalProvider({
             <p className="showing-availability-note">
               We use your contact and scheduling details to arrange and administer this viewing. Read our <a href="/privacy">privacy notice</a>.
             </p>
-            <button className="button contact-submit" disabled={busy || availabilityLoading || !selectedDate || !selectedTime} type="submit">
+            <button className="button contact-submit" disabled={busy || availabilityLoading || !selectedDate} type="submit">
               {busy ? "Booking viewing…" : "Book this viewing"}
               <CalendarCheck size={16} aria-hidden />
             </button>
             {status && (
               <div className={`form-status ${status.type}`} role={status.type === "error" ? "alert" : "status"}>
                 {status.type === "success"
-                  ? <p><strong>Viewing confirmed. </strong>Ting Ting will contact you if the appointment needs to change.</p>
+                  ? <p><strong>Viewing date registered. </strong>An agent will contact you to arrange the time.</p>
                   : <p>{status.message}</p>}
-                {status.type === "success" && <><p className="showing-reschedule">Need a different time? Send another request or contact Ting Ting directly.</p><p className="showing-reschedule"><a href={applicationHref}>Apply online for this home</a>.</p></>}
+                {status.type === "success" && <><p className="showing-reschedule">Need a different date? Send another request or contact Ting Ting directly.</p><p className="showing-reschedule"><a href={applicationHref}>Apply online for this home</a>.</p></>}
               </div>
             )}
           </form>

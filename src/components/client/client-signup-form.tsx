@@ -1,5 +1,6 @@
 "use client";
 
+import { useHydrated } from "@/components/shared/use-hydrated";
 import Link from "next/link";
 import { FormEvent, useMemo, useState } from "react";
 import {
@@ -17,6 +18,7 @@ export function ClientSignupForm({ authMode, nextPath = "/" }: { authMode: "loca
     () => url && anonKey ? getClientAuthBrowserClient(url, anonKey) : null,
     [anonKey, url]
   );
+  const ready = useHydrated();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [pendingEmail, setPendingEmail] = useState("");
@@ -119,7 +121,7 @@ export function ClientSignupForm({ authMode, nextPath = "/" }: { authMode: "loca
   }
 
   return (
-    <form onSubmit={submit}>
+    <form method="post" onSubmit={submit}>
       <div className="field">
         <label htmlFor="client-signup-name">Name</label>
         <input id="client-signup-name" name="displayName" autoComplete="name" maxLength={120} required />
@@ -137,7 +139,7 @@ export function ClientSignupForm({ authMode, nextPath = "/" }: { authMode: "loca
         <label htmlFor="client-signup-confirmation">Confirm password</label>
         <input id="client-signup-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={CLIENT_PASSWORD_MIN_LENGTH} maxLength={256} required />
       </div>
-      <button className="button" type="submit" disabled={busy}>{busy ? "Creating account…" : "Create account"}</button>
+      <button className="button" type="submit" disabled={!ready || busy}>{busy ? "Creating account…" : "Create account"}</button>
       {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
     </form>
   );

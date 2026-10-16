@@ -28,7 +28,7 @@ submission continue to fail closed if either approval is withdrawn.
 
 1. Applicant registers, confirms the email link, and signs in. A generic sign-in
    returns to the public homepage. Staff can see the registered account under
-   `/admin/clients`; the new account initially has no application or tenant assignment.
+   `/admin/users`; the new account initially has no application or tenant assignment.
 2. Applicant browses a published rental detail page. `Book a viewing` remains
    available on the listing; `Apply online` asks the Client to sign in when necessary,
    confirms the selected rental, then creates or reuses only that Client's application.
@@ -104,13 +104,13 @@ never a public URL, and carries the current scan-status header. Recording `clear
 `rejected` requires recent AAL2 authentication; review cannot start until every file
 is cleared.
 
-Use `/admin/clients` to review every registered Client account, including accounts
-still waiting for email verification. Linking a Client account to an existing current
-tenant is always an explicit Admin action; matching names or email addresses never
-creates a link. Link history is retained for operational review, and the current
-tenant opens in the existing Tenant editor for rent, lease, reminder, and payment
-management. This relationship does not grant the Client direct access to the private
-`tenants` table or any other Client's records.
+Use `/admin/users` to review every registered Client account, including accounts
+still waiting for email verification. Tenant status requires the approved application,
+a current signed lease, and explicit administrator confirmation through **Mark as tenant**.
+Matching names or email addresses never creates a link. Link history remains available
+for operational review; current verified tenants open in the existing Tenant editor
+for rent, lease, reminder, and payment management. Clients cannot directly read the
+private `tenants` table or another Client's records.
 
 ## Retention, deletion, and incidents
 
@@ -148,3 +148,13 @@ read the queue without receiving storage public URLs.
 For production email, verify `silverkey.ca` in Resend and configure
 `EMAIL_FROM="Ting Ting Xu <notifications@silverkey.ca>"`, `EMAIL_PROVIDER_MODE=live`,
 `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, and the approved `CONTACT_TO_EMAIL` inbox.
+
+## Admin Users directory and tenant status
+
+**Admin → Users** lists every registered client account, including unverified and inactive accounts and users who have never applied. Application status and email verification are separate from tenancy status.
+
+A tenant requires an approved application, an uploaded signed lease PDF, and explicit administrator confirmation (`signedAgreementConfirmed: true`) through the application's **Mark as tenant** action. Uploading a lease or signing an application alone does not mark a user as a tenant. The conversion creates and links the tenant in one database transaction, records the confirming administrator and time, and supports retries without duplicate conversion.
+
+The Users directory labels a current verified tenancy as **Tenant**, a converted historical tenancy as **Former tenant**, and historical account links without matching lease evidence as **Needs verification**. Existing tenant records remain available for rent, lease, reminder, and historical record management. New direct tenant creation and manual user-to-tenant linking through the admin API return `SIGNED_LEASE_REQUIRED`; use application conversion instead.
+
+The sidebar contains **Properties**, **Applications**, and **Users**. Application status filters remain inside Applications. Viewing calendars are managed within individual properties.

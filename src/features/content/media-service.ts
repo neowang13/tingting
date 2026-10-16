@@ -213,7 +213,7 @@ export async function updateMediaAltText(id: string, altText: unknown): Promise<
 
 export function resolveDemoMedia(id: string) {
   const asset = demoMedia().find((item) => item.id === id && item.state === "published");
-  return asset?.dataUrl ?? null;
+  return asset ? `/api/public/media/${asset.id}` : null;
 }
 
 export function getDemoMediaAsset(id: string) {
@@ -225,7 +225,7 @@ export function promoteDemoMedia(ids: string[]) {
     const asset = demoMedia().find((item) => item.id === id);
     if (asset) {
       asset.state = "published";
-      asset.publicUrl = asset.dataUrl;
+      asset.publicUrl = `/api/public/media/${asset.id}`;
       asset.previewUrl = asset.dataUrl;
     }
   }

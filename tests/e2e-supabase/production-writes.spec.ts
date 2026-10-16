@@ -334,9 +334,25 @@ test("production Cookie authentication covers critical Supabase writes", async (
     rentDueDay: 1,
     isActive: true
   };
-  const tenant = expectSuccess<Versioned & { id: string }>(
-    await adminApi(page, "/api/admin/tenants", "POST", tenantInput)
+  const directTenantCreate = await adminApi(page, "/api/admin/tenants", "POST", tenantInput);
+  expect(directTenantCreate.status).toBe(409);
+  expect(directTenantCreate.body.error?.code).toBe("SIGNED_LEASE_REQUIRED");
+  const service = createClient(
+    process.env.TEST_SUPABASE_URL!,
+    process.env.TEST_SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false, autoRefreshToken: false } }
   );
+  const actor = await service.from("admin_profiles").select("user_id").eq("is_active", true).limit(1).single();
+  expect(actor.error).toBeNull();
+  // Trusted fixture setup for the remaining rent/reminder tests, not a user conversion.
+  const seededTenant = await service.rpc("save_tenant", {
+    p_id: null, p_payload: tenantInput, p_expected_updated_at: null, p_actor_id: actor.data!.user_id
+  });
+  expect(seededTenant.error).toBeNull();
+  const seededId = (seededTenant.data as { id: string }).id;
+  const tenant = expectSuccess<{ tenant: Versioned & { id: string } }>(
+    await adminApi(page, `/api/admin/tenants/${seededId}`)
+  ).tenant;
   const updatedTenant = expectSuccess<Versioned & { id: string }>(
     await adminApi(page, `/api/admin/tenants/${tenant.id}`, "PATCH", {
       tenant: {
@@ -533,11 +549,6 @@ test("production Cookie authentication covers critical Supabase writes", async (
   );
   expect(batch).toMatchObject({ eligibleCount: 1, status: "draft" });
 
-  const service = createClient(
-    process.env.TEST_SUPABASE_URL!,
-    process.env.TEST_SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
   const frozen = await service
     .from("notification_batch_recipients")
     .select("channel,eligibility_status,skip_reason,destination_snapshot")

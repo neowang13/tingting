@@ -1,5 +1,6 @@
 "use client";
 
+import { useHydrated } from "@/components/shared/use-hydrated";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { getClientAuthBrowserClient } from "@/lib/client-auth-browser";
@@ -10,6 +11,7 @@ export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const supabase = useMemo(() => url && anonKey ? getClientAuthBrowserClient(url, anonKey) : null, [url, anonKey]);
+  const ready = useHydrated();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [recoveryMessage, setRecoveryMessage] = useState("");
@@ -17,7 +19,7 @@ export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local
   const formRef = useRef<HTMLFormElement>(null);
 
   return (
-    <form ref={formRef} onSubmit={async (event) => {
+    <form method="post" ref={formRef} onSubmit={async (event) => {
       event.preventDefault();
       setBusy(true);
       setError("");
@@ -82,7 +84,7 @@ export function ClientLoginForm({ authMode, nextPath = "/" }: { authMode: "local
         }}>Forgot password?</button>}</div>
         <input id="client-password" name="password" type="password" autoComplete="current-password" required />
       </div>
-      <button className="button" type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in securely"}</button>
+      <button className="button" type="submit" disabled={!ready || busy}>{busy ? "Signing in…" : "Sign in securely"}</button>
       {authMode === "supabase" && unverifiedEmail && <button className="text-button" type="button" disabled={busy} onClick={async () => {
         if (!supabase) return;
         setBusy(true); setRecoveryMessage("");
