@@ -217,15 +217,14 @@ export const rentalListingV2InputSchema = z.object({
   });
 });
 
+export const OPTIONAL_RENTAL_PUBLISH_FIELDS: readonly string[] = [
+  "property.postalCode", "layout.furnishedStatus", "availability.leaseType", "smokingPolicy", "pets.status"
+];
+
 export function publishRequirementPaths(input: z.infer<typeof rentalListingV2InputSchema>): string[] {
   const missing: string[] = [];
   if (!input.property.provinceCode) missing.push("property.provinceCode");
-  if (!input.property.postalCode) missing.push("property.postalCode");
   if (!input.availability.status) missing.push("availability.status");
-  if (!input.layout.furnishedStatus) missing.push("layout.furnishedStatus");
-  if (!input.availability.leaseType) missing.push("availability.leaseType");
-  if (!input.smokingPolicy) missing.push("smokingPolicy");
-  if (!input.pets.status) missing.push("pets.status");
   if (input.images.length < 1) missing.push("images");
   if (input.images.filter((image) => image.isCover).length !== 1) missing.push("images.cover");
   return missing;
@@ -520,6 +519,7 @@ export const showingRequestInputSchema = z.preprocess(
     const normalized = { ...(value as Record<string, unknown>) };
     // Tolerate already-open clients from before the checkbox removal, but do
     // not treat or persist any removed booking field as current information.
+    delete normalized.requestedLocalTime;
     delete normalized.desiredMoveInDate;
     delete normalized.hasPets;
     delete normalized.needsParking;
@@ -533,7 +533,6 @@ export const showingRequestInputSchema = z.preprocess(
     email: z.email().max(254),
     propertySlug: z.string().trim().min(2).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     requestedLocalDate: z.iso.date(),
-    requestedLocalTime: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
     timezone: z.literal("America/Vancouver"),
     notes: z.string().trim().max(1000).optional().default(""),
     website: z.string().trim().max(200).optional().default("")

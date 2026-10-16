@@ -61,9 +61,9 @@ begin
     from public.site_sections,
       jsonb_array_elements(published_content->'services') as service
     where key = 'property_services'
-      and schema_version >= 5
+      and schema_version >= 7
       and service->>'key' = 'rental_management'
-      and service->>'summary' like 'Residential and commercial%'
+      and service->>'summary' = 'Tenant placement, rent collection, inspections, and day-to-day coordination.'
   ) then
     raise exception 'Rental Management homepage card migration did not complete';
   end if;

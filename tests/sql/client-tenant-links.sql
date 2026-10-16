@@ -54,6 +54,56 @@ begin
 end;
 $$;
 
+-- Verified accounts still cannot be linked without confirmed signed-lease evidence.
+do $$
+begin
+  begin
+    perform public.admin_link_client_tenant(
+      '00000000-0000-4000-8000-000000000201',
+      '00000000-0000-4000-8000-000000000301',
+      '00000000-0000-4000-8000-000000000200'
+    );
+    raise exception 'unsigned client was linked to tenant';
+  exception when sqlstate 'TT409' then null;
+  end;
+end;
+$$;
+
+-- Trusted fixture setup for the subsequent link history/archival assertions.
+insert into public.client_applications(
+  id, owner_user_id, property_title, property_address, status, form_version_id, terms_version_id, submitted_at, consented_at
+)
+select application_id, '00000000-0000-4000-8000-000000000201',
+  'Signed Link Test', 'Synthetic address', 'approved', form.id, terms.id, now(), now()
+from (values
+  ('00000000-0000-4000-8000-000000000401'::uuid),
+  ('00000000-0000-4000-8000-000000000402'::uuid)
+) fixture(application_id)
+cross join lateral (select id from public.application_form_versions where is_active limit 1) form
+cross join lateral (select id from public.application_terms_versions where is_active limit 1) terms;
+
+insert into public.client_application_lease_files(
+  id, application_id, storage_path, original_filename, mime_type, byte_size, sha256, uploaded_by
+)
+select lease_id, application_id, 'leases/' || application_id || '/' || lease_id || '.pdf',
+  'signed-test-lease.pdf', 'application/pdf', 128, repeat('a', 64),
+  '00000000-0000-4000-8000-000000000200'
+from (values
+  ('00000000-0000-4000-8000-000000000501'::uuid, '00000000-0000-4000-8000-000000000401'::uuid),
+  ('00000000-0000-4000-8000-000000000502'::uuid, '00000000-0000-4000-8000-000000000402'::uuid)
+) fixture(lease_id, application_id);
+
+update public.client_applications application
+set converted_tenant_id = fixture.tenant_id,
+    converted_lease_file_id = fixture.lease_id,
+    converted_at = now(), converted_by = '00000000-0000-4000-8000-000000000200',
+    signed_agreement_confirmed_at = now()
+from (values
+  ('00000000-0000-4000-8000-000000000401'::uuid, '00000000-0000-4000-8000-000000000501'::uuid, '00000000-0000-4000-8000-000000000301'::uuid),
+  ('00000000-0000-4000-8000-000000000402'::uuid, '00000000-0000-4000-8000-000000000502'::uuid, '00000000-0000-4000-8000-000000000302'::uuid)
+) fixture(application_id, lease_id, tenant_id)
+where application.id = fixture.application_id;
+
 do $$
 declare
   v_admin uuid := '00000000-0000-4000-8000-000000000200';

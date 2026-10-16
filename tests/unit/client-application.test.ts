@@ -369,6 +369,7 @@ describe("client application workflow", () => {
     expect(approvalSend.mock.calls[0][0].text).toContain("does not create a tenancy");
 
     const conversionInput = {
+      signedAgreementConfirmed: true as const,
       propertyLabel: "1231 Howe Street",
       unitLabel: "1104",
       moveInDate: "2026-09-01",

@@ -34,11 +34,11 @@ function readableError(body: unknown, fallback: string) {
 
 type ApplicationQueueFilter = "open" | ApplicationStatus | "decided" | "rejected" | "contract_signed";
 
-export function ApplicationQueue({ initial, initialFilter = "open" }: { initial: ClientApplicationRecord[]; initialFilter?: ApplicationQueueFilter }) {
+export function ApplicationQueue({ initial, initialFilter = "open", initialApplicationId }: { initial: ClientApplicationRecord[]; initialFilter?: ApplicationQueueFilter; initialApplicationId?: string }) {
   const [applications, setApplications] = useState(initial);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ApplicationQueueFilter>(initialFilter);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialApplicationId ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -175,7 +175,8 @@ export function ApplicationQueue({ initial, initialFilter = "open" }: { initial:
           moveInDate: form.get("moveInDate"),
           leaseType: form.get("leaseType"),
           leaseEndDate: String(form.get("leaseEndDate") ?? "").trim() || null,
-          rentDueDay: Number(form.get("rentDueDay"))
+          rentDueDay: Number(form.get("rentDueDay")),
+          signedAgreementConfirmed: form.get("signedAgreementConfirmed") === "on"
         })
       });
       const body = await response.json();
@@ -185,7 +186,7 @@ export function ApplicationQueue({ initial, initialFilter = "open" }: { initial:
       const updated = body.data.application as ClientApplicationRecord;
       setApplications((current) => current.map((item) => item.id === selected.id ? updated : item));
       setShowTenantForm(false);
-      setNotice("Tenant created and linked to this Client account.");
+      setNotice("Tenant status confirmed and linked to this user account.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The tenant record could not be created.");
     } finally {
@@ -465,7 +466,7 @@ function TenantConversionForm({ application, busy, leaseType, setLeaseType, onUp
           <strong>{application.leaseDocument.originalFilename}</strong>
           <small>{Math.ceil(application.leaseDocument.byteSize / 1024)} KB · stored privately</small>
           <a className="text-link" href={`/api/admin/application-leases/${application.leaseDocument.id}`}>Secure download</a>
-        </> : <small>Required before this Client can be marked as a tenant. PDF only, maximum 20 MB.</small>}
+        </> : <small>Required before this user can be marked as a tenant. PDF only, maximum 20 MB.</small>}
       </div>
       <label className="lease-upload-button">
         <FileText size={17} aria-hidden />
@@ -490,7 +491,7 @@ function TenantConversionForm({ application, busy, leaseType, setLeaseType, onUp
       <label className="field"><span>Lease type</span><select name="leaseType" required value={leaseType} onChange={(event) => setLeaseType(event.target.value as typeof leaseType)}><option value="">Choose from contract</option><option value="month_to_month">Month to month</option><option value="fixed_term">Fixed term</option></select></label>
       {leaseType === "fixed_term" && <label className="field"><span>Lease end date</span><input name="leaseEndDate" type="date" required min={application.draft.tenancy.desiredMoveInDate || undefined} /></label>}
       <label className="field"><span>Rent due day</span><input name="rentDueDay" type="number" min={1} max={31} required defaultValue={1} /></label>
-      <label className="check-field field-wide"><input type="checkbox" required />I confirm the tenancy agreement has been signed and these details match the contract.</label>
+      <label className="check-field field-wide"><input type="checkbox" name="signedAgreementConfirmed" required />I confirm the tenancy agreement has been signed and these details match the contract.</label>
     </div>
     <button className="admin-action success" disabled={busy || !application.leaseDocument} type="submit"><UserRoundCheck size={17} aria-hidden /> {busy ? "Working…" : "Create & link tenant"}</button>
   </form>;

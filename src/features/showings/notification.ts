@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import type { showingRequestInputSchema } from "@/lib/schemas";
-import { formatShowingSlot } from "@/features/showings/scheduling";
+import { formatViewingDate } from "@/features/showings/availability";
 import { buildContactActionUris } from "@/features/contact/follow-up";
 import { createShowingContactUrl } from "@/features/showings/contact-link";
 
@@ -19,19 +19,15 @@ export function renderShowingRequestNotification(input: {
   requestId: string;
   request: ShowingInput;
   property: { title: string; addressLine: string; city: string; slug: string };
-  requestedStartAt: string;
   appBaseUrl?: string | null;
 }) {
-  const when = formatShowingSlot({
-    requestedStartAt: input.requestedStartAt,
-    timezone: input.request.timezone
-  });
+  const when = formatViewingDate(input.request.requestedLocalDate);
   const details = [
-    "Status: CONFIRMED",
+    "Status: DATE REGISTERED — TIME TO BE ARRANGED",
     `Property: ${input.property.title}`,
     `Address: ${input.property.addressLine}, ${input.property.city}`,
     `Listing: /rentals/${input.property.slug}`,
-    `Viewing time: ${when}`,
+    `Viewing date: ${when}`,
     `Name: ${input.request.name}`,
     `Phone: ${input.request.phone}`,
     `Email: ${input.request.email}`,
@@ -60,21 +56,21 @@ export function renderShowingRequestNotification(input: {
   ].filter((value): value is string => Boolean(value));
 
   return {
-    subject: `Viewing confirmed: ${input.property.title}`,
+    subject: `Viewing date registered: ${input.property.title}`,
     text: [
       ...details,
       "",
       "Additional notes",
       notes,
       "",
-      "This viewing was confirmed automatically. Contact the requester if the time needs to change.",
+      "The viewing date is registered. Contact the requester to arrange the time. Multiple groups may book the same date.",
       ...textActions
     ].join("\n"),
     html: [
-      `<p><strong>VIEWING CONFIRMED</strong></p>`,
+      `<p><strong>VIEWING DATE REGISTERED</strong></p>`,
       `<p>${details.slice(1).map(escapeHtml).join("<br>")}</p>`,
       `<p><strong>Additional notes</strong><br>${escapeHtml(notes).replaceAll("\n", "<br>")}</p>`,
-      `<p>This viewing was confirmed automatically. Contact the requester if the time needs to change.</p>`,
+      `<p>The viewing date is registered. Contact the requester to arrange the time. Multiple groups may book the same date.</p>`,
       htmlActions.length ? `<p>${htmlActions.join("")}</p>` : "",
       contactActions.call
         ? `<p style="color:#68736d;font-size:13px;">Direct phone number: <strong>${escapeHtml(contactActions.call.replace("tel:", ""))}</strong></p>`

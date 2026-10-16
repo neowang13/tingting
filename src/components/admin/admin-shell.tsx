@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import type { AdminIdentity } from "@/lib/auth";
+import { AdminMobileNavigation } from "@/components/admin/admin-mobile-navigation";
 import { AdminNavigation } from "@/components/admin/admin-navigation";
 import { LogoutButton } from "@/components/admin/logout-button";
 
@@ -37,11 +38,7 @@ export function AdminShell({
             <h1>{title}</h1>
             {description && <p className="admin-page-description">{description}</p>}
           </div>
-          <details className="admin-mobile-navigation">
-            <summary>Menu</summary>
-            <AdminNavigation />
-            <div className="admin-mobile-signout"><LogoutButton /></div>
-          </details>
+          <AdminMobileNavigation />
         </header>
         <div className="admin-content">{children}</div>
       </main>

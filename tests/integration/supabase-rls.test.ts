@@ -35,6 +35,7 @@ integration("Supabase anonymous RLS boundaries", () => {
     "tenant_import_rows",
     "tenant_contact_permission_events",
     "client_profiles",
+    "property_viewing_schedules",
     "application_form_versions",
     "application_terms_versions",
     "client_applications",

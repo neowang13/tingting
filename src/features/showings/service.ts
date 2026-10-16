@@ -8,8 +8,7 @@ import { ApiError } from "@/lib/api";
 import { showingRequestInputSchema } from "@/lib/schemas";
 import { renderShowingRequestNotification } from "@/features/showings/notification";
 import {
-  getViewingSchedule,
-  invalidateViewingAvailabilityCache
+  getViewingSchedule
 } from "@/features/showings/availability";
 import {
   resolveShowingSlot,
@@ -28,9 +27,9 @@ export interface StoredShowingRequest {
   propertySlug: string;
   propertyTitle: string;
   propertyAddress: string;
-  requestedStartAt: string;
+  requestedStartAt: string | null;
   requestedLocalDate: string;
-  requestedLocalTime: string;
+  requestedLocalTime: string | null;
   timezone: string;
   name: string;
   phone: string;
@@ -126,7 +125,7 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
   }
 
   const now = options.now ? new Date(options.now).toISOString() : new Date().toISOString();
-  const schedule = await getViewingSchedule();
+  const schedule = await getViewingSchedule(property.id);
   let slot;
   try {
     slot = resolveShowingSlot(input, Temporal.Instant.from(now), schedule);
@@ -143,7 +142,6 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
     requestId,
     request: input,
     property,
-    requestedStartAt: slot.requestedStartAt,
     appBaseUrl: process.env.APP_BASE_URL
   }) : null;
 
@@ -170,19 +168,14 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
         html: notification.html
       } : null
     });
-    if (error?.code === "23505") {
-      throw new ApiError(409, "SHOWING_SLOT_TAKEN", "That viewing time was just booked. Choose another available time.");
+    if (error?.code === "TT409") {
+      throw new ApiError(409, "SHOWING_DATE_UNAVAILABLE", "This viewing date is no longer available. Choose another date.");
     }
     if (error || !saved) {
       throw new ApiError(503, "SHOWING_SERVICE_UNAVAILABLE", "The showing request service is temporarily unavailable.");
     }
   } else {
     globalThis.__tingtingShowingRequests ??= [];
-    if (globalThis.__tingtingShowingRequests.some((item) =>
-      item.status === "accepted" && item.requestedStartAt === slot.requestedStartAt
-    )) {
-      throw new ApiError(409, "SHOWING_SLOT_TAKEN", "That viewing time was just booked. Choose another available time.");
-    }
     globalThis.__tingtingShowingRequests.push({
       id: requestId,
       createdAt,
@@ -202,7 +195,6 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
       acceptedAt: createdAt
     });
   }
-  invalidateViewingAvailabilityCache();
 
   if (recipient && notification) {
     if (options.notifier) {
@@ -233,9 +225,9 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
     accepted: true,
     requestId,
     status: "accepted" as const,
-    requestedStartAt: slot.requestedStartAt,
+    requestedLocalDate: slot.requestedLocalDate,
     timezone: slot.timezone,
-    message: "Your viewing is confirmed. Ting Ting will contact you if the appointment needs to change."
+    message: "Your viewing date is registered. An agent will contact you to arrange the time."
   };
 }
 

@@ -145,7 +145,7 @@ test("public homepage, rental search, rental detail, validation, responsive layo
   expect(failedResponses).toEqual([]);
 });
 
-test("Silverkey Admin properties, applications, tenants, responsive navigation, and accessibility", async ({ page }) => {
+test("Silverkey Admin properties, applications, users, responsive navigation, and accessibility", async ({ page }) => {
   test.setTimeout(60_000);
   await page.goto("/admin");
   await page.getByLabel("Email").fill("admin@example.test");
@@ -158,11 +158,11 @@ test("Silverkey Admin properties, applications, tenants, responsive navigation, 
   expect((await page.request.get("/api/admin/automation/summary")).status()).toBe(404);
   await expect(page.getByRole("link", { name: "Properties" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Applications", exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Tenants", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Users", exact: true })).toBeVisible();
   await expect(page.getByPlaceholder("Search property number or address")).toBeVisible();
   await expect(page.getByText("P-000001", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create property" })).toHaveAttribute("href", "/admin/properties/new");
-  await expect(page.getByRole("link", { name: "View property" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Edit", exact: true }).first()).toBeVisible();
   await expectNoSeriousAccessibilityViolations(page);
 
   await page.getByRole("link", { name: "Applications", exact: true }).click();
@@ -172,14 +172,24 @@ test("Silverkey Admin properties, applications, tenants, responsive navigation, 
   await expect(page.getByRole("button", { name: /Approved/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Rejected/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Contract signed/ })).toBeVisible();
+  for (const label of ["Under review", "Approved", "Rejected", "Contract signed", "Open applications"]) {
+    await expect(page.getByRole("link", { name: label, exact: true })).toHaveCount(0);
+  }
 
-  await page.getByRole("link", { name: "Tenants", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Tenants" })).toBeVisible();
+  await page.getByRole("link", { name: "Users", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "Users" })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "User", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add tenant", exact: true })).toHaveCount(0);
+  await expectNoSeriousAccessibilityViolations(page);
 
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-  await page.locator("details.admin-mobile-navigation > summary").click();
-  await expect(page.locator("details.admin-mobile-navigation nav")).toBeVisible();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+  const drawer = page.getByRole("dialog", { name: "Navigation", exact: true });
+  await expect(drawer.getByRole("navigation", { name: "Admin navigation" })).toBeVisible();
+  await expect(drawer.getByRole("link", { name: "Properties", exact: true })).toBeVisible();
+  await expect(drawer.getByRole("link", { name: "Applications", exact: true })).toBeVisible();
+  await expect(drawer.getByRole("link", { name: "Users", exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/admin\/login$/);

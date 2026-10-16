@@ -1,3 +1,4 @@
+import { prepareMemoryViewingPublication, type PropertyPublicationResult } from "@/features/showings/draft";
 import { store } from "@/data/store";
 import { SupabaseRepository } from "@/data/supabase-repository";
 import { resolveDemoMedia } from "@/features/content/media-service";
@@ -57,12 +58,14 @@ export interface DataRepository {
   getRental(id: string): Promise<RentalListing>;
   createRental(payload: unknown, actorId: string): Promise<RentalListing>;
   updateRental(id: string, payload: unknown, expectedVersion: unknown, actorId: string): Promise<RentalListing>;
+  deleteRental(id: string, expectedVersion: unknown, actorId: string): Promise<{ id: string }>;
   setRentalStatus(
     id: string,
     action: "publish" | "unpublish" | "archive",
     expectedVersion: unknown,
     actorId: string
   ): Promise<RentalListing>;
+  publishRentalWithViewingSchedule(id: string, expectedVersion: unknown, draftVersion: string, publishedVersion: string | null, actorId: string): Promise<PropertyPublicationResult>;
   listTenants(filters?: TenantListFilters): Promise<Tenant[]>;
   listClientAccounts(): Promise<ClientAccount[]>;
   linkClientToTenant(clientUserId: string, payload: unknown, actorId: string): Promise<ClientAccount>;
@@ -241,8 +244,17 @@ class MemoryRepository implements DataRepository {
   async updateRental(id: string, payload: unknown, expectedVersion: unknown) {
     return store.updateRental(id, payload, expectedVersion);
   }
+  async deleteRental(id: string, expectedVersion: unknown) {
+    return store.deleteRental(id, expectedVersion);
+  }
+
   async setRentalStatus(id: string, action: "publish" | "unpublish" | "archive", expectedVersion: unknown) {
     return store.setRentalStatus(id, action, expectedVersion);
+  }
+  async publishRentalWithViewingSchedule(id: string, expectedVersion: unknown, draftVersion: string, publishedVersion: string | null) {
+    const commitViewingDates = prepareMemoryViewingPublication(id, draftVersion, publishedVersion);
+    const rental = store.setRentalStatus(id, "publish", expectedVersion);
+    return { rental, viewingSchedule: commitViewingDates() };
   }
   async listTenants(filters: TenantListFilters = {}) {
     const period = currentPaymentPeriod();

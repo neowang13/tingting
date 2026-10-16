@@ -1341,6 +1341,9 @@ export async function convertApprovedApplicationToTenant(
   id: string,
   conversion: ApplicationTenantConversion
 ) {
+  if (conversion.signedAgreementConfirmed !== true) {
+    throw new ApiError(400, "SIGNED_AGREEMENT_CONFIRMATION_REQUIRED", "Confirm that the tenancy agreement has been signed.");
+  }
   let current: ClientApplicationRecord | undefined;
   if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
   else {
@@ -1393,12 +1396,13 @@ export async function convertApprovedApplicationToTenant(
 
   if (process.env.DATA_BACKEND !== "supabase") {
     const repository = getRepository();
-    const tenant = await repository.createTenant(tenantPayload, admin.userId);
     const matchingClient = (await repository.listClientAccounts())
       .find((client) => client.userId === current!.ownerUserId);
-    if (matchingClient) {
-      await repository.linkClientToTenant(current.ownerUserId, { tenantId: tenant.id }, admin.userId);
+    if (!matchingClient || !matchingClient.isActive || !matchingClient.emailConfirmedAt) {
+      throw new ApiError(409, "CLIENT_NOT_ELIGIBLE", "A verified, active registered user is required before creating a tenant.");
     }
+    const tenant = await repository.createTenant(tenantPayload, admin.userId);
+    await repository.linkClientToTenant(current.ownerUserId, { tenantId: tenant.id }, admin.userId);
     const convertedAt = new Date().toISOString();
     const stored = demoStore().get(id)!;
     stored.convertedTenantId = tenant.id;

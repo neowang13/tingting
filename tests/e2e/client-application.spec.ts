@@ -153,7 +153,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await reviewDialog.getByLabel(/I confirm the tenancy agreement has been signed/).check();
   await expect(createTenant).toBeEnabled();
   await createTenant.click();
-  await expect(reviewDialog.getByText("Tenant created and linked to this Client account.")).toBeVisible();
+  await expect(reviewDialog.getByText("Tenant status confirmed and linked to this user account.")).toBeVisible();
   await expect(reviewDialog.getByRole("link", { name: "Manage tenant" })).toBeVisible();
 
   const modalResults = await new AxeBuilder({ page })
@@ -161,4 +161,14 @@ test("client login, explanation-only application, affirmative consent, receipt, 
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();
   expect(modalResults.violations.map(({ id }) => id)).toEqual([]);
+  await reviewDialog.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("link", { name: "Users", exact: true }).click();
+  await page.getByLabel("User status", { exact: true }).selectOption("tenant");
+  const tenantUser = page.getByRole("row").filter({ hasText: "client@example.test" });
+  await expect(tenantUser.getByText("Tenant", { exact: true })).toBeVisible();
+  await tenantUser.getByRole("link", { name: "View user" }).click();
+  await expect(page.getByRole("heading", { name: "Tenancy records" })).toBeVisible();
+  await expect(page.getByText("Confirmed by admin", { exact: true })).toBeVisible();
+  await page.screenshot({ path: "/private/tmp/tingting-user-detail.png", fullPage: true });
+
 });

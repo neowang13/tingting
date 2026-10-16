@@ -87,6 +87,7 @@ export const applicationDraftSchema = z.object({
 }).strict();
 
 export const applicationTenantConversionSchema = z.object({
+  signedAgreementConfirmed: z.literal(true, "Confirm that the tenancy agreement has been signed."),
   propertyLabel: requiredText(160, "Enter the leased property."),
   unitLabel: z.string().trim().max(60).nullable().default(null),
   moveInDate: z.iso.date("Enter the lease start date."),

@@ -37,6 +37,7 @@ import {
   rentalV2Fields
 } from "@/features/rentals/v2";
 import { ApiError } from "@/lib/api";
+import { refreshPublicRentalMediaUrls } from "@/lib/public-image-url";
 import type {
   Channel,
   ClientAccount,
@@ -62,6 +63,7 @@ import {
   notificationPreviewSchema,
   reminderSettingsInputSchema,
   publishRequirementPaths,
+  OPTIONAL_RENTAL_PUBLISH_FIELDS,
   scheduleInputSchema,
   templateInputSchema,
   testContactsInputSchema,
@@ -73,6 +75,7 @@ interface MemoryState {
   sections: SiteSection[];
   revisions: SectionRevision[];
   rentals: RentalListing[];
+  nextPropertyNumber?: number;
   rentalPublishedSnapshots: Record<string, RentalListing>;
   tenants: Tenant[];
   clients: Array<Omit<ClientAccount, "currentTenant" | "linkHistory">>;
@@ -122,6 +125,7 @@ function initialState(): MemoryState {
     sections: clone(demoSections),
     revisions: [],
     rentals,
+    nextPropertyNumber: Math.max(0, ...rentals.map((rental) => Number(rental.propertyNumber?.slice(2)) || 0)) + 1,
     rentalPublishedSnapshots: Object.fromEntries(
       rentals
         .filter((rental) => rental.status === "published" && rental.publishedAt)
@@ -132,6 +136,14 @@ function initialState(): MemoryState {
       userId: "00000000-0000-4000-8000-000000000101",
       displayName: "Demo Client",
       email: "tenant@example.com",
+      emailConfirmedAt: "2026-07-31T12:00:00.000Z",
+      isActive: true,
+      createdAt: "2026-07-31T12:00:00.000Z",
+      deactivatedAt: null
+    }, {
+      userId: "00000000-0000-4000-8000-000000000009",
+      displayName: process.env.LOCAL_CLIENT_DISPLAY_NAME?.trim() || "Demo Applicant",
+      email: process.env.LOCAL_CLIENT_EMAIL?.trim().toLowerCase() || "client@example.test",
       emailConfirmedAt: "2026-07-31T12:00:00.000Z",
       isActive: true,
       createdAt: "2026-07-31T12:00:00.000Z",
@@ -172,6 +184,18 @@ function state() {
   }
   globalThis.__tingtingMemoryState ??= initialState();
   return globalThis.__tingtingMemoryState;
+}
+
+function refreshMemoryRentalImages(rental: RentalListing) {
+  return refreshPublicRentalMediaUrls(rental, Object.fromEntries(rental.images.map((image) =>
+    [image.mediaAssetId, resolveDemoMedia(image.mediaAssetId)])));
+}
+
+function allocatePropertyNumber() {
+  const memory = state();
+  memory.nextPropertyNumber ??= Math.max(0, ...[...demoRentals, ...memory.rentals]
+    .map((rental) => Number(rental.propertyNumber?.slice(2)) || 0)) + 1;
+  return `P-${String(memory.nextPropertyNumber++).padStart(6, "0")}`;
 }
 
 function assertVersion(actual: string, expected: unknown) {
@@ -342,13 +366,14 @@ export const store = {
     const rentals = includePrivate
       ? state().rentals
       : Object.values(state().rentalPublishedSnapshots);
-    return clone(rentals.sort((a, b) => a.sortOrder - b.sortOrder));
+    const ordered = clone(rentals.sort((a, b) => a.sortOrder - b.sortOrder));
+    return includePrivate ? ordered : ordered.map(refreshMemoryRentalImages);
   },
 
   getPublicRentalBySlug(slug: string) {
     const rental = Object.values(state().rentalPublishedSnapshots)
       .find((item) => item.slug === slug);
-    return rental ? clone(rental) : null;
+    return rental ? refreshMemoryRentalImages(clone(rental)) : null;
   },
 
   getRental(id: string) {
@@ -365,6 +390,7 @@ export const store = {
     const fields = rentalV2Fields(v2, now);
     const rental: RentalListing = {
       id: crypto.randomUUID(),
+      propertyNumber: allocatePropertyNumber(),
       ...fields,
       sortOrder: legacy.sortOrder,
       coverImageUrl: legacy.coverImageUrl,
@@ -438,6 +464,19 @@ export const store = {
     return clone(rental);
   },
 
+  deleteRental(id: string, expectedVersion: unknown) {
+    const rental = findOr404(state().rentals, id, "Rental");
+    assertVersion(rental.updatedAt, expectedVersion);
+    state().rentals = state().rentals.filter((item) => item.id !== id);
+    delete state().rentalPublishedSnapshots[id];
+    globalThis.__tingtingPropertyViewingSchedules?.delete(id);
+    globalThis.__tingtingViewingDrafts?.delete(id);
+    for (const application of globalThis.__tingtingClientApplications?.values() ?? []) {
+      if (application.propertySlug === rental.slug) application.propertySlug = null;
+    }
+    return { id };
+  },
+
   setRentalStatus(id: string, action: "publish" | "unpublish" | "archive", expectedVersion: unknown) {
     const rental = findOr404(state().rentals, id, "Rental");
     assertVersion(rental.updatedAt, expectedVersion);
@@ -445,7 +484,7 @@ export const store = {
     if (action === "publish" && rental.draftDigest) {
       const missing = [
         ...publishRequirementPaths(rentalToV2(rental)),
-        ...(rental.reviewRequiredFields ?? [])
+        ...(rental.reviewRequiredFields ?? []).filter((field) => !OPTIONAL_RENTAL_PUBLISH_FIELDS.includes(field))
       ];
       if (missing.length > 0) {
         throw new ApiError(400, "PUBLISH_REQUIREMENTS_MISSING", "Complete the listing before publishing.", {
