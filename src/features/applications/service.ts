@@ -265,7 +265,11 @@ export async function loadApplicationSubmissionNotificationData(
   const applicants = applicantRows
     .filter((applicant) => applicant.status !== "revoked")
     .map((applicant) => {
-      const draft = applicationDraftSchema.safeParse(applicant.draft_payload ?? {});
+      // Primary edits and their signed snapshot live on client_applications;
+      // the primary applicant row retains its initial assignment-time draft.
+      const draft = applicationDraftSchema.safeParse(
+        applicant.role === "primary" ? application.draft : applicant.draft_payload ?? {}
+      );
       if (!draft.success) {
         throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "An applicant draft could not be loaded for email delivery.");
       }
