@@ -1,3 +1,4 @@
+import { assertCreditReportVoluntary } from "@/features/applications/credit-report-consent";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import {
   applicationDocumentRequirementSatisfied,
   applicationFormText,
   applicationTermsText,
+  type ApplicationApplicantRecord,
   type ApplicationFileRecord,
   type ApplicationDocumentType,
   type ApplicationLeaseDocumentRecord,
@@ -48,6 +50,7 @@ import {
 } from "@/features/notifications/providers";
 import type { EmailAttachment, EmailProvider } from "@/features/notifications/providers/types";
 import {
+  listLinkedApplicantMemberships,
   assertAllActiveCoApplicantsSigned,
   assertApplicationSignaturesUnlocked,
   getMemoryApplicationApplicants,
@@ -69,7 +72,7 @@ const APPLICATION_SELECT = `
   rental_listings(slug),
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
   application_terms_versions!inner(version,sha256,legal_review_status,displayed_text),
-  application_applicants(id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,draft_payload),
+  application_applicants(id,role,owner_user_id,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,draft_payload,invitation_delivery_status,credit_report_voluntary_at,credit_report_consent_version),
   client_application_files(id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at),
   client_application_lease_files!client_application_lease_files_application_id_fkey(
     id,original_filename,mime_type,byte_size,uploaded_at,superseded_at,deleted_at
@@ -171,7 +174,7 @@ function mapApplication(row: Record<string, unknown>, options: { includeAllAppli
   if (!draft.success) {
     throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "The saved application draft could not be loaded.");
   }
-  return {
+  const application: ClientApplicationRecord = {
     id: String(row.id),
     ownerUserId: String(row.owner_user_id),
     propertySlug: rental?.slug ? String(rental.slug) : null,
@@ -201,6 +204,10 @@ function mapApplication(row: Record<string, unknown>, options: { includeAllAppli
     })).sort((a, b) => a.uploadedAt.localeCompare(b.uploadedAt)),
     applicants: applicants.map((applicant) => ({
       id: String(applicant.id),
+      userId: applicant.owner_user_id ? String(applicant.owner_user_id) : null,
+      invitationDeliveryStatus: applicant.invitation_delivery_status as ApplicationApplicantRecord["invitationDeliveryStatus"],
+      creditReportVoluntaryAt: applicant.credit_report_voluntary_at ? String(applicant.credit_report_voluntary_at) : null,
+      creditReportConsentVersion: applicant.credit_report_consent_version ? String(applicant.credit_report_consent_version) : null,
       role: applicant.role as "primary" | "co_applicant",
       legalName: String(applicant.legal_name),
       email: String(applicant.email),
@@ -222,6 +229,34 @@ function mapApplication(row: Record<string, unknown>, options: { includeAllAppli
     convertedTenantId: row.converted_tenant_id ? String(row.converted_tenant_id) : null,
     convertedAt: row.converted_at ? String(row.converted_at) : null
   };
+  if (options.includeAllApplicantFiles) application.applicantDetails = notificationApplicants(row, application);
+  return application;
+}
+
+function notificationApplicants(row: Record<string, unknown>, application: ClientApplicationRecord) {
+  const applicantRows = (row.application_applicants ?? []) as Array<Record<string, unknown>>;
+  return applicantRows
+    .filter((applicant) => applicant.status !== "revoked")
+    .map((applicant) => {
+      // Primary edits and their signed snapshot live on client_applications;
+      // the primary applicant row retains its initial assignment-time draft.
+      const draft = applicationDraftSchema.safeParse(
+        applicant.role === "primary" ? application.draft : applicant.draft_payload ?? {}
+      );
+      if (!draft.success) {
+        throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "An applicant draft could not be loaded for email delivery.");
+      }
+      const id = String(applicant.id);
+      const publicApplicant = application.applicants.find((candidate) => candidate.id === id);
+      if (!publicApplicant) {
+        throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "An applicant record could not be loaded for email delivery.");
+      }
+      return {
+        ...publicApplicant,
+        draft: { ...draft.data, tenancy: application.draft.tenancy },
+        files: application.files.filter((file) => file.applicantId === id)
+      };
+    });
 }
 
 export async function loadApplicationSubmissionNotificationData(
@@ -261,29 +296,7 @@ export async function loadApplicationSubmissionNotificationData(
   }
   const row = result.data as unknown as Record<string, unknown>;
   const application = mapApplication(row, { includeAllApplicantFiles: true });
-  const applicantRows = (row.application_applicants ?? []) as Array<Record<string, unknown>>;
-  const applicants = applicantRows
-    .filter((applicant) => applicant.status !== "revoked")
-    .map((applicant) => {
-      // Primary edits and their signed snapshot live on client_applications;
-      // the primary applicant row retains its initial assignment-time draft.
-      const draft = applicationDraftSchema.safeParse(
-        applicant.role === "primary" ? application.draft : applicant.draft_payload ?? {}
-      );
-      if (!draft.success) {
-        throw new ApiError(503, "APPLICATION_DRAFT_INVALID", "An applicant draft could not be loaded for email delivery.");
-      }
-      const id = String(applicant.id);
-      const publicApplicant = application.applicants.find((candidate) => candidate.id === id);
-      if (!publicApplicant) {
-        throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "An applicant record could not be loaded for email delivery.");
-      }
-      return {
-        ...publicApplicant,
-        draft: draft.data,
-        files: application.files.filter((file) => file.applicantId === id)
-      };
-    });
+  const applicants = application.applicantDetails!;
   return { application, applicants };
 }
 
@@ -462,19 +475,27 @@ async function startClientApplicationWithoutRpc(
   return loadOwnedApplication(identity, String(created.data.id));
 }
 
-export async function listClientApplications(identity: ClientIdentity) {
+type ClientApplicationSummary = Pick<ClientApplicationRecord, "id" | "propertyTitle" | "propertyAddress" | "status" | "assignedAt" | "propertySlug" | "participatingApplicantId">;
+
+export async function listClientApplications(identity: ClientIdentity): Promise<ClientApplicationSummary[]> {
+  const memberships = await listLinkedApplicantMemberships(identity);
   if (process.env.DATA_BACKEND !== "supabase") {
-    return [...demoStore().values()]
-      .filter((application) => application.ownerUserId === identity.userId)
-      .map((application) => structuredClone(application));
+    return [...demoStore().values()].filter(a => a.ownerUserId === identity.userId || memberships.some(m => m.applicationId === a.id))
+      .map(a => a.ownerUserId === identity.userId ? structuredClone(a) : ({ ...structuredClone(a), draft: applicationDraftSchema.parse({}), files: [], applicants: [], participatingApplicantId: memberships.find(m => m.applicationId === a.id)!.applicantId }));
   }
-  const result = await supabaseService().from("client_applications")
-    .select(APPLICATION_SELECT)
-    .eq("owner_user_id", identity.userId)
-    .is("deleted_at", null)
-    .order("assigned_at", { ascending: false });
-  if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
-  return (result.data ?? []).map((row) => mapApplication(row as unknown as Record<string, unknown>));
+  const owned = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("owner_user_id", identity.userId).is("deleted_at", null).order("assigned_at", { ascending: false });
+  if (owned.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
+  const applications: ClientApplicationSummary[] = (owned.data ?? []).map(row => mapApplication(row as unknown as Record<string, unknown>));
+  if (memberships.length) {
+    const linked = await supabaseService().from("client_applications").select("id,property_title,property_address,status,assigned_at,rental_listings(slug)").in("id", memberships.map(m => m.applicationId)).is("deleted_at", null);
+    if (linked.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Linked applications could not be loaded.");
+    for (const row of linked.data ?? []) {
+      const rental = relation(row.rental_listings) as { slug?: string } | undefined;
+      applications.push({ id: row.id, propertyTitle: row.property_title, propertyAddress: row.property_address, status: row.status,
+        assignedAt: row.assigned_at, propertySlug: rental?.slug ?? null, participatingApplicantId: memberships.find(m => m.applicationId === row.id)!.applicantId });
+    }
+  }
+  return applications;
 }
 
 export async function startOrReuseClientApplication(identity: ClientIdentity, propertySlug: string) {
@@ -581,7 +602,6 @@ export async function saveApplicationDraft(
   if (application.status !== "draft") {
     throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application can no longer be edited.");
   }
-  await assertApplicationSignaturesUnlocked(id);
   const parsedDraft = applicationDraftSchema.parse(input.draft);
   const { adultCount, childCount } = parsedDraft.tenancy;
   const draft: ApplicationDraft = adultCount !== null && childCount !== null
@@ -593,6 +613,8 @@ export async function saveApplicationDraft(
         }
       }
     : parsedDraft;
+  if (JSON.stringify(draft) === JSON.stringify(application.draft)) return { draft, draftUpdatedAt: application.draftUpdatedAt };
+  await assertApplicationSignaturesUnlocked(id, JSON.stringify(draft.tenancy) !== JSON.stringify(application.draft.tenancy) ? undefined : application.applicants.find(applicant => applicant.role === "primary")?.id);
   const updatedAt = new Date().toISOString();
 
   if (process.env.DATA_BACKEND !== "supabase") {
@@ -717,7 +739,7 @@ export async function uploadApplicationFile(
   const application = await loadOwnedApplication(identity, id);
   assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
-  await assertApplicationSignaturesUnlocked(id);
+  await assertApplicationSignaturesUnlocked(id, application.applicants.find(applicant => applicant.role === "primary")?.id);
   if (application.files.length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_FILES", "An application can include at most 8 files.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   const inspected = inspectUpload(file, bytes);
@@ -735,6 +757,7 @@ export async function uploadApplicationFile(
 
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
+    if (documentType === "credit_score_report") stored.draft.creditReportVoluntary = false;
     stored.files.push(record);
     syncMemoryPrimaryApplicantFiles(id, stored.files);
     globalThis.__tingtingClientApplicationFileBytes ??= new Map();
@@ -790,6 +813,7 @@ export async function submitClientApplication(
   if (!input.sharingAuthorization || !input.screeningConsent) {
     throw new ApiError(400, "APPLICATION_CONSENT_REQUIRED", "Both affirmative application authorizations are required.");
   }
+  assertCreditReportVoluntary(application.draft, application.files);
   const draftIssues = validateCompleteApplicationDraft(application.draft);
   if (draftIssues.length > 0) {
     throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${draftIssues[0].section.replaceAll("_", " ")} before submitting.`);
@@ -977,7 +1001,7 @@ export async function applicationReceipt(identity: ClientIdentity, id: string) {
 
 export async function listApplicationsForStaff(admin: AdminIdentity) {
   void admin;
-  if (process.env.DATA_BACKEND !== "supabase") return [...demoStore().values()].map((item) => ({ ...structuredClone(item), applicants: getMemoryApplicationApplicants(item.id), files: getMemoryAllApplicantFilesForStaff(item.id) }));
+  if (process.env.DATA_BACKEND !== "supabase") return [...demoStore().values()].map((item) => ({ ...structuredClone(item), applicants: getMemoryApplicationApplicants(item.id), files: getMemoryAllApplicantFilesForStaff(item.id), applicantDetails: getMemoryApplicationNotificationApplicants(item.id) }));
   const result = await supabaseService().from("client_applications")
     .select(APPLICATION_SELECT)
     .is("deleted_at", null)
@@ -1099,7 +1123,7 @@ function inspectLeaseUpload(file: File, bytes: Uint8Array) {
 async function loadApplicationForStaff(id: string) {
   if (process.env.DATA_BACKEND !== "supabase") {
     const application = demoStore().get(id);
-    return application ? structuredClone(application) : null;
+    return application ? { ...structuredClone(application), applicants: getMemoryApplicationApplicants(id), files: getMemoryAllApplicantFilesForStaff(id), applicantDetails: getMemoryApplicationNotificationApplicants(id) } : null;
   }
   const result = await supabaseService().from("client_applications")
     .select(APPLICATION_SELECT)
@@ -1406,12 +1430,15 @@ export async function convertApprovedApplicationToTenant(
     }
     const tenant = await repository.createTenant(tenantPayload, admin.userId);
     await repository.linkClientToTenant(current.ownerUserId, { tenantId: tenant.id }, admin.userId);
+    for (const member of getMemoryApplicationApplicants(id)) {
+      if (member.role === "co_applicant" && member.userId && member.status === "signed") await repository.linkClientToTenant(member.userId, { tenantId: tenant.id }, admin.userId);
+    }
     const convertedAt = new Date().toISOString();
     const stored = demoStore().get(id)!;
     stored.convertedTenantId = tenant.id;
     stored.convertedAt = convertedAt;
     stored.audit.push({ action: "application.converted_to_tenant", createdAt: convertedAt });
-    return { application: structuredClone(stored), tenant };
+    return { application: (await loadApplicationForStaff(id))!, tenant };
   }
 
   const converted = await supabaseService().rpc("convert_approved_application_to_tenant", {

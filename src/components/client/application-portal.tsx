@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CreditReportConsent } from "@/components/client/credit-report-consent";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, type ReactNode, useMemo, useState } from "react";
 import {
@@ -152,6 +153,9 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       setError(`Upload the required ${APPLICATION_DOCUMENT_LABELS[missingDocumentType!].toLowerCase()} or provide an explanation of at least 10 characters before continuing.`);
       return false;
     }
+    if (options.validate && step === 7 && files.some(file => file.documentType === "credit_score_report") && !draft.creditReportVoluntary) {
+      setError("Confirm that you voluntarily provide your credit score report before continuing."); return false;
+    }
     setBusy(true);
     const response = await fetch(`/api/client/applications/${application.id}/draft`, {
       method: "PATCH",
@@ -197,6 +201,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       } else {
         const body = await response.json() as { data: ApplicationFileRecord };
         setFiles((current) => [...current, body.data]);
+        if (documentType === "credit_score_report") setDraft(current => ({ ...current, creditReportVoluntary: false }));
         setMessage(`${APPLICATION_DOCUMENT_LABELS[documentType]} uploaded to private storage. Staff screening is required before processing.`);
       }
     } catch {
@@ -223,7 +228,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
         return false;
       }
       setApplicants((current) => [...current, body.data!.applicant!]);
-      setMessage(`Secure invitation sent to ${body.data.applicant.email}.`);
+      setMessage(body.data.applicant.invitationDeliveryStatus === "failed" ? "The applicant was added, but email delivery failed. It will retry automatically; you can also resend." : body.data.applicant.invitationDeliveryStatus === "scheduled" ? "The invitation is waiting to send." : `Secure invitation sent to ${body.data.applicant.email}.`);
       return true;
     } catch {
       setError("The invitation could not be sent. Check your connection and try again.");
@@ -245,7 +250,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
         return;
       }
       setApplicants((current) => current.map((applicant) => applicant.id === applicantId ? body.data!.applicant! : applicant));
-      setMessage(`A new secure invitation was sent to ${body.data.applicant.email}.`);
+      setMessage(body.data.applicant.invitationDeliveryStatus === "failed" ? "The applicant was retained, but email delivery failed. It will retry automatically; you can also resend." : body.data.applicant.invitationDeliveryStatus === "scheduled" ? "The invitation is waiting to send." : `A new secure invitation was sent to ${body.data.applicant.email}.`);
     } catch {
       setError("The invitation could not be resent. Check your connection and try again.");
     } finally {
@@ -316,7 +321,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       onInvite={inviteCoApplicant}
       onResend={resendCoApplicant}
       onRevoke={revokeCoApplicant}
-      onRefresh={() => void persistDraft().then((saved) => saved && window.location.reload())}
+      onRefresh={() => { void fetch(`/api/client/applications/${application.id}/applicants`, { cache: "no-store" }).then(async response => { if (!response.ok) { setError(await responseMessage(response)); return; } const body = await response.json(); setApplicants(body.data.applicants); setMessage("Applicant status refreshed."); }).catch(() => setError("Applicant status could not be refreshed.")); }}
     />
     <div className="application-wizard">
       <aside className="application-stepper" aria-label="Application progress">
@@ -411,6 +416,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
                   <span className="application-file-picker-icon" aria-hidden="true">↑</span>
                   <span><strong>{busy ? "Uploading securely…" : categoryFiles.length > 0 ? "Upload another file" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span>
                 </label>
+                {documentType === "credit_score_report" && <CreditReportConsent checked={draft.creditReportVoluntary} disabled={busy} hasReport={categoryFiles.length > 0} onChange={value => setDraft(current => ({ ...current, creditReportVoluntary: value }))} />}
                 {required && <div className="application-document-explanation">
                   <span className="application-document-or" aria-hidden="true">or</span>
                   <label htmlFor={explanationId}>Explain why you cannot provide {APPLICATION_DOCUMENT_LABELS[documentType]}</label>
@@ -448,7 +454,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
               return explanation ? [[`${APPLICATION_DOCUMENT_LABELS[documentType]} — explanation`, explanation]] : [];
             })
           ]} />
-        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to the stated credit-score, reference, housing, and income-verification checks for this rental application. *</span></label><Field label="Type your full legal name to sign *" wide hint="Typing your legal name and selecting Submit application creates your electronic signature."><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></Field><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7 || !coApplicantsReady}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}{!coApplicantsReady && <p className="field-hint" role="status">Every active co-applicant must sign before you can submit.</p>}</form>}
+        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to reference, housing and income verification, and review of the documents I provide for this rental application. *</span></label><Field label="Type your full legal name to sign *" wide hint="Typing your legal name and selecting Submit application creates your electronic signature."><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></Field><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7 || !coApplicantsReady}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}{!coApplicantsReady && <p className="field-hint" role="status">Every active co-applicant must sign before you can submit.</p>}</form>}
 
         {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
         {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}

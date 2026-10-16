@@ -4,6 +4,7 @@ import type { AdminIdentity } from "@/lib/auth";
 import { AdminMobileNavigation } from "@/components/admin/admin-mobile-navigation";
 import { AdminNavigation } from "@/components/admin/admin-navigation";
 import { LogoutButton } from "@/components/admin/logout-button";
+import { AdminSessionGuard } from "@/components/admin/admin-session-guard";
 
 export function AdminShell({
   admin,
@@ -18,6 +19,7 @@ export function AdminShell({
 }) {
   return (
     <div className="admin-shell">
+      <AdminSessionGuard lastActiveAt={admin.lastActiveAt} />
       <aside className="admin-sidebar">
         <div className="admin-sidebar-brand">
           <Link className="admin-brand" href="/admin/properties" aria-label="Silverkey admin home">

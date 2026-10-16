@@ -13,8 +13,11 @@ interface Payload {
   expiresAt: number;
 }
 
-function configuration() {
-  const email = (process.env.LOCAL_CLIENT_EMAIL || "client@example.test").trim().toLowerCase();
+function configuration(requestedEmail?: string) {
+  const primaryEmail = (process.env.LOCAL_CLIENT_EMAIL || "client@example.test").trim().toLowerCase();
+  const secondary = process.env.DATA_BACKEND !== "supabase" && process.env.LOCAL_CLIENT_SECONDARY_EMAIL?.trim().toLowerCase();
+  const isSecondary = Boolean(secondary && requestedEmail?.trim().toLowerCase() === secondary);
+  const email = isSecondary ? secondary as string : primaryEmail;
   const passwordHash = process.env.LOCAL_CLIENT_PASSWORD_HASH || process.env.LOCAL_ADMIN_PASSWORD_HASH;
   const secret = process.env.LOCAL_CLIENT_SESSION_SECRET || process.env.LOCAL_ADMIN_SESSION_SECRET;
   if (!email || !passwordHash || !secret || secret.length < 32) {
@@ -22,9 +25,10 @@ function configuration() {
   }
   return {
     email,
+    userId: isSecondary ? "00000000-0000-4000-8000-000000000010" : LOCAL_CLIENT_USER_ID,
     passwordHash,
     secret,
-    displayName: process.env.LOCAL_CLIENT_DISPLAY_NAME?.trim() || "Demo Applicant"
+    displayName: isSecondary ? "Second Applicant" : process.env.LOCAL_CLIENT_DISPLAY_NAME?.trim() || "Demo Applicant"
   };
 }
 
@@ -35,7 +39,7 @@ function derive(password: string, salt: Buffer, length: number, options: { N: nu
 }
 
 export async function verifyLocalClientCredentials(email: string, password: string) {
-  const config = configuration();
+  const config = configuration(email);
   if (email.trim().toLowerCase() !== config.email) return false;
   const [algorithm, nValue, rValue, pValue, saltValue, hashValue] = config.passwordHash.split(":");
   if (algorithm !== "scrypt" || !nValue || !rValue || !pValue || !saltValue || !hashValue) {
@@ -59,11 +63,11 @@ function signature(value: string, secret: string) {
 }
 
 export function createLocalClientSession(email: string, now = Date.now()) {
-  const config = configuration();
+  const config = configuration(email);
   const issuedAt = Math.floor(now / 1000);
   const payload: Payload = {
     version: 1,
-    userId: LOCAL_CLIENT_USER_ID,
+    userId: config.userId,
     email: email.trim().toLowerCase(),
     issuedAt,
     expiresAt: issuedAt + LOCAL_CLIENT_SESSION_SECONDS
@@ -81,11 +85,12 @@ export function verifyLocalClientSession(token: string | undefined, now = Date.n
     const expected = signature(encoded, config.secret);
     if (provided.length !== expected.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(expected))) return null;
     const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Partial<Payload>;
+    const account = configuration(payload.email);
     const nowSeconds = Math.floor(now / 1000);
-    if (payload.version !== 1 || payload.userId !== LOCAL_CLIENT_USER_ID || payload.email !== config.email ||
+    if (payload.version !== 1 || payload.userId !== account.userId || payload.email !== account.email ||
         typeof payload.issuedAt !== "number" || typeof payload.expiresAt !== "number" ||
         payload.issuedAt > nowSeconds + 60 || payload.expiresAt <= nowSeconds) return null;
-    return { userId: payload.userId, email: config.email, displayName: config.displayName };
+    return { userId: payload.userId, email: account.email, displayName: account.displayName };
   } catch {
     return null;
   }

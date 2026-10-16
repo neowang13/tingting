@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CreditReportConsent } from "@/components/client/credit-report-consent";
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   APPLICATION_DOCUMENT_LABELS,
@@ -61,50 +62,46 @@ function accessError(response: Response, body: ApiEnvelope<unknown>) {
   return body.error?.message || "We could not open this secure application. Try the invitation link again.";
 }
 
-export function GuestApplicationEntry() {
+export function GuestApplicationEntry({ signedIn = false }: { signedIn?: boolean }) {
   const [bootstrap, setBootstrap] = useState<GuestBootstrap | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [invitation, setInvitation] = useState<{ token?: string; invitationId?: string } | null>(null);
+  const [nextPath, setNextPath] = useState("/client/invitations");
+
+  async function openApplication(input?: { token?: string; invitationId?: string; applicantId?: string }) {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/application-guests/session", input ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) } : { method: "GET", cache: "no-store" });
+      const body = await readEnvelope<GuestBootstrap>(response);
+      if (!response.ok || !body.data) { setError(accessError(response, body)); return; }
+      sessionStorage.removeItem("silverkey-pending-invitation");
+      setBootstrap(body.data); setInvitation(null);
+    } catch { setError("We could not open the application. Check your connection and try again."); }
+    finally { setLoading(false); }
+  }
 
   useEffect(() => {
-    const controller = new AbortController();
-
-    async function openGuestApplication() {
-      const fragmentToken = new URLSearchParams(window.location.hash.slice(1)).get("token") ?? undefined;
-      if (fragmentToken) window.history.replaceState({}, "", "/application/guest");
-      setLoading(true);
-      setError("");
-      try {
-        const response = await fetch("/api/application-guests/session", fragmentToken ? {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: fragmentToken }),
-          signal: controller.signal
-        } : { method: "GET", signal: controller.signal });
-
-        const body = await readEnvelope<GuestBootstrap>(response);
-        if (!response.ok || !body.data) {
-          setError(accessError(response, body));
-          return;
-        }
-        setBootstrap(body.data);
-      } catch (caught) {
-        if ((caught as Error).name !== "AbortError") {
-          setError("We could not open the application. Check your connection and try again.");
-        }
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
-      }
+    async function restoreInvitation() {
+    const params = await Promise.resolve(new URLSearchParams(window.location.search));
+    const invitationId = params.get("invitation");
+    const token = new URLSearchParams(window.location.hash.slice(1)).get("token");
+    const applicantId = params.get("applicant");
+    if (token) sessionStorage.setItem("silverkey-pending-invitation", token);
+    const path = `/client/invitations${invitationId ? `?invitation=${encodeURIComponent(invitationId)}` : applicantId ? `?applicant=${encodeURIComponent(applicantId)}` : ""}`;
+    window.history.replaceState({}, "", path); setNextPath(path);
+    const pendingToken = token ?? sessionStorage.getItem("silverkey-pending-invitation");
+    if (invitationId || pendingToken) { setInvitation(invitationId ? { invitationId } : { token: pendingToken! }); setLoading(false); }
+    else if (!signedIn) setLoading(false);
+    else void openApplication(applicantId ? { applicantId } : undefined);
     }
+    void restoreInvitation();
+  }, [signedIn]);
 
-    void openGuestApplication();
-    return () => controller.abort();
-  }, []);
-
-  if (loading) return <GuestShell><div className="guest-application-state" role="status" aria-live="polite"><span className="guest-loading-mark" aria-hidden="true" /><h1>Opening your secure application…</h1><p>No account or password is required.</p></div></GuestShell>;
-
-  if (!bootstrap) return <GuestShell><div className="guest-application-state guest-access-error" role="alert"><p className="eyebrow">Secure link unavailable</p><h1>We cannot open this invitation</h1><p>{error}</p><p>For privacy, do not email application documents. Contact <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`}>{PUBLIC_CONTACT_EMAIL}</a> using only the property address and your name.</p></div></GuestShell>;
-
+  if (!signedIn) return <GuestShell><section className="client-panel"><p className="eyebrow">Joint application invitation</p><h1>Use your own User account</h1><p>Sign in or register with the email address this invitation was sent to, then verify your email. Your documents and confirmations belong to your account.</p><Link className="button" href={`/client/login?next=${encodeURIComponent(nextPath)}`}>Sign in to accept</Link>{" "}<Link className="button secondary" href={`/client/signup?next=${encodeURIComponent(nextPath)}`}>Create my account</Link></section></GuestShell>;
+  if (loading) return <GuestShell><div className="guest-application-state" role="status"><h1>Opening your application…</h1></div></GuestShell>;
+  if (invitation && !bootstrap) return <GuestShell><section className="client-panel"><p className="eyebrow">Joint application invitation</p><h1>Accept your invitation</h1><p>Your verified account must match the invited email address. You will fill in and sign only your own information.</p>{error && <p role="alert" className="form-status error">{error}</p>}<button className="button" onClick={() => void openApplication(invitation)}>Accept invitation</button>{" "}<Link href="/client/applications">My applications</Link></section></GuestShell>;
+  if (!bootstrap) return <GuestShell><div className="guest-application-state" role="alert"><h1>We cannot open this application</h1><p>{error}</p><Link href="/client/applications">Return to my applications</Link><p>Contact <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`}>{PUBLIC_CONTACT_EMAIL}</a> using only the property and application reference.</p></div></GuestShell>;
   return <GuestShell><GuestApplicationPortal initialData={bootstrap} /></GuestShell>;
 }
 
@@ -112,7 +109,7 @@ function GuestShell({ children }: { children: ReactNode }) {
   return <main className="client-route guest-application-main">
     <header className="guest-application-header">
       <Link href="/" aria-label="Ting Ting Xu home" className="guest-wordmark">Ting Ting Xu</Link>
-      <span>Secure co-applicant application</span>
+      <span>Joint application</span><Link href="/client/applications">My applications</Link>
     </header>
     {children}
   </main>;
@@ -157,6 +154,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
       const issue = applicationDraftStepIssues(draft, section)[0];
       if (issue) return issue;
     }
+    if (targetStep === 5 && files.some(file => file.documentType === "credit_score_report") && !draft.creditReportVoluntary) return "Confirm that you voluntarily provide your credit score report before continuing.";
     if (targetStep === 5 && !documentsComplete) {
       const missing = APPLICATION_REQUIRED_DOCUMENT_TYPES.find(
         (documentType) => !applicationDocumentRequirementSatisfied(documentType, files, draft.documentExplanations)
@@ -222,6 +220,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
         setError(accessError(response, body));
       } else {
         setFiles((current) => [...current, body.data!]);
+        if (documentType === "credit_score_report") setDraft(current => ({ ...current, creditReportVoluntary: false }));
         setMessage(`${APPLICATION_DOCUMENT_LABELS[documentType]} uploaded securely.`);
       }
     } catch {
@@ -319,7 +318,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
       {step === 2 && <TenancyStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(1)} onSubmit={continueStep} />}
       {step === 3 && <HousingIncomeStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(2)} onSubmit={continueStep} />}
       {step === 4 && <ContactsStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(3)} onSubmit={continueStep} />}
-      {step === 5 && <DocumentsStep draft={draft} files={files} busy={busy} updateExplanation={updateDocumentExplanation} upload={uploadSelectedFile} onBack={() => setStep(4)} onSubmit={continueStep} />}
+      {step === 5 && <DocumentsStep updateCreditConsent={value => setDraft(current => ({ ...current, creditReportVoluntary: value }))} draft={draft} files={files} busy={busy} updateExplanation={updateDocumentExplanation} upload={uploadSelectedFile} onBack={() => setStep(4)} onSubmit={continueStep} />}
       {step === 6 && <ReviewSignStep data={data} draft={draft} files={files} busy={busy} onBack={() => setStep(5)} onEdit={setStep} onSubmit={sign} />}
       {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
       {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
@@ -356,17 +355,8 @@ function PersonalStep({ draft, busy, updateSection, onSubmit }: GuestStepProps) 
   </div><GuestActions busy={busy} first /></form>;
 }
 
-function TenancyStep({ draft, busy, updateSection, onBack, onSubmit }: GuestStepProps) {
-  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Household and tenancy request</h2><p>Confirm the tenancy request from your perspective.</p><div className="application-form-grid">
-    <GuestField label="Desired move-in date *"><input type="date" value={draft.tenancy.desiredMoveInDate} onChange={(event) => updateSection("tenancy", { desiredMoveInDate: event.target.value })} required /></GuestField>
-    <GuestField label="Preferred lease term *"><select value={draft.tenancy.leaseTerm} onChange={(event) => updateSection("tenancy", { leaseTerm: event.target.value })} required><option value="" disabled>Choose a term</option><option value="month_to_month">Month to month</option><option value="six_months">Six months</option><option value="one_year">One year</option><option value="other">Other</option></select></GuestField>
-    <GuestField label="Adults *"><input type="number" min={1} max={12} value={draft.tenancy.adultCount ?? ""} onChange={(event) => updateSection("tenancy", { adultCount: event.target.value === "" ? null : Number(event.target.value) })} required /></GuestField>
-    <GuestField label="Children *"><input type="number" min={0} max={12} value={draft.tenancy.childCount ?? ""} onChange={(event) => updateSection("tenancy", { childCount: event.target.value === "" ? null : Number(event.target.value) })} required /></GuestField>
-    <GuestField label="Do you still need a showing? *"><select value={draft.tenancy.needsShowing} onChange={(event) => updateSection("tenancy", { needsShowing: event.target.value })} required><option value="" disabled>Choose one</option><option value="yes">Yes</option><option value="no">No</option></select></GuestField>
-    <fieldset className="application-field-wide guest-inline-options"><legend>Housing needs</legend><label><input type="checkbox" checked={draft.tenancy.hasPets} onChange={(event) => updateSection("tenancy", { hasPets: event.target.checked })} />I have pets</label><label><input type="checkbox" checked={draft.tenancy.needsParking} onChange={(event) => updateSection("tenancy", { needsParking: event.target.checked })} />I require parking</label></fieldset>
-    {draft.tenancy.hasPets && <GuestField label="Pet details *" wide><input value={draft.tenancy.petDetails} onChange={(event) => updateSection("tenancy", { petDetails: event.target.value })} maxLength={300} required /></GuestField>}
-    <GuestField label="Why does this home fit your needs?" wide><textarea rows={4} maxLength={500} value={draft.tenancy.reasonForChoosing} onChange={(event) => updateSection("tenancy", { reasonForChoosing: event.target.value })} /></GuestField>
-  </div><GuestActions busy={busy} onBack={onBack} /></form>;
+function TenancyStep({ draft, busy, onBack, onSubmit }: GuestStepProps) {
+  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Shared household and tenancy</h2><p>These details apply to everyone in this application and are maintained by the primary applicant. The occupant total is counted once.</p><dl className="application-review-group"><dt>Move-in</dt><dd>{draft.tenancy.desiredMoveInDate || "Not set by primary applicant"}</dd><dt>Lease term</dt><dd>{draft.tenancy.leaseTerm.replaceAll("_", " ") || "Not set"}</dd><dt>Adults / children</dt><dd>{draft.tenancy.adultCount ?? "—"} / {draft.tenancy.childCount ?? "—"}</dd><dt>Total occupants</dt><dd>{draft.tenancy.occupantCount}</dd></dl><GuestActions busy={busy} onBack={onBack} /></form>;
 }
 
 function HousingIncomeStep({ draft, busy, updateSection, onBack, onSubmit }: GuestStepProps) {
@@ -407,10 +397,11 @@ function ContactsStep({ draft, busy, updateSection, onBack, onSubmit }: GuestSte
   </div></fieldset><GuestActions busy={busy} onBack={onBack} /></form>;
 }
 
-function DocumentsStep({ draft, files, busy, updateExplanation, upload, onBack, onSubmit }: {
+function DocumentsStep({ draft, files, busy, updateExplanation, updateCreditConsent, upload, onBack, onSubmit }: {
   draft: ApplicationDraft;
   files: ApplicationFileRecord[];
   busy: boolean;
+  updateCreditConsent: (value: boolean) => void;
   updateExplanation: (documentType: keyof ApplicationDraft["documentExplanations"], value: string) => void;
   upload: (event: ChangeEvent<HTMLInputElement>, documentType: ApplicationDocumentType) => void;
   onBack: () => void;
@@ -429,6 +420,7 @@ function DocumentsStep({ draft, files, busy, updateExplanation, upload, onBack, 
           <input aria-label={`Choose ${APPLICATION_DOCUMENT_LABELS[documentType]} file`} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void upload(event, documentType)} disabled={busy} />
           <span className="application-file-picker-icon" aria-hidden="true">↑</span><span><strong>{categoryFiles.length ? "Upload another file" : "Choose file to upload"}</strong><small>The file uploads after you select it.</small></span>
         </label>
+        {documentType === "credit_score_report" && <CreditReportConsent checked={draft.creditReportVoluntary} disabled={busy} hasReport={categoryFiles.length > 0} onChange={updateCreditConsent} />}
         {requiredType && <div className="application-document-explanation"><span className="application-document-or" aria-hidden="true">or</span><label htmlFor={explanationId}>Explain why you cannot provide {APPLICATION_DOCUMENT_LABELS[documentType]}</label><textarea id={explanationId} rows={3} minLength={10} maxLength={500} value={explanation} onChange={(event) => updateExplanation(requiredType, event.target.value)} /><small className="field-hint">10–500 characters. An explanation may not be sufficient to verify your application.</small></div>}
       </section>;
     })}
@@ -452,7 +444,7 @@ function ReviewSignStep({ data, draft, files, busy, onBack, onEdit, onSubmit }: 
     <ReviewCard title="Documents" onEdit={() => onEdit(5)} rows={files.length ? files.map((file) => [APPLICATION_DOCUMENT_LABELS[file.documentType], file.originalFilename]) : [["Files", "Explanations provided"]]} />
   </div><div className="application-terms" tabIndex={0} aria-label="Application collection and consent notice">{data.application.termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p>
     <label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit to assess this application. *</span></label>
-    <label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to the stated credit-score, reference, housing, and income-verification checks for my rental application. *</span></label>
+    <label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to reference, housing and income verification, and review of the documents I provide for my rental application. *</span></label>
     <GuestField label="Type your full legal name to sign *" wide hint={`Enter your legal name as shown above: ${data.applicant.legalName}`}><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></GuestField>
     <p className="guest-signature-notice">By selecting “Sign my application,” you confirm this typed name is your electronic signature and that the information you provided is accurate.</p>
     <div className="application-step-actions"><button className="button secondary" type="button" disabled={busy} onClick={onBack}>Back</button><button className="button" type="submit" disabled={busy}>{busy ? "Recording signature…" : "Sign my application"}</button></div>

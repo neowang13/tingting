@@ -304,7 +304,7 @@ describe("Supabase administrator API authentication", () => {
     configureSupabaseSession();
     await expect(
       requireAdminRequest(
-        adminRequest("/api/admin/dashboard", {}, { lastActive: Date.now() - 31 * 60_000 })
+        adminRequest("/api/admin/dashboard", {}, { lastActive: Date.now() - 61 * 60_000 })
       )
     ).rejects.toMatchObject({ status: 401, code: "SESSION_EXPIRED" });
 
@@ -314,7 +314,7 @@ describe("Supabase administrator API authentication", () => {
         email: "a***@example.test",
         displayName: "Admin",
         assuranceLevel: "aal2",
-        authenticatedAt: new Date(Date.now() - 11 * 60_000).toISOString()
+        authenticatedAt: new Date(Date.now() - 61 * 60_000).toISOString()
       })
     ).rejects.toThrowError(ApiError);
   });

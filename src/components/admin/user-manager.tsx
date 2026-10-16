@@ -58,10 +58,11 @@ export function UserDetails({ user }: { user: AdminUser }) {
     <section className="client-panel">
       <h2>Applications and contracts</h2>
       {user.applications.length === 0 ? <p>No applications yet.</p> : <div className="table-scroll"><table className="admin-table">
-        <thead><tr><th>Property</th><th>Application</th><th>Signed lease</th><th>Action</th></tr></thead>
+        <thead><tr><th>Property</th><th>Application</th><th>Joint applicants</th><th>Signed lease</th><th>Action</th></tr></thead>
         <tbody>{user.applications.map((application) => <tr key={application.id}>
           <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
-          <td>{application.status.replaceAll("_", " ")}</td>
+          <td>{application.status.replaceAll("_", " ")}<small>{application.role === "primary" ? "Primary applicant" : "Co-applicant"}</small></td>
+          <td>{application.relatedUsers.map(other => <div key={other.userId}><Link href={`/admin/users/${other.userId}`}>{other.legalName} ↗</Link></div>)}</td>
           <td>{application.convertedAt && application.hasSignedLease ? "Confirmed by admin" : application.hasSignedLease ? "Uploaded; awaiting confirmation" : "Not uploaded"}</td>
           <td><Link className="row-action" href={`/admin/applications?application=${application.id}&view=${application.status === "approved" ? "approved" : "open"}`}>Review application</Link></td>
         </tr>)}</tbody>

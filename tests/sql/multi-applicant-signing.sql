@@ -15,6 +15,9 @@ insert into public.client_profiles(user_id, display_name, is_active)
 values ('00000000-0000-4000-8000-000000000580', 'Multi Owner', true)
 on conflict (user_id) do update set display_name = excluded.display_name, is_active = true;
 
+insert into auth.users(id,email,email_confirmed_at,raw_user_meta_data) values ('00000000-0000-4000-8000-000000000583','multi-guest@example.test',now(),'{"account_type":"client"}');
+insert into public.client_profiles(user_id,display_name,is_active) values ('00000000-0000-4000-8000-000000000583','Guest Applicant',true) on conflict(user_id) do update set is_active=true;
+
 insert into public.client_applications(
   id, owner_user_id, property_title, property_address, form_version_id, terms_version_id
 )
@@ -62,8 +65,8 @@ begin
     raise exception 'resend did not atomically leave exactly one new active invitation';
   end if;
 
-  perform public.exchange_application_applicant_invitation(
-    repeat('3', 64), repeat('4', 64), now() + interval '12 hours', '{}'::jsonb
+  perform public.claim_linked_applicant_invitation(
+    '00000000-0000-4000-8000-000000000583', repeat('3', 64), repeat('4', 64), now() + interval '12 hours', '{}'::jsonb
   );
   select form.* into v_form
   from public.client_applications application

@@ -2,8 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { CLIENT_SUPABASE_COOKIE_NAME } from "@/lib/client-auth-config";
 
-const ADMIN_IDLE_TIMEOUT_MS = 30 * 60_000;
-const ADMIN_ABSOLUTE_TIMEOUT_MS = 12 * 60 * 60_000;
+import { ADMIN_IDLE_TIMEOUT_MS, ADMIN_ABSOLUTE_TIMEOUT_MS } from "@/lib/admin-session-policy";
 const CLIENT_IDLE_TIMEOUT_MS = 15 * 60_000;
 const CLIENT_ABSOLUTE_TIMEOUT_MS = 60 * 60_000;
 
@@ -21,8 +20,8 @@ function sessionExpired(
   const lastActive = readTrackingTime(request.cookies.get(options.lastActiveCookie)?.value, now);
   const sessionStarted = readTrackingTime(request.cookies.get(options.startedCookie)?.value, now);
   return (
-    now - lastActive > options.idleMs ||
-    now - sessionStarted > options.absoluteMs ||
+    now - lastActive >= options.idleMs ||
+    now - sessionStarted >= options.absoluteMs ||
     lastActive > now + 60_000 ||
     sessionStarted > now + 60_000
   );
@@ -37,7 +36,8 @@ function expiredLoginUrl(request: NextRequest, loginPath: string, preserveClient
 }
 
 export async function proxy(request: NextRequest) {
-  const clientRoute = request.nextUrl.pathname.startsWith("/client/applications") ||
+  if (["/admin/login", "/admin/reset-password"].includes(request.nextUrl.pathname)) return NextResponse.next();
+  const clientRoute = request.nextUrl.pathname.startsWith("/client/invitations") || request.nextUrl.pathname.startsWith("/api/application-guests") || request.nextUrl.pathname.startsWith("/client/applications") ||
     request.nextUrl.pathname.startsWith("/client/apply") ||
     request.nextUrl.pathname.startsWith("/api/client/applications");
   const tracking = clientRoute
@@ -69,12 +69,16 @@ export async function proxy(request: NextRequest) {
       redirectResponse.cookies.delete(tracking.sessionCookie);
       redirectResponse.cookies.delete(tracking.lastActiveCookie);
       redirectResponse.cookies.delete(tracking.startedCookie);
-      if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ success: false, error: { code: "SESSION_EXPIRED", message: "The session expired." } }, { status: 401 });
+      if (request.nextUrl.pathname.startsWith("/api/")) {
+        const denied = NextResponse.json({ success: false, error: { code: "SESSION_EXPIRED", message: "The session expired." } }, { status: 401 });
+        redirectResponse.cookies.getAll().forEach(c => denied.cookies.set(c));
+        return denied;
+      }
       return redirectResponse;
     }
 
     const secure = request.nextUrl.protocol === "https:";
-    response.cookies.set(tracking.lastActiveCookie, String(now), {
+    if (clientRoute) response.cookies.set(tracking.lastActiveCookie, String(now), {
       httpOnly: true,
       sameSite: "lax",
       secure,
@@ -113,18 +117,18 @@ export async function proxy(request: NextRequest) {
 
   const now = Date.now();
   if (sessionExpired(request, now, tracking)) {
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
     response.cookies.delete(tracking.lastActiveCookie);
     response.cookies.delete(tracking.startedCookie);
-    if (!request.nextUrl.pathname.startsWith("/api/")) {
-      const loginUrl = expiredLoginUrl(request, tracking.loginPath, clientRoute);
-      return NextResponse.redirect(loginUrl);
-    }
-    return response;
+    const denied = request.nextUrl.pathname.startsWith("/api/")
+      ? NextResponse.json({ success: false, error: { code: "SESSION_EXPIRED", message: "The session expired." } }, { status: 401 })
+      : NextResponse.redirect(expiredLoginUrl(request, tracking.loginPath, clientRoute));
+    response.cookies.getAll().forEach(cookie => denied.cookies.set(cookie));
+    return denied;
   }
 
   const secure = request.nextUrl.protocol === "https:";
-  response.cookies.set(tracking.lastActiveCookie, String(now), {
+  if (clientRoute) response.cookies.set(tracking.lastActiveCookie, String(now), {
     httpOnly: true,
     sameSite: "lax",
     secure,
@@ -144,5 +148,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/api/admin/:path*", "/client/applications/:path*", "/client/apply/:path*", "/api/client/applications/:path*"]
+  matcher: ["/admin/:path*", "/api/admin/:path*", "/client/applications/:path*", "/client/apply/:path*", "/api/client/applications/:path*", "/client/invitations/:path*", "/api/application-guests/:path*"]
 };

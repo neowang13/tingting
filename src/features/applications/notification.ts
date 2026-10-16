@@ -60,6 +60,11 @@ function applicantDisplayName(applicant: ApplicationNotificationApplicant) {
   return draftName || applicant.legalName || "Applicant";
 }
 
+function voluntaryReportStatus(applicant: ApplicationNotificationApplicant) {
+  if (!applicant.files.some(file => file.documentType === "credit_score_report")) return "No credit report uploaded";
+  return applicant.creditReportVoluntaryAt ? `Confirmed by ${applicantDisplayName(applicant)} · ${formatDateTime(applicant.creditReportVoluntaryAt)} · version ${applicant.creditReportConsentVersion}` : "Not recorded for this submission";
+}
+
 function detailRows(rows: Array<[string, string | number | null | undefined]>) {
   return rows.map(([label, value]) => `<tr>
     <td style="border-bottom:1px solid #ECE9E3;color:#6B6F6D;font-size:12px;font-weight:700;padding:9px 14px 9px 0;vertical-align:top;width:34%">${escapeHtml(label)}</td>
@@ -100,6 +105,7 @@ function applicantCards(applicant: ApplicationNotificationApplicant, index: numb
       ["Phone", draft.personal.phone],
       ["Alternate phone", draft.personal.alternatePhone],
       ["Signature status", humanize(applicant.status)],
+      ["Credit report voluntarily provided", voluntaryReportStatus(applicant)],
       ["Signed", formatDateTime(applicant.signedAt)]
     ])}
     ${card("Requested tenancy", [
@@ -148,6 +154,7 @@ function textApplicant(applicant: ApplicationNotificationApplicant, index: numbe
   const rows: Array<[string, string | number | null | undefined]> = [
     ["Legal name", applicantDisplayName(applicant)], ["Email", draft.personal.email || applicant.email],
     ["Phone", draft.personal.phone], ["Alternate phone", draft.personal.alternatePhone],
+    ["Credit report voluntarily provided", voluntaryReportStatus(applicant)],
     ["Signed", formatDateTime(applicant.signedAt)], ["Desired move-in", draft.tenancy.desiredMoveInDate],
     ["Lease term", humanize(draft.tenancy.leaseTerm)], ["Adults", draft.tenancy.adultCount],
     ["Children", draft.tenancy.childCount], ["Total occupants", totalOccupants],

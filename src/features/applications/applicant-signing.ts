@@ -1,8 +1,10 @@
+import { invitationEmail, registerMemoryInvitationEmail, sendCoApplicantInvitationNow } from "@/features/applications/invitation-email";
+import { assertCreditReportVoluntary } from "@/features/applications/credit-report-consent";
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { ApiError } from "@/lib/api";
 import { hasUnsafePdfFeatures } from "@/lib/pdf-safety";
-import { createGuestBearerToken, hashGuestToken } from "@/lib/application-guest-auth";
+import { createGuestBearerToken, hashGuestToken, invitationBearerToken } from "@/lib/application-guest-auth";
 import {
   APPLICATION_DOCUMENT_LABELS,
   APPLICATION_MAX_FILE_BYTES,
@@ -23,7 +25,7 @@ import {
   type ApplicationDraft,
   type CoApplicantInvitationInput,
 } from "@/features/applications/schemas";
-import { createNotificationProviders, resolveEmailProviderMode } from "@/features/notifications/providers";
+
 import type { EmailProvider } from "@/features/notifications/providers/types";
 
 export interface ApplicationRequestContext {
@@ -48,6 +50,7 @@ interface MemoryApplicant extends ApplicationApplicantRecord {
 }
 
 interface MemoryInvitation {
+  id?: string;
   applicantId: string;
   tokenHash: string;
   status: "active" | "used" | "revoked";
@@ -135,6 +138,10 @@ function publicApplicant(applicant: MemoryApplicant): ApplicationApplicantRecord
     && new Date(applicant.invitationExpiresAt).getTime() <= Date.now();
   return {
     id: applicant.id,
+    userId: applicant.ownerUserId,
+    invitationDeliveryStatus: applicant.invitationDeliveryStatus,
+    creditReportVoluntaryAt: applicant.creditReportVoluntaryAt,
+    creditReportConsentVersion: applicant.creditReportConsentVersion,
     role: applicant.role,
     legalName: applicant.legalName,
     email: applicant.email,
@@ -273,6 +280,10 @@ function mapApplicantRow(row: Record<string, unknown>): ApplicationApplicantReco
     : row.status;
   return {
     id: String(row.id),
+    userId: row.owner_user_id ? String(row.owner_user_id) : null,
+    invitationDeliveryStatus: row.invitation_delivery_status as ApplicationApplicantRecord["invitationDeliveryStatus"],
+    creditReportVoluntaryAt: row.credit_report_voluntary_at ? String(row.credit_report_voluntary_at) : null,
+    creditReportConsentVersion: row.credit_report_consent_version ? String(row.credit_report_consent_version) : null,
     role: row.role as ApplicationApplicantRecord["role"],
     legalName: String(row.legal_name),
     email: String(row.email),
@@ -290,7 +301,7 @@ export async function getApplicationApplicants(identity: ClientIdentity, applica
   }
   await assertSupabaseOwner(identity, applicationId);
   const result = await serviceClient().from("application_applicants")
-    .select("id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at")
+    .select("id,role,owner_user_id,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,invitation_delivery_status,credit_report_voluntary_at,credit_report_consent_version")
     .eq("application_id", applicationId).order("created_at");
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applicants could not be loaded.");
   return (result.data ?? []).map((row) => mapApplicantRow(row));
@@ -301,159 +312,80 @@ function invitationExpiry() {
 }
 
 function invitationUrl(token: string) {
-  return new URL(`/application/guest#token=${encodeURIComponent(token)}`, process.env.APP_BASE_URL ?? "http://localhost:3000").toString();
+  return new URL(`/client/invitations#token=${encodeURIComponent(token)}`, process.env.APP_BASE_URL ?? "http://localhost:3000").toString();
 }
 
-async function deliverInvitationEmail(input: {
-  email: string;
-  legalName: string;
-  propertyTitle: string;
-  url: string;
-  applicantId: string;
-  tokenHash: string;
-  notifier?: EmailProvider;
-}) {
-  const notifier = input.notifier ?? createNotificationProviders({ email: resolveEmailProviderMode(), sms: "disabled" }).email;
-  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!);
-  return notifier.send({
-    to: input.email,
-    subject: `Complete your rental application for ${input.propertyTitle}`,
-    text: `Hello ${input.legalName},\n\nYou were invited to complete and sign your portion of the rental application for ${input.propertyTitle}. This private link expires in 48 hours and can be used once:\n\n${input.url}\n\nIf you were not expecting this invitation, do not open the link.`,
-    html: `<p>Hello ${escapeHtml(input.legalName)},</p><p>You were invited to complete and sign your portion of the rental application for ${escapeHtml(input.propertyTitle)}.</p><p><a href="${escapeHtml(input.url)}">Open your private application</a></p><p>This link expires in 48 hours and can be used once. If you were not expecting it, do not open it.</p>`,
-    idempotencyKey: `co-applicant-invite-${input.applicantId}-${input.tokenHash.slice(0, 16)}`,
+async function memoryInvitationDelivery(applicant: MemoryApplicant, invitationId: string, token: string, expiresAt: string, notifier?: EmailProvider) {
+  const tokenHash = hashGuestToken(token);
+  const invitation: MemoryInvitation = { id: invitationId, applicantId: applicant.id, tokenHash, status: "active", expiresAt };
+  memoryStores().invitations.set(tokenHash, invitation);
+  applicant.invitationDeliveryStatus = "scheduled";
+  registerMemoryInvitationEmail(invitationId, {
+    message: invitationEmail({ email: applicant.email, legalName: applicant.legalName, propertyTitle: applicant.propertyTitle, token, invitationId }),
+    active: () => invitation.status === "active" && Date.parse(expiresAt) > Date.now() && !["signed", "revoked"].includes(applicant.status),
+    onStatus: status => { applicant.invitationDeliveryStatus = status; }
   });
+  await sendCoApplicantInvitationNow({ invitationId, applicantId: applicant.id, applicationId: applicant.applicationId, email: applicant.email, notifier });
 }
 
-export async function createCoApplicantInvitation(
-  identity: ClientIdentity,
-  applicationId: string,
-  rawInput: CoApplicantInvitationInput,
-  context: ApplicationRequestContext,
-  options: { notifier?: EmailProvider } = {},
-) {
+export async function createCoApplicantInvitation(identity: ClientIdentity, applicationId: string, rawInput: CoApplicantInvitationInput,
+  context: ApplicationRequestContext, options: { notifier?: EmailProvider } = {}) {
   const input = coApplicantInvitationSchema.parse(rawInput);
-  const token = createGuestBearerToken();
+  if (input.email.toLowerCase() === identity.email.toLowerCase()) throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "Use the other applicant's own email address.");
+  const invitationId = crypto.randomUUID();
+  const token = invitationBearerToken(invitationId);
   const expiresAt = invitationExpiry();
   if (process.env.DATA_BACKEND !== "supabase") {
     const primary = await assertMemoryOwner(identity, applicationId);
-    if (memoryStores().signatures.size && [...memoryStores().applicants.values()].some((a) => a.applicationId === applicationId && memoryStores().signatures.has(a.id))) {
-      throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "Applicants cannot be changed after signing has started.");
-    }
-    if ([...memoryStores().applicants.values()].filter((a) => a.applicationId === applicationId && a.role === "co_applicant" && a.status !== "revoked").length >= 8) {
-      throw new ApiError(400, "TOO_MANY_APPLICATION_APPLICANTS", "An application can include at most eight co-applicants.");
-    }
-    if ([...memoryStores().applicants.values()].some((a) => a.applicationId === applicationId && a.status !== "revoked" && a.email.toLowerCase() === input.email.toLowerCase())) {
-      throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "An active applicant already uses this email address.");
-    }
-    const applicant: MemoryApplicant = {
-      ...structuredClone(primary),
-      id: crypto.randomUUID(), role: "co_applicant", ownerUserId: null,
-      legalName: input.legalName, email: input.email.toLowerCase(), status: "invited",
-      invitationExpiresAt: expiresAt, draftUpdatedAt: null, signedAt: null,
-      draft: applicationDraftSchema.parse({ personal: { ...splitLegalName(input.legalName), email: input.email } }), files: [],
-    };
+    await assertApplicationSignaturesUnlocked(applicationId);
+    const active = [...memoryStores().applicants.values()].filter(a => a.applicationId === applicationId && a.status !== "revoked");
+    if (active.filter(a => a.role === "co_applicant").length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_APPLICANTS", "An application can include at most eight co-applicants.");
+    if (active.some(a => a.email.toLowerCase() === input.email.toLowerCase())) throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "An active applicant already uses this email address.");
+    const applicant: MemoryApplicant = { ...structuredClone(primary), id: crypto.randomUUID(), role: "co_applicant", ownerUserId: null,
+      legalName: input.legalName, email: input.email.toLowerCase(), status: "invited", invitationExpiresAt: expiresAt, draftUpdatedAt: null, signedAt: null,
+      creditReportVoluntaryAt: null, creditReportConsentVersion: null,
+      draft: applicationDraftSchema.parse({ personal: { ...splitLegalName(input.legalName), email: input.email } }), files: [] };
     memoryStores().applicants.set(applicant.id, applicant);
-    const tokenHash = hashGuestToken(token);
-    memoryStores().invitations.set(tokenHash, { applicantId: applicant.id, tokenHash, status: "active", expiresAt });
-    try {
-      await deliverInvitationEmail({ email: applicant.email, legalName: applicant.legalName, propertyTitle: applicant.propertyTitle, url: invitationUrl(token), applicantId: applicant.id, tokenHash, notifier: options.notifier });
-    } catch (error) {
-      memoryStores().applicants.delete(applicant.id);
-      memoryStores().invitations.delete(tokenHash);
-      throw error;
-    }
-    return { applicant: publicApplicant(applicant), invitationToken: token, invitationUrl: invitationUrl(token) };
+    await memoryInvitationDelivery(applicant, invitationId, token, expiresAt, options.notifier);
+    return { applicant: publicApplicant(applicant), invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
   }
-
-  const application = await assertSupabaseOwner(identity, applicationId);
-  if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Applicants cannot be changed after submission.");
-  const signed = await serviceClient().from("application_applicant_signatures").select("id", { count: "exact", head: true }).eq("application_id", applicationId);
-  if (signed.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applicant status could not be checked.");
-  if ((signed.count ?? 0) > 0) throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "Applicants cannot be changed after signing has started.");
+  await assertSupabaseOwner(identity, applicationId);
   const service = serviceClient();
-  const activeCount = await service.from("application_applicants").select("id", { count: "exact", head: true }).eq("application_id", applicationId).eq("role", "co_applicant").neq("status", "revoked");
-  if (activeCount.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applicant status could not be checked.");
-  if ((activeCount.count ?? 0) >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_APPLICANTS", "An application can include at most eight co-applicants.");
-  const created = await service.from("application_applicants").insert({
-    application_id: applicationId, role: "co_applicant", legal_name: input.legalName,
-    email: input.email.toLowerCase(), status: "invited", invitation_expires_at: expiresAt,
-    draft_payload: applicationDraftSchema.parse({ personal: { ...splitLegalName(input.legalName), email: input.email } }),
-  }).select("id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at").single();
+  const id = crypto.randomUUID();
+  const created = await service.rpc("create_linked_applicant_invitation", {
+    p_application_id: applicationId, p_owner_user_id: identity.userId, p_applicant_id: id, p_invitation_id: invitationId,
+    p_legal_name: input.legalName, p_email: input.email.toLowerCase(), p_token_sha256: hashGuestToken(token), p_expires_at: expiresAt,
+    p_draft: applicationDraftSchema.parse({ personal: { ...splitLegalName(input.legalName), email: input.email } }), p_request_context: context
+  });
   if (created.error?.code === "23505") throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "An active applicant already uses this email address.");
-  if (created.error || !created.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The co-applicant could not be added.");
-  const invitation = await service.from("application_applicant_invitations").insert({
-    applicant_id: created.data.id, token_sha256: hashGuestToken(token), expires_at: expiresAt, request_context: context,
-  });
-  if (invitation.error) {
-    await service.from("application_applicants").delete().eq("id", created.data.id);
-    throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The invitation could not be created.");
-  }
-  await service.from("client_application_audit_events").insert({
-    application_id: applicationId, actor_user_id: identity.userId, actor_type: "client",
-    action: "application.co_applicant_invited", request_context: { ...context, applicantId: created.data.id },
-  });
-  try {
-    const delivery = await deliverInvitationEmail({ email: input.email.toLowerCase(), legalName: input.legalName, propertyTitle: String((await service.from("client_applications").select("property_title").eq("id", applicationId).single()).data?.property_title ?? "the rental"), url: invitationUrl(token), applicantId: created.data.id, tokenHash: hashGuestToken(token), notifier: options.notifier });
-    await service.from("client_application_audit_events").insert({ application_id: applicationId, actor_user_id: null, actor_type: "system", action: "application.co_applicant_invitation_queued", request_context: { applicantId: created.data.id, providerMessageId: delivery.providerMessageId, status: delivery.status } });
-  } catch (error) {
-    await service.from("application_applicants").delete().eq("id", created.data.id);
-    await service.from("client_application_audit_events").insert({ application_id: applicationId, actor_user_id: null, actor_type: "system", action: "application.co_applicant_invitation_failed", request_context: { applicantId: created.data.id, safeErrorCode: "APPLICATION_INVITATION_EMAIL_FAILED" } });
-    throw error;
-  }
-  return { applicant: mapApplicantRow(created.data), invitationToken: token, invitationUrl: invitationUrl(token) };
+  if (created.error) throw new ApiError(503, "APPLICATION_INVITATION_CREATE_FAILED", "The co-applicant invitation could not be created. Try again.");
+  const status = await sendCoApplicantInvitationNow({ invitationId, applicationId, applicantId: id, email: input.email.toLowerCase(), notifier: options.notifier });
+  return { applicant: { ...(await getApplicationApplicants(identity, applicationId)).find(a => a.id === id)!, invitationDeliveryStatus: status }, invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
 }
 
 export async function resendCoApplicantInvitation(identity: ClientIdentity, applicationId: string, applicantId: string, context: ApplicationRequestContext, options: { notifier?: EmailProvider } = {}) {
-  const token = createGuestBearerToken();
+  const invitationId = crypto.randomUUID();
+  const token = invitationBearerToken(invitationId);
   const expiresAt = invitationExpiry();
   if (process.env.DATA_BACKEND !== "supabase") {
     await assertMemoryOwner(identity, applicationId);
     const stores = memoryStores();
     const applicant = stores.applicants.get(applicantId);
     if (!applicant || applicant.applicationId !== applicationId || applicant.role !== "co_applicant") throw new ApiError(404, "APPLICATION_APPLICANT_NOT_FOUND", "Co-applicant not found.");
-    if (applicant.status === "revoked") throw new ApiError(409, "APPLICATION_APPLICANT_REVOKED", "This co-applicant has been revoked.");
-    if (applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "A signed applicant cannot be reinvited.");
-    for (const invitation of stores.invitations.values()) if (invitation.applicantId === applicantId && invitation.status === "active") invitation.status = "revoked";
+    if (applicant.status === "revoked" || applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_LOCKED", "This applicant cannot be reinvited.");
+    for (const invite of stores.invitations.values()) if (invite.applicantId === applicantId && invite.status === "active") invite.status = "revoked";
     for (const session of stores.sessions.values()) if (session.applicantId === applicantId) session.revokedAt = new Date().toISOString();
     applicant.invitationExpiresAt = expiresAt;
-    const tokenHash = hashGuestToken(token);
-    stores.invitations.set(tokenHash, { applicantId, tokenHash, status: "active", expiresAt });
-    try {
-      await deliverInvitationEmail({ email: applicant.email, legalName: applicant.legalName, propertyTitle: applicant.propertyTitle, url: invitationUrl(token), applicantId, tokenHash, notifier: options.notifier });
-    } catch (error) {
-      stores.invitations.get(tokenHash)!.status = "revoked";
-      throw error;
-    }
-    return { applicant: publicApplicant(applicant), invitationToken: token, invitationUrl: invitationUrl(token) };
+    await memoryInvitationDelivery(applicant, invitationId, token, expiresAt, options.notifier);
+    return { applicant: publicApplicant(applicant), invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
   }
-  const service = serviceClient();
-  const resent = await service.rpc("resend_application_applicant_invitation", {
-    p_application_id: applicationId,
-    p_owner_user_id: identity.userId,
-    p_applicant_id: applicantId,
-    p_token_sha256: hashGuestToken(token),
-    p_expires_at: expiresAt,
-    p_request_context: context,
-  });
-  if (resent.error?.message.includes("application_not_found") || resent.error?.message.includes("applicant_not_found")) throw new ApiError(404, "APPLICATION_APPLICANT_NOT_FOUND", "Co-applicant not found.");
-  if (resent.error?.message.includes("applicant_revoked")) throw new ApiError(409, "APPLICATION_APPLICANT_REVOKED", "This co-applicant has been revoked.");
-  if (resent.error?.message.includes("applicant_signed")) throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "A signed applicant cannot be reinvited.");
-  if (resent.error?.message.includes("application_not_draft")) throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "The application has already been submitted.");
-  if (resent.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The invitation could not be resent.");
-  const applicantResult = await service.from("application_applicants").select("id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at").eq("id", applicantId).eq("application_id", applicationId).single();
-  if (applicantResult.error || !applicantResult.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The co-applicant could not be reloaded.");
-  try {
-    const applicationResult = await service.from("client_applications").select("property_title").eq("id", applicationId).single();
-    if (applicationResult.error || !applicationResult.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The invitation email could not be prepared.");
-    const delivery = await deliverInvitationEmail({ email: applicantResult.data.email, legalName: applicantResult.data.legal_name, propertyTitle: applicationResult.data?.property_title ?? "the rental", url: invitationUrl(token), applicantId, tokenHash: hashGuestToken(token), notifier: options.notifier });
-    const audited = await service.from("client_application_audit_events").insert({ application_id: applicationId, actor_user_id: null, actor_type: "system", action: "application.co_applicant_invitation_queued", request_context: { applicantId, providerMessageId: delivery.providerMessageId, status: delivery.status, resent: true } });
-    if (audited.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The invitation delivery could not be audited.");
-  } catch (error) {
-    const cleanup = await service.from("application_applicant_invitations").update({ status: "revoked", revoked_at: new Date().toISOString() }).eq("token_sha256", hashGuestToken(token));
-    if (cleanup.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The failed invitation could not be revoked safely.");
-    throw error;
-  }
-  return { applicant: mapApplicantRow({ ...applicantResult.data, invitation_expires_at: expiresAt }), invitationToken: token, invitationUrl: invitationUrl(token) };
+  await assertSupabaseOwner(identity, applicationId);
+  const result = await serviceClient().rpc("resend_linked_applicant_invitation", { p_application_id: applicationId, p_owner_user_id: identity.userId,
+    p_applicant_id: applicantId, p_invitation_id: invitationId, p_token_sha256: hashGuestToken(token), p_expires_at: expiresAt, p_request_context: context });
+  if (result.error) throw new ApiError(409, "APPLICATION_INVITATION_RESEND_FAILED", "The invitation cannot be resent. Refresh the applicant status and try again.");
+  const applicant = (await getApplicationApplicants(identity, applicationId)).find(a => a.id === applicantId)!;
+  const status = await sendCoApplicantInvitationNow({ invitationId, applicationId, applicantId, email: applicant.email, notifier: options.notifier });
+  return { applicant: { ...applicant, invitationDeliveryStatus: status }, invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
 }
 
 export async function revokeCoApplicant(identity: ClientIdentity, applicationId: string, applicantId: string, context: ApplicationRequestContext) {
@@ -479,7 +411,7 @@ export async function revokeCoApplicant(identity: ClientIdentity, applicationId:
   const now = new Date().toISOString();
   const updated = await service.from("application_applicants").update({ status: "revoked", revoked_at: now, updated_at: now })
     .eq("id", applicantId).eq("application_id", applicationId).eq("role", "co_applicant").neq("status", "signed")
-    .select("id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at").maybeSingle();
+    .select("id,role,owner_user_id,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,invitation_delivery_status,credit_report_voluntary_at,credit_report_consent_version").maybeSingle();
   if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "The co-applicant is missing or already signed.");
   await Promise.all([
     service.from("application_applicant_invitations").update({ status: "revoked", revoked_at: now }).eq("applicant_id", applicantId).eq("status", "active"),
@@ -489,9 +421,12 @@ export async function revokeCoApplicant(identity: ClientIdentity, applicationId:
   return mapApplicantRow(updated.data);
 }
 
-export async function exchangeCoApplicantInvitation(invitationToken: string, context: ApplicationRequestContext) {
+export async function exchangeCoApplicantInvitation(invitationToken: string, context: ApplicationRequestContext, identity: ClientIdentity) {
   if (!/^[A-Za-z0-9_-]{43}$/.test(invitationToken)) throw new ApiError(404, "APPLICATION_INVITATION_INVALID", "This invitation is invalid.");
-  const tokenHash = hashGuestToken(invitationToken);
+  return exchangeInvitationHash(hashGuestToken(invitationToken), context, identity);
+}
+
+async function exchangeInvitationHash(tokenHash: string, context: ApplicationRequestContext, identity: ClientIdentity) {
   const sessionToken = createGuestBearerToken();
   const expiresAt = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
   if (process.env.DATA_BACKEND !== "supabase") {
@@ -502,15 +437,19 @@ export async function exchangeCoApplicantInvitation(invitationToken: string, con
     if (invitation.status === "revoked" || applicant.status === "revoked") throw new ApiError(410, "APPLICATION_INVITATION_REVOKED", "This invitation has been revoked.");
     if (invitation.status === "used") throw new ApiError(409, "APPLICATION_INVITATION_USED", "This invitation has already been used.");
     if (new Date(invitation.expiresAt).getTime() <= Date.now()) throw new ApiError(410, "APPLICATION_INVITATION_EXPIRED", "This invitation has expired.");
+    if (applicant.email.toLowerCase() !== identity.email.toLowerCase() || (applicant.ownerUserId && applicant.ownerUserId !== identity.userId)) throw new ApiError(403, "APPLICATION_INVITATION_ACCOUNT_MISMATCH", "Sign in using the email address this invitation was sent to.");
+    applicant.ownerUserId = identity.userId;
     invitation.status = "used";
     if (applicant.status === "invited") applicant.status = "in_progress";
     stores.sessions.set(hashGuestToken(sessionToken), { applicantId: applicant.id, tokenHash: hashGuestToken(sessionToken), expiresAt, revokedAt: null });
     return { sessionToken, expiresAt, applicant: publicApplicant(applicant) };
   }
-  const result = await serviceClient().rpc("exchange_application_applicant_invitation", {
+  const result = await serviceClient().rpc("claim_linked_applicant_invitation", {
+    p_user_id: identity.userId,
     p_invitation_sha256: tokenHash, p_session_sha256: hashGuestToken(sessionToken), p_session_expires_at: expiresAt, p_request_context: context,
   });
   if (result.error) {
+    if (result.error.message.includes("account_mismatch")) throw new ApiError(403, "APPLICATION_INVITATION_ACCOUNT_MISMATCH", "Sign in using the verified email address this invitation was sent to.");
     if (result.error.message.includes("invitation_used")) throw new ApiError(409, "APPLICATION_INVITATION_USED", "This invitation has already been used.");
     if (result.error.message.includes("invitation_revoked")) throw new ApiError(410, "APPLICATION_INVITATION_REVOKED", "This invitation has been revoked.");
     if (result.error.message.includes("invitation_expired")) throw new ApiError(410, "APPLICATION_INVITATION_EXPIRED", "This invitation has expired.");
@@ -518,6 +457,49 @@ export async function exchangeCoApplicantInvitation(invitationToken: string, con
     throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The invitation could not be opened.");
   }
   return { sessionToken, expiresAt, applicant: { id: String(result.data) } };
+}
+
+export async function acceptCoApplicantInvitationById(invitationId: string, context: ApplicationRequestContext, identity: ClientIdentity) {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const invitation = [...memoryStores().invitations.values()].find(i => i.id === invitationId);
+    if (!invitation) throw new ApiError(404, "APPLICATION_INVITATION_INVALID", "Invitation not found.");
+    return exchangeInvitationHash(invitation.tokenHash, context, identity);
+  }
+  const result = await serviceClient().from("application_applicant_invitations").select("token_sha256").eq("id", invitationId).maybeSingle();
+  if (result.error || !result.data) throw new ApiError(404, "APPLICATION_INVITATION_INVALID", "Invitation not found.");
+  return exchangeInvitationHash(result.data.token_sha256, context, identity);
+}
+
+export async function assertGuestAccount(sessionToken: string, identity: ClientIdentity) {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const applicant = await memoryGuest(sessionToken);
+    if (applicant.ownerUserId !== identity.userId) throw new ApiError(403, "APPLICATION_INVITATION_ACCOUNT_MISMATCH", "This application belongs to another account.");
+    return;
+  }
+  const session = await supabaseGuest(sessionToken);
+  const result = await serviceClient().from("application_applicants").select("id").eq("id", session.applicantId).eq("owner_user_id", identity.userId).eq("role", "co_applicant").maybeSingle();
+  if (result.error || !result.data) throw new ApiError(403, "APPLICATION_INVITATION_ACCOUNT_MISMATCH", "This application belongs to another account.");
+}
+
+export async function resumeCoApplicantApplication(identity: ClientIdentity, applicantId: string) {
+  const sessionToken = createGuestBearerToken();
+  const expiresAt = new Date(Date.now() + 12 * 60 * 60_000).toISOString();
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const applicant = memoryStores().applicants.get(applicantId);
+    if (!applicant || applicant.role !== "co_applicant" || applicant.ownerUserId !== identity.userId || applicant.status === "revoked") throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+    memoryStores().sessions.set(hashGuestToken(sessionToken), { applicantId, tokenHash: hashGuestToken(sessionToken), expiresAt, revokedAt: null });
+  } else {
+    const result = await serviceClient().rpc("resume_linked_applicant_session", { p_user_id: identity.userId, p_applicant_id: applicantId, p_session_sha256: hashGuestToken(sessionToken), p_expires_at: expiresAt });
+    if (result.error) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  }
+  return { sessionToken, expiresAt };
+}
+
+export async function listLinkedApplicantMemberships(identity: ClientIdentity) {
+  if (process.env.DATA_BACKEND !== "supabase") return [...memoryStores().applicants.values()].filter(a => a.role === "co_applicant" && a.ownerUserId === identity.userId && a.status !== "revoked").map(a => ({ applicationId: a.applicationId, applicantId: a.id }));
+  const result = await serviceClient().from("application_applicants").select("id,application_id").eq("owner_user_id", identity.userId).eq("role", "co_applicant").neq("status", "revoked");
+  if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Linked applications could not be loaded.");
+  return (result.data ?? []).map(a => ({ applicationId: String(a.application_id), applicantId: String(a.id) }));
 }
 
 async function memoryGuest(sessionToken: string) {
@@ -544,24 +526,25 @@ export async function getGuestApplication(sessionToken: string) {
     const applicant = await memoryGuest(sessionToken);
     return {
       application: { id: applicant.applicationId, propertyTitle: applicant.propertyTitle, propertyAddress: applicant.propertyAddress, formVersion: applicant.formVersion, formSha256: applicant.formSha256, termsVersion: applicant.termsVersion, termsSha256: applicant.termsSha256, termsText: applicant.termsText },
-      applicant: { ...publicApplicant(applicant), draft: structuredClone(applicant.draft), files: structuredClone(applicant.files) },
+      applicant: { ...publicApplicant(applicant), draft: { ...structuredClone(applicant.draft), tenancy: structuredClone([...memoryStores().applicants.values()].find(a => a.applicationId === applicant.applicationId && a.role === "primary")!.draft.tenancy) }, files: structuredClone(applicant.files) },
     };
   }
   const guest = await supabaseGuest(sessionToken);
   const result = await serviceClient().from("application_applicants").select(`
-    id,role,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,draft_payload,
-    client_applications!inner(id,property_title,property_address,
+    id,role,owner_user_id,legal_name,email,status,invitation_expires_at,draft_updated_at,signed_at,draft_payload,invitation_delivery_status,credit_report_voluntary_at,credit_report_consent_version,
+    client_applications!inner(id,property_title,property_address,draft_payload,deleted_at,
       application_form_versions!inner(version,sha256),
       application_terms_versions!inner(version,sha256,displayed_text)),
     client_application_files(id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at)
   `).eq("id", guest.applicantId).eq("application_id", guest.applicationId).single();
   if (result.error || !result.data) throw new ApiError(401, "APPLICATION_GUEST_SESSION_INVALID", "This guest application session is invalid or expired.");
   const application = Array.isArray(result.data.client_applications) ? result.data.client_applications[0] : result.data.client_applications;
+  if (application.deleted_at) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
   const form = Array.isArray(application.application_form_versions) ? application.application_form_versions[0] : application.application_form_versions;
   const terms = Array.isArray(application.application_terms_versions) ? application.application_terms_versions[0] : application.application_terms_versions;
   return {
     application: { id: application.id, propertyTitle: application.property_title, propertyAddress: application.property_address, formVersion: form.version, formSha256: form.sha256, termsVersion: terms.version, termsSha256: terms.sha256, termsText: terms.displayed_text },
-    applicant: { ...mapApplicantRow(result.data), draft: applicationDraftSchema.parse(result.data.draft_payload), files: (result.data.client_application_files ?? []).map((file: Record<string, unknown>) => ({ id: String(file.id), applicantId: String(file.applicant_id), documentType: file.document_type, originalFilename: String(file.original_filename), mimeType: file.mime_type, byteSize: Number(file.byte_size), scanStatus: file.scan_status, uploadedAt: String(file.uploaded_at) })) },
+    applicant: { ...mapApplicantRow(result.data), draft: { ...applicationDraftSchema.parse(result.data.draft_payload), tenancy: applicationDraftSchema.parse(application.draft_payload).tenancy }, files: (result.data.client_application_files ?? []).map((file: Record<string, unknown>) => ({ id: String(file.id), applicantId: String(file.applicant_id), documentType: file.document_type, originalFilename: String(file.original_filename), mimeType: file.mime_type, byteSize: Number(file.byte_size), scanStatus: file.scan_status, uploadedAt: String(file.uploaded_at) })) },
   };
 }
 
@@ -572,6 +555,7 @@ export async function saveGuestApplicantDraft(sessionToken: string, input: { dra
     ? { ...parsedDraft, tenancy: { ...parsedDraft.tenancy, occupantCount: adultCount + childCount } }
     : parsedDraft;
   const view = await getGuestApplication(sessionToken);
+  draft.tenancy = view.applicant.draft.tenancy;
   if (draft.personal.legalFirstName && draft.personal.legalLastName
     && normalizedName(draftLegalName(draft)) !== normalizedName(view.applicant.legalName)) {
     throw new ApiError(400, "APPLICATION_APPLICANT_IDENTITY_MISMATCH", "The draft legal name must match the invited applicant.");
@@ -592,6 +576,7 @@ export async function saveGuestApplicantDraft(sessionToken: string, input: { dra
 }
 
 function validateApplicantReady(draft: ApplicationDraft, files: ApplicationFileRecord[]) {
+  assertCreditReportVoluntary(draft, files);
   const issues = validateCompleteApplicationDraft(draft);
   if (issues.length) throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${issues[0].section.replaceAll("_", " ")} before signing.`);
   const missing = APPLICATION_REQUIRED_DOCUMENT_TYPES.find((type) => !applicationDocumentRequirementSatisfied(type, files, draft.documentExplanations));
@@ -615,6 +600,7 @@ export async function signGuestApplicant(sessionToken: string, rawInput: Applica
     const applicant = await memoryGuest(sessionToken);
     memoryStores().signatures.set(applicant.id, { applicantId: applicant.id, signedAt: now, evidenceHash });
     applicant.status = "signed"; applicant.signedAt = now;
+    if (guestFiles.some(file => file.documentType === "credit_score_report") && applicant.draft.creditReportVoluntary) { applicant.creditReportVoluntaryAt = now; applicant.creditReportConsentVersion = "2026-10-15.1"; }
     return publicApplicant(applicant);
   }
   const signed = await serviceClient().rpc("sign_guest_application_applicant", {
@@ -661,7 +647,7 @@ export async function uploadGuestApplicantFile(sessionToken: string, file: File,
   if (current.applicant.files.length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_FILES", "An applicant can include at most 8 files.");
   const bytes = new Uint8Array(await file.arrayBuffer()); const inspected = inspectGuestUpload(file, bytes); const uploadedAt = new Date().toISOString();
   const record: ApplicationFileRecord = { id: crypto.randomUUID(), applicantId: current.applicant.id, documentType, originalFilename: inspected.name, mimeType: inspected.mimeType, byteSize: bytes.length, scanStatus: "manual_review_required", uploadedAt };
-  if (applicant) { applicant.files.push(record); memoryStores().fileBytes.set(record.id, bytes); return structuredClone(record); }
+  if (applicant) { if (documentType === "credit_score_report") applicant.draft.creditReportVoluntary = false; applicant.files.push(record); memoryStores().fileBytes.set(record.id, bytes); return structuredClone(record); }
   const service = serviceClient(); const storagePath = `guests/${current.application.id}/${current.applicant.id}/${crypto.randomUUID()}.${inspected.extension}`;
   const uploaded = await service.storage.from(process.env.APPLICATION_UPLOAD_BUCKET || APPLICATION_UPLOAD_BUCKET).upload(storagePath, bytes, { contentType: inspected.mimeType, upsert: false });
   if (uploaded.error) throw new ApiError(503, "APPLICATION_UPLOAD_UNAVAILABLE", "The file could not be stored securely.");
@@ -671,12 +657,14 @@ export async function uploadGuestApplicantFile(sessionToken: string, file: File,
   return record;
 }
 
-export async function assertApplicationSignaturesUnlocked(applicationId: string) {
+export async function assertApplicationSignaturesUnlocked(applicationId: string, applicantId?: string) {
   if (process.env.DATA_BACKEND !== "supabase") {
-    if ([...memoryStores().applicants.values()].some((a) => a.applicationId === applicationId && memoryStores().signatures.has(a.id))) throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "The shared application cannot be edited after signing has started.");
+    if ([...memoryStores().applicants.values()].some((a) => a.applicationId === applicationId && (!applicantId || a.id === applicantId) && memoryStores().signatures.has(a.id))) throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "The shared application cannot be edited after signing has started.");
     return;
   }
-  const result = await serviceClient().from("application_applicant_signatures").select("id", { count: "exact", head: true }).eq("application_id", applicationId);
+  let query = serviceClient().from("application_applicant_signatures").select("id", { count: "exact", head: true }).eq("application_id", applicationId);
+  if (applicantId) query = query.eq("applicant_id", applicantId);
+  const result = await query;
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Signature status could not be checked.");
   if ((result.count ?? 0) > 0) throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "The shared application cannot be edited after signing has started.");
 }
@@ -699,8 +687,9 @@ export async function recordPrimarySignatureAndCreditRequests(input: { applicati
   if (process.env.DATA_BACKEND !== "supabase") {
     const primary = await assertMemoryOwner(input.identity, input.applicationId);
     primary.legalName = expectedName; primary.status = "signed"; primary.signedAt = input.signedAt;
+    if (input.files.some(file => file.documentType === "credit_score_report") && input.draft.creditReportVoluntary) { primary.creditReportVoluntaryAt = input.signedAt; primary.creditReportConsentVersion = "2026-10-15.1"; }
     memoryStores().signatures.set(primary.id, { applicantId: primary.id, signedAt: input.signedAt, evidenceHash });
-    for (const applicant of memoryStores().applicants.values()) if (applicant.applicationId === input.applicationId && applicant.status === "signed") memoryStores().creditRequests.set(applicant.id, { applicantId: applicant.id, status: "pending", idempotencyKey: `${input.applicationId}:${applicant.id}` });
+
     return;
   }
   const result = await serviceClient().rpc("finalize_multi_applicant_application", {

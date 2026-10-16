@@ -381,7 +381,7 @@ begin
       and legal_review_status = 'approved'
   ) or not exists (
     select 1 from public.application_terms_versions
-    where version = '2026-08-08.1'
+    where version = '2026-10-15.1'
       and is_active
       and legal_review_status = 'approved'
   ) then

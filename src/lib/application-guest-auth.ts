@@ -11,6 +11,11 @@ export function hashGuestToken(token: string) {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
+// Reproducible for retries; only the hash is stored in the database or outbox.
+export function invitationBearerToken(invitationId: string) {
+  return createHmac("sha256", applicationGuestSecret()).update(`co-applicant-invitation:v1:${invitationId}`).digest("base64url");
+}
+
 function signGuestCookieValue(token: string, secret: string) {
   return createHmac("sha256", secret).update(token, "utf8").digest("base64url");
 }
@@ -41,6 +46,7 @@ export function parseGuestSessionCookie(value: string | undefined, secret: strin
 export function applicationGuestSecret() {
   const secret = process.env.APPLICATION_GUEST_SESSION_SECRET
     ?? process.env.LOCAL_CLIENT_SESSION_SECRET
+    ?? (process.env.SUPABASE_SERVICE_ROLE_KEY ? createHmac("sha256", process.env.SUPABASE_SERVICE_ROLE_KEY).update("silverkey-applicant-session:v1").digest("hex") : undefined)
     ?? (process.env.NODE_ENV !== "production" ? "development-only-application-guest-secret" : undefined);
   if (!secret || secret.length < 32) {
     throw new ApiError(503, "APPLICATION_GUEST_AUTH_UNAVAILABLE", "Guest application access is unavailable.");

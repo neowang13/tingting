@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createCoApplicantInvitation,
-  exchangeCoApplicantInvitation,
+  exchangeCoApplicantInvitation as exchangeInvitation,
   getGuestApplication,
   getMemoryCreditCheckRequestsForTests,
   resendCoApplicantInvitation,
@@ -28,6 +28,9 @@ const owner: ClientIdentity = {
 };
 const applicationId = "30000000-0000-4000-8000-000000000009";
 const context = { requestId: "request-1", userAgentHash: "a".repeat(64), ipHash: "b".repeat(64) };
+
+const coUser: ClientIdentity = { userId: "00000000-0000-4000-8000-000000000010", email: "guest@example.test", displayName: "Guest Applicant" };
+function exchangeCoApplicantInvitation(token: string, context: Parameters<typeof exchangeInvitation>[1]) { return exchangeInvitation(token, context, coUser); }
 
 function completeDraft(email = "guest@example.test") {
   return applicationDraftSchema.parse({
@@ -85,7 +88,7 @@ describe("multi-applicant signing", () => {
     expect(invited.invitationToken).toBeTruthy();
     expect(send).toHaveBeenCalledWith(expect.objectContaining({
       to: "guest@example.test",
-      text: expect.stringContaining(`/application/guest#token=${invited.invitationToken}`),
+      text: expect.stringContaining(`#token=${invited.invitationToken}`),
     }));
 
     const session = await exchangeCoApplicantInvitation(invited.invitationToken, context);
@@ -103,7 +106,7 @@ describe("multi-applicant signing", () => {
       .rejects.toMatchObject({ code: "APPLICATION_INVITATION_REVOKED" });
   });
 
-  it("records independent evidence, freezes shared edits, and queues one credit request per signer", async () => {
+  it("records independent evidence, freezes changed shared edits, and never queues external credit requests", async () => {
     await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 7 });
     const invited = await createCoApplicantInvitation(owner, applicationId, {
       legalName: "Guest Applicant",
@@ -124,11 +127,15 @@ describe("multi-applicant signing", () => {
       formSha256: application.formSha256,
     }, context);
 
-    await expect(saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 1 }))
+    await expect(saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 1 })).resolves.toMatchObject({ draft: expect.any(Object) });
+    const personalDraft = completeDraft(owner.email); personalDraft.housing.currentAddress = "Changed address";
+    await expect(saveApplicationDraft(owner, applicationId, { draft: personalDraft, activeStep: 3 })).resolves.toMatchObject({ draft: { housing: { currentAddress: "Changed address" } } });
+    const changedDraft = completeDraft(owner.email); changedDraft.tenancy.adultCount = 3;
+    await expect(saveApplicationDraft(owner, applicationId, { draft: changedDraft, activeStep: 1 }))
       .rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
     const pdf = new File(["%PDF-1.7\n%%EOF"], "proof.pdf", { type: "application/pdf" });
     await expect(uploadApplicationFile(owner, applicationId, pdf, "employment_income_proof"))
-      .rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
+      .resolves.toMatchObject({ documentType: "employment_income_proof" });
     await expect(uploadGuestApplicantFile(session.sessionToken, pdf, "employment_income_proof", context))
       .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_SIGNED" });
 
@@ -154,10 +161,7 @@ describe("multi-applicant signing", () => {
     }, context, { notifier: { send: adminSend }, recipient: "admin@example.test" });
     const creditRequests = getMemoryCreditCheckRequestsForTests(applicationId);
     expect(submitted.status).toBe("submitted");
-    expect(creditRequests).toHaveLength(2);
-    expect(new Set(creditRequests.map((request) => request.applicantId)).size).toBe(2);
-    expect(new Set(creditRequests.map((request) => request.idempotencyKey)).size).toBe(2);
-    expect(creditRequests.every((request) => request.status === "pending")).toBe(true);
+    expect(creditRequests).toEqual([]);
     expect(adminSend).toHaveBeenCalledOnce();
     expect(adminSend.mock.calls[0][0].text).toContain("CO-APPLICANT 1");
     expect(adminSend.mock.calls[0][0].text.match(/Gross monthly income/g)).toHaveLength(2);

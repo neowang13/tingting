@@ -1,4 +1,5 @@
 "use client";
+import { JointApplicantReview } from "@/components/admin/joint-applicant-review";
 
 import Link from "next/link";
 import { CheckCircle2, FileText, UserRoundCheck, X } from "lucide-react";
@@ -148,7 +149,8 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       }
       setApplications((current) => current.map((application) => application.id !== applicationId ? application : {
         ...application,
-        files: application.files.map((file) => file.id === fileId ? { ...file, scanStatus: decision } : file)
+        files: application.files.map((file) => file.id === fileId ? { ...file, scanStatus: decision } : file),
+        applicantDetails: application.applicantDetails?.map(applicant => ({ ...applicant, files: applicant.files.map(file => file.id === fileId ? { ...file, scanStatus: decision } : file) }))
       }));
       setNotice(decision === "cleared" ? "Document marked as cleared." : "Document rejected.");
     } catch (cause) {
@@ -186,7 +188,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       const updated = body.data.application as ClientApplicationRecord;
       setApplications((current) => current.map((item) => item.id === selected.id ? updated : item));
       setShowTenantForm(false);
-      setNotice("Tenant status confirmed and linked to this user account.");
+      setNotice("Tenant status confirmed and linked to the signed applicants’ User accounts.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The tenant record could not be created.");
     } finally {
@@ -244,7 +246,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       </div>
       <p className="legal-review-warning">
         Applicant records are need-to-know data. Download documents only for approved screening,
-        record the decision here, and never copy private files into email or public links.
+        record the decision here, and keep files within the authorized management team. Do not share public links.
       </p>
       <div className="table-scroll" tabIndex={0}>
         <table className="admin-table application-queue-table">
@@ -256,7 +258,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
               : filesCleared ? "Cleared" : "Screening required";
             return (
               <tr key={application.id}>
-                <td><strong>{applicantName(application)}</strong><small>{application.id}</small></td>
+                <td><strong>{application.applicants.filter(a => a.status !== "revoked").map(a => a.legalName).join(" & ") || applicantName(application)}</strong><small>{application.applicants.filter(a => a.userId).length} linked users · {application.id}</small></td>
                 <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
                 <td><span className={`application-status application-status-${application.status}`}>{application.status.replaceAll("_", " ")}</span></td>
                 <td>{application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "Not submitted"}</td>
@@ -292,7 +294,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             <header className="application-review-header">
               <div>
                 <span className="eyebrow">RENTAL APPLICATION</span>
-                <h2 id="application-review-title">{applicantName(selected)}</h2>
+                <h2 id="application-review-title">{selected.applicants.filter(a => a.status !== "revoked").map(a => a.legalName).join(" & ") || applicantName(selected)}</h2>
                 <p>{selected.propertyTitle} · {selected.propertyAddress}</p>
               </div>
               <button className="dialog-close" type="button" aria-label="Close application review" onClick={closeReview}><X aria-hidden /></button>
@@ -305,7 +307,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             </div>
 
             <div className="application-review-content">
-              <ApplicationDetails application={selected} />
+              {selected.applicantDetails?.length ? <JointApplicantReview application={selected} renderDetails={applicant => <ApplicationDetails application={{ ...selected, draft: applicant.draft }} showTenancy={false} />} /> : <ApplicationDetails application={selected} />}
               <ApplicationFiles application={selected} busy={busy} onReview={reviewFile} />
 
               {selected.status === "approved" && !selected.convertedTenantId && showTenantForm && (
@@ -359,7 +361,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
   );
 }
 
-function ApplicationDetails({ application }: { application: ClientApplicationRecord }) {
+function ApplicationDetails({ application, showTenancy = true }: { application: ClientApplicationRecord; showTenancy?: boolean }) {
   const { draft } = application;
   const totalOccupants = draft.tenancy.adultCount !== null && draft.tenancy.childCount !== null
     ? draft.tenancy.adultCount + draft.tenancy.childCount
@@ -371,7 +373,7 @@ function ApplicationDetails({ application }: { application: ClientApplicationRec
       <Detail label="Phone" value={draft.personal.phone} href={`tel:${draft.personal.phone}`} />
       <Detail label="Alternate phone" value={draft.personal.alternatePhone} />
     </DetailCard>
-    <DetailCard title="Requested tenancy">
+    {showTenancy && <DetailCard title="Requested tenancy">
       <Detail label="Move-in" value={draft.tenancy.desiredMoveInDate} />
       <Detail label="Lease term" value={draft.tenancy.leaseTerm.replaceAll("_", " ")} />
       <Detail label="Adults" value={draft.tenancy.adultCount === null ? "Not recorded" : String(draft.tenancy.adultCount)} />
@@ -379,7 +381,7 @@ function ApplicationDetails({ application }: { application: ClientApplicationRec
       <Detail label="Total occupants" value={totalOccupants ? String(totalOccupants) : "—"} />
       <Detail label="Pets / parking" value={`${draft.tenancy.hasPets ? `Pets: ${draft.tenancy.petDetails || "yes"}` : "No pets"} · ${draft.tenancy.needsParking ? "Parking required" : "No parking"}`} />
       <Detail label="Property fit" value={draft.tenancy.reasonForChoosing} wide />
-    </DetailCard>
+    </DetailCard>}
     <DetailCard title="Current housing">
       <Detail label="Address" value={draft.housing.currentAddress} wide />
       <Detail label="Since" value={draft.housing.currentHousingSince} />
@@ -428,7 +430,7 @@ function ApplicationFiles({ application, busy, onReview }: {
     {application.files.length > 0 && <ul>{application.files.map((file) => (
       <li key={file.id}>
         <FileText aria-hidden />
-        <span><strong>{file.originalFilename}</strong><small>{APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
+        <span><strong>{file.originalFilename}</strong><small>{application.applicants.find(a => a.id === file.applicantId)?.legalName || "Applicant"} · {APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
         {file.scanStatus !== "rejected" && <a className="admin-action secondary compact" href={`/api/admin/application-files/${file.id}`}>Secure download</a>}
         {["manual_review_required", "screening_pending"].includes(file.scanStatus) && <>
           <button className="admin-action success compact" disabled={busy} type="button" onClick={() => onReview(application.id, file.id, "cleared")}>Mark cleared</button>
@@ -491,7 +493,7 @@ function TenantConversionForm({ application, busy, leaseType, setLeaseType, onUp
       <label className="field"><span>Lease type</span><select name="leaseType" required value={leaseType} onChange={(event) => setLeaseType(event.target.value as typeof leaseType)}><option value="">Choose from contract</option><option value="month_to_month">Month to month</option><option value="fixed_term">Fixed term</option></select></label>
       {leaseType === "fixed_term" && <label className="field"><span>Lease end date</span><input name="leaseEndDate" type="date" required min={application.draft.tenancy.desiredMoveInDate || undefined} /></label>}
       <label className="field"><span>Rent due day</span><input name="rentDueDay" type="number" min={1} max={31} required defaultValue={1} /></label>
-      <label className="check-field field-wide"><input type="checkbox" name="signedAgreementConfirmed" required />I confirm the tenancy agreement has been signed and these details match the contract.</label>
+      <label className="check-field field-wide"><input type="checkbox" name="signedAgreementConfirmed" required />I confirm the tenancy agreement has been signed by all listed applicants and these details match the contract.</label>
     </div>
     <button className="admin-action success" disabled={busy || !application.leaseDocument} type="submit"><UserRoundCheck size={17} aria-hidden /> {busy ? "Working…" : "Create & link tenant"}</button>
   </form>;

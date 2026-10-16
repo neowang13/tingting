@@ -11,16 +11,14 @@ import {
 import { assertActionRateLimit } from "@/lib/rate-limit";
 import { securityFingerprint, writeSecurityAudit } from "@/lib/security-audit";
 
-const ADMIN_IDLE_TIMEOUT_MS = 30 * 60_000;
-const ADMIN_ABSOLUTE_TIMEOUT_MS = 12 * 60 * 60_000;
-const ADMIN_LAST_ACTIVE_COOKIE = "tt-last-active";
-const ADMIN_SESSION_STARTED_COOKIE = "tt-session-started";
+import { ADMIN_IDLE_TIMEOUT_MS, ADMIN_ABSOLUTE_TIMEOUT_MS, ADMIN_LAST_ACTIVE_COOKIE, ADMIN_SESSION_STARTED_COOKIE, adminSessionTimes } from "@/lib/admin-session-policy";
 
 export interface AdminIdentity {
   userId: string;
   email: string;
   displayName: string;
   authenticatedAt: string;
+  lastActiveAt?: string;
   assuranceLevel: "aal1" | "aal2";
 }
 
@@ -118,7 +116,7 @@ function parseSessionTimestamp(value: string | undefined) {
 }
 
 async function assertCookieSessionLifetime(request: Request, allowUntrackedSession = false) {
-  if (!isProductionAdminMode()) return;
+  if (!isProductionAdminMode() && !readCookieValue(request, ADMIN_LAST_ACTIVE_COOKIE)) return;
   const lastActive = parseSessionTimestamp(readCookieValue(request, ADMIN_LAST_ACTIVE_COOKIE));
   const sessionStarted = parseSessionTimestamp(readCookieValue(request, ADMIN_SESSION_STARTED_COOKIE));
   if (allowUntrackedSession && lastActive === null && sessionStarted === null) return;
@@ -129,8 +127,8 @@ async function assertCookieSessionLifetime(request: Request, allowUntrackedSessi
     sessionStarted === null ||
     !Number.isFinite(lastActive) ||
     !Number.isFinite(sessionStarted) ||
-    now - lastActive > ADMIN_IDLE_TIMEOUT_MS ||
-    now - sessionStarted > ADMIN_ABSOLUTE_TIMEOUT_MS ||
+    now - lastActive >= ADMIN_IDLE_TIMEOUT_MS ||
+    now - sessionStarted >= ADMIN_ABSOLUTE_TIMEOUT_MS ||
     lastActive > now + 60_000 ||
     sessionStarted > now + 60_000
   ) {
@@ -151,7 +149,7 @@ async function assertCookieSessionLifetime(request: Request, allowUntrackedSessi
           reason:
             lastActive === null || sessionStarted === null
               ? "tracking_missing"
-              : now - lastActive > ADMIN_IDLE_TIMEOUT_MS
+              : now - lastActive >= ADMIN_IDLE_TIMEOUT_MS
                 ? "idle_timeout"
                 : "absolute_timeout"
         }
@@ -170,7 +168,8 @@ export async function requireAdminRequest(
   if (isDemoMode()) {
     const admin = verifyLocalAdminSession(readCookieValue(request, LOCAL_ADMIN_SESSION_COOKIE));
     if (!admin) throw new ApiError(401, "UNAUTHORIZED", "Authentication is required.");
-    return admin;
+    await assertCookieSessionLifetime(request, options.allowUntrackedSession);
+    return { ...admin, lastActiveAt: new Date(Number(readCookieValue(request, ADMIN_LAST_ACTIVE_COOKIE)) || Date.now()).toISOString() };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -208,7 +207,8 @@ export async function requireAdminRequest(
     throw error;
   }
 
-  return resolveSupabaseAdminIdentity(url, serviceKey, data.user, claims);
+  const admin = await resolveSupabaseAdminIdentity(url, serviceKey, data.user, claims);
+  return { ...admin, lastActiveAt: new Date(Number(readCookieValue(request, ADMIN_LAST_ACTIVE_COOKIE)) || Date.now()).toISOString() };
 }
 
 export async function establishAdminSession(
@@ -251,7 +251,9 @@ export async function requireAdminPage(): Promise<AdminIdentity> {
     const cookieStore = await cookies();
     const admin = verifyLocalAdminSession(cookieStore.get(LOCAL_ADMIN_SESSION_COOKIE)?.value);
     if (!admin) redirect("/admin/login");
-    return admin;
+    const lastActive = cookieStore.get(ADMIN_LAST_ACTIVE_COOKIE)?.value;
+    if (lastActive && adminSessionTimes(lastActive, cookieStore.get(ADMIN_SESSION_STARTED_COOKIE)?.value).expired) redirect("/admin/login?error=session_expired");
+    return { ...admin, lastActiveAt: new Date(Number(lastActive) || Date.now()).toISOString() };
   }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -259,6 +261,7 @@ export async function requireAdminPage(): Promise<AdminIdentity> {
   if (!url || !anonKey) redirect("/admin/login");
 
   const cookieStore = await cookies();
+  if (adminSessionTimes(cookieStore.get(ADMIN_LAST_ACTIVE_COOKIE)?.value, cookieStore.get(ADMIN_SESSION_STARTED_COOKIE)?.value).expired) redirect("/admin/login?error=session_expired");
   const client = createServerClient(url, anonKey, {
     cookies: {
       getAll: () => cookieStore.getAll(),
@@ -294,13 +297,14 @@ export async function requireAdminPage(): Promise<AdminIdentity> {
     userId: data.user.id,
     email: data.user.email ?? "",
     displayName: profile.display_name,
+    lastActiveAt: new Date(Number(cookieStore.get(ADMIN_LAST_ACTIVE_COOKIE)?.value)).toISOString(),
     authenticatedAt: new Date(latestAuthenticationTimestamp(claims) * 1000).toISOString(),
     assuranceLevel: claims.aal ?? "aal1"
   };
 }
 
-export async function assertRecentAuthentication(admin: AdminIdentity, maximumAgeMinutes = 10) {
-  if (Date.now() - Date.parse(admin.authenticatedAt) > maximumAgeMinutes * 60_000) {
+export async function assertRecentAuthentication(admin: AdminIdentity, maximumAgeMinutes = 60) {
+  if (Date.now() - Date.parse(admin.lastActiveAt ?? admin.authenticatedAt) >= maximumAgeMinutes * 60_000) {
     await writeRateLimitedAuthAudit(admin.userId, {
       actorUserId: admin.userId,
       action: "auth.recent_auth_denied",
@@ -316,7 +320,7 @@ export async function assertRecentAuthentication(admin: AdminIdentity, maximumAg
   }
 }
 
-export async function assertRecentAal2(admin: AdminIdentity, maximumAgeMinutes = 10) {
+export async function assertRecentAal2(admin: AdminIdentity, maximumAgeMinutes = 60) {
   if (isAdminMfaRequired() && admin.assuranceLevel !== "aal2") {
     await writeRateLimitedAuthAudit(admin.userId, {
       actorUserId: admin.userId,

@@ -5,11 +5,11 @@ import type { ApplicationApplicantRecord } from "@/features/applications/contrac
 
 export type CoApplicantStatus = "invited" | "in_progress" | "signed" | "expired" | "revoked";
 
-export type CoApplicantSummary = Pick<ApplicationApplicantRecord, "id" | "legalName" | "email" | "status" | "signedAt">;
+export type CoApplicantSummary = Pick<ApplicationApplicantRecord, "id" | "legalName" | "email" | "status" | "signedAt" | "userId" | "invitationDeliveryStatus">;
 
 const statusCopy: Record<CoApplicantStatus, { label: string; description: string }> = {
   invited: {
-    label: "Invitation sent",
+    label: "Invited",
     description: "Waiting for this applicant to open their secure invitation."
   },
   in_progress: {
@@ -76,7 +76,7 @@ export function CoApplicantPanel({
       <div>
         <p className="eyebrow">Joint application</p>
         <h2 id="co-applicant-heading">Other adult applicants</h2>
-        <p>Invite each adult who needs to be screened. They can complete and sign their part securely without creating an account.</p>
+        <p>Invite each adult who needs to be screened. They register or sign in with their own verified email, then complete and sign their part of this joint application.</p>
       </div>
       <div className="co-applicant-heading-actions">
         <button className="text-button" type="button" onClick={onRefresh}>Refresh status</button>
@@ -120,7 +120,7 @@ export function CoApplicantPanel({
           />
         </label>
       </div>
-      <p className="field-hint">We will email a time-limited secure link. The co-applicant will not need a password or account.</p>
+      <p className="field-hint">We will email a time-limited secure link. They must use their own account with the invited email address.</p>
       <button className="button" type="submit" disabled={inviting}>
         {inviting ? "Sending invitation…" : "Send secure invitation"}
       </button>
@@ -132,7 +132,7 @@ export function CoApplicantPanel({
         {applicants.map((applicant) => {
           const copy = statusCopy[applicant.status];
           const busy = busyApplicantId === applicant.id;
-          const canResend = applicant.status === "invited" || applicant.status === "expired";
+          const canResend = applicant.status === "invited" || applicant.status === "expired" || (applicant.status === "in_progress" && applicant.invitationDeliveryStatus === "failed");
           const canRevoke = applicant.status !== "signed" && applicant.status !== "revoked";
           return <li key={applicant.id}>
             <div className="co-applicant-identity">
@@ -140,8 +140,9 @@ export function CoApplicantPanel({
               <span>{applicant.email}</span>
             </div>
             <div className="co-applicant-state">
-              <span className={`co-applicant-status status-${applicant.status}`}>{copy.label}</span>
+              <span className={`co-applicant-status status-${applicant.status}`}>{applicant.status === "invited" && applicant.invitationDeliveryStatus ? ({ scheduled: "Waiting to send", sent: "Invitation sent", delivered: "Email delivered", failed: "Delivery failed" }[applicant.invitationDeliveryStatus]) : copy.label}</span>
               <small>{copy.description}</small>
+              {applicant.userId && <small>User account linked</small>}
               {applicant.signedAt && <small>Signed {new Date(applicant.signedAt).toLocaleString("en-CA")}</small>}
             </div>
             {(canResend || canRevoke) && <div className="co-applicant-actions">

@@ -1,3 +1,4 @@
+import { prepareCoApplicantInvitationEmail, recordMemoryInvitationDelivery } from "@/features/applications/invitation-email";
 import { Temporal } from "@js-temporal/polyfill";
 import { getRepository } from "@/data/repository";
 import {
@@ -283,6 +284,7 @@ async function renderDelivery(
   now: string
 ) {
   const repository = getRepository();
+  if (delivery.kind === "co_applicant_invitation") return prepareCoApplicantInvitationEmail(String(delivery.payload.invitationId));
   if (delivery.kind === "application_submission") {
     const { applicationId, fileIds, partIndex, partCount, appBaseUrl } = delivery.payload;
     if (
@@ -474,7 +476,7 @@ export async function deliverOwnerNotifications(options: {
   const timezone = process.env.DEFAULT_TIMEZONE ?? "America/Vancouver";
   for (const delivery of deliveries) {
     try {
-      const recipient = delivery.kind === "application_submission"
+      const recipient = ["application_submission", "co_applicant_invitation"].includes(delivery.kind)
         ? delivery.payload.recipient
         : defaultRecipient;
       if (typeof recipient !== "string" || !recipient) {
@@ -519,6 +521,7 @@ export async function deliverOwnerNotifications(options: {
         safeErrorCode: null,
         nextAttemptAt: null
       });
+      if (delivery.kind === "co_applicant_invitation") recordMemoryInvitationDelivery(String(delivery.payload.invitationId), "sent");
       summary.sent += 1;
     } catch (error) {
       await repository.finishOwnerNotification(delivery.id, {
@@ -527,6 +530,7 @@ export async function deliverOwnerNotifications(options: {
         safeErrorCode: error instanceof ApiError ? error.code : "OWNER_EMAIL_DELIVERY_FAILED",
         nextAttemptAt: retryAt(now, delivery.attemptCount)
       });
+      if (delivery.kind === "co_applicant_invitation") recordMemoryInvitationDelivery(String(delivery.payload.invitationId), "failed");
       summary.failed += 1;
     }
   }
