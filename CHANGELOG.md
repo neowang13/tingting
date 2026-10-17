@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.5] - 2026-10-17
+### Changed
+- Remove the applicant-record handling reminder from the Admin application queue.
+
 ## [0.2.4] - 2026-10-17
 ### Changed
 - Simplify the application queue to four views. Under review now opens by default and includes new submissions and applications awaiting information; legacy All open links remain compatible.

@@ -217,10 +217,6 @@ export function ApplicationQueue({ initial, initialFilter = "under_review", init
       <div className="application-filter-pills" aria-label="Filter applications">
         {APPLICATION_QUEUE_TABS.map(([value, label]) => <button key={value} type="button" className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}>{label} · {filterCount(value)}</button>)}
       </div>
-      <p className="legal-review-warning">
-        Applicant records are need-to-know data. Download documents only for approved screening,
-        record the decision here, and keep files within the authorized management team. Do not share public links.
-      </p>
       <div className="table-scroll" tabIndex={0}>
         <table className="admin-table application-queue-table">
           <thead><tr><th>Applicant</th><th>Property</th><th>Status</th><th>Submitted</th><th>Documents</th><th>Action</th></tr></thead>
