@@ -123,14 +123,15 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
   await page.getByRole("button", { name: "Review application" }).click();
-  const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
+  const reviewDialog = page.getByRole("dialog", { name: "Bright Downtown One Bedroom" });
   await expect(reviewDialog).toBeVisible();
   const requestedTenancy = reviewDialog.getByRole("region", { name: "Joint application and linked users" });
   await expect(requestedTenancy).toContainText("2 adults");
   await expect(requestedTenancy).toContainText("1 children");
   await expect(requestedTenancy).toContainText("3 occupants");
-  await expect(reviewDialog.getByText("No files to screen. Review the applicant explanations below.")).toBeVisible();
-  await reviewDialog.getByRole("button", { name: "View applicant details \u2192" }).click();
+  await expect(reviewDialog.getByRole("heading", { name: "Personal details", exact: true })).toBeVisible();
+  await expect(reviewDialog.getByText("No files uploaded.")).toBeVisible();
+  await expect(reviewDialog.getByRole("button", { name: "View applicant details →" })).toHaveCount(0);
   await expect(reviewDialog.getByText("My employment documents are not currently available.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Mark received" })).toHaveCount(0);
   await expect(reviewDialog.getByRole("button", { name: "Request information" })).toBeVisible();

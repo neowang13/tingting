@@ -9,9 +9,19 @@ import type { ApplicationDraft } from "@/features/applications/schemas";
 
 export const APPLICATION_EMAIL_MAX_RAW_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
+export interface ApplicantSignatureEvidence {
+  legalName: string;
+  signedAt: string;
+  termsVersion: string;
+  termsText: string;
+  sharingAuthorized: boolean;
+  screeningConsented: boolean;
+}
+
 export interface ApplicationNotificationApplicant extends ApplicationApplicantRecord {
   draft: ApplicationDraft;
   files: ApplicationFileRecord[];
+  signature?: ApplicantSignatureEvidence | null;
 }
 
 export interface ApplicationSubmissionNotificationData {

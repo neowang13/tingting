@@ -79,6 +79,11 @@ const APPLICATION_SELECT = `
   )
 `;
 
+const APPLICATION_STAFF_SELECT = `${APPLICATION_SELECT},
+  application_applicant_signatures!application_applicant_signatures_application_id_fkey(
+    applicant_id,signature_legal_name,signed_at,terms_version,displayed_terms_text,sharing_authorized,screening_consented
+  )`;
+
 interface DemoApplication extends ClientApplicationRecord {
   consentText: string | null;
   audit: Array<{ action: string; createdAt: string }>;
@@ -236,6 +241,7 @@ function mapApplication(row: Record<string, unknown>, options: { includeAllAppli
 
 function notificationApplicants(row: Record<string, unknown>, application: ClientApplicationRecord) {
   const applicantRows = (row.application_applicants ?? []) as Array<Record<string, unknown>>;
+  const signatures = (row.application_applicant_signatures ?? []) as Array<Record<string, unknown>>;
   return applicantRows
     .filter((applicant) => applicant.status !== "revoked")
     .map((applicant) => {
@@ -252,10 +258,12 @@ function notificationApplicants(row: Record<string, unknown>, application: Clien
       if (!publicApplicant) {
         throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "An applicant record could not be loaded for email delivery.");
       }
+      const signature = signatures.find(item => item.applicant_id === id);
       return {
         ...publicApplicant,
         draft: { ...draft.data, tenancy: application.draft.tenancy },
-        files: application.files.filter((file) => file.applicantId === id)
+        files: application.files.filter((file) => file.applicantId === id),
+        signature: signature ? { legalName: String(signature.signature_legal_name), signedAt: String(signature.signed_at), termsVersion: String(signature.terms_version), termsText: String(signature.displayed_terms_text), sharingAuthorized: signature.sharing_authorized === true, screeningConsented: signature.screening_consented === true } : null
       };
     });
 }
@@ -1004,7 +1012,7 @@ export async function listApplicationsForStaff(admin: AdminIdentity) {
   void admin;
   if (process.env.DATA_BACKEND !== "supabase") return [...demoStore().values()].map((item) => ({ ...structuredClone(item), applicants: getMemoryApplicationApplicants(item.id), files: getMemoryAllApplicantFilesForStaff(item.id), applicantDetails: getMemoryApplicationNotificationApplicants(item.id) }));
   const result = await supabaseService().from("client_applications")
-    .select(APPLICATION_SELECT)
+    .select(APPLICATION_STAFF_SELECT)
     .is("deleted_at", null)
     .order("submitted_at", { ascending: false, nullsFirst: false });
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
@@ -1120,7 +1128,7 @@ async function loadApplicationForStaff(id: string) {
     return application ? { ...structuredClone(application), applicants: getMemoryApplicationApplicants(id), files: getMemoryAllApplicantFilesForStaff(id), applicantDetails: getMemoryApplicationNotificationApplicants(id) } : null;
   }
   const result = await supabaseService().from("client_applications")
-    .select(APPLICATION_SELECT)
+    .select(APPLICATION_STAFF_SELECT)
     .eq("id", id)
     .is("deleted_at", null)
     .maybeSingle();
@@ -1351,7 +1359,7 @@ async function loadStaffApplication(id: string) {
     if (stored) application = memoryStaffApplication(stored);
   }
   else {
-    const result = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("id", id).is("deleted_at", null).maybeSingle();
+    const result = await supabaseService().from("client_applications").select(APPLICATION_STAFF_SELECT).eq("id", id).is("deleted_at", null).maybeSingle();
     if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
     if (result.data) application = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
   }
@@ -1428,7 +1436,7 @@ export async function convertApprovedApplicationToTenant(
   if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
   else {
     const result = await supabaseService().from("client_applications")
-      .select(APPLICATION_SELECT)
+      .select(APPLICATION_STAFF_SELECT)
       .eq("id", id)
       .maybeSingle();
     if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
@@ -1520,7 +1528,7 @@ export async function convertApprovedApplicationToTenant(
   }
   const tenant = (await getRepository().getTenant(String(converted.data))).tenant;
   const application = await supabaseService().from("client_applications")
-    .select(APPLICATION_SELECT)
+    .select(APPLICATION_STAFF_SELECT)
     .eq("id", id)
     .single();
   if (application.error || !application.data) {

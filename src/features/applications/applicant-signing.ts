@@ -27,6 +27,7 @@ import {
 } from "@/features/applications/schemas";
 
 import type { EmailProvider } from "@/features/notifications/providers/types";
+import type { ApplicantSignatureEvidence } from "@/features/applications/notification";
 
 export interface ApplicationRequestContext {
   requestId: string;
@@ -68,6 +69,7 @@ interface MemorySignature {
   applicantId: string;
   signedAt: string;
   evidenceHash: string;
+  evidence?: ApplicantSignatureEvidence;
 }
 
 declare global {
@@ -220,7 +222,8 @@ export function getMemoryApplicationNotificationApplicants(applicationId: string
     .map((item) => ({
       ...publicApplicant(item),
       draft: structuredClone(item.draft),
-      files: structuredClone(item.files)
+      files: structuredClone(item.files),
+      signature: structuredClone(memoryStores().signatures.get(item.id)?.evidence ?? null)
     }));
 }
 
@@ -598,7 +601,8 @@ export async function signGuestApplicant(sessionToken: string, rawInput: Applica
   const evidenceHash = digest(JSON.stringify({ applicationId: view.application.id, applicantId: view.applicant.id, draft: view.applicant.draft, files: fileSnapshot, ...input }));
   if (process.env.DATA_BACKEND !== "supabase") {
     const applicant = await memoryGuest(sessionToken);
-    memoryStores().signatures.set(applicant.id, { applicantId: applicant.id, signedAt: now, evidenceHash });
+    memoryStores().signatures.set(applicant.id, { applicantId: applicant.id, signedAt: now, evidenceHash,
+      evidence: { legalName: input.signatureLegalName, signedAt: now, termsVersion: input.termsVersion, termsText: view.application.termsText, sharingAuthorized: input.sharingAuthorization, screeningConsented: input.screeningConsent } });
     applicant.status = "signed"; applicant.signedAt = now;
     if (guestFiles.some(file => file.documentType === "credit_score_report") && applicant.draft.creditReportVoluntary) { applicant.creditReportVoluntaryAt = now; applicant.creditReportConsentVersion = "2026-10-15.1"; }
     return publicApplicant(applicant);
@@ -688,7 +692,8 @@ export async function recordPrimarySignatureAndCreditRequests(input: { applicati
     const primary = await assertMemoryOwner(input.identity, input.applicationId);
     primary.legalName = expectedName; primary.status = "signed"; primary.signedAt = input.signedAt;
     if (input.files.some(file => file.documentType === "credit_score_report") && input.draft.creditReportVoluntary) { primary.creditReportVoluntaryAt = input.signedAt; primary.creditReportConsentVersion = "2026-10-15.1"; }
-    memoryStores().signatures.set(primary.id, { applicantId: primary.id, signedAt: input.signedAt, evidenceHash });
+    memoryStores().signatures.set(primary.id, { applicantId: primary.id, signedAt: input.signedAt, evidenceHash,
+      evidence: { legalName: input.legalName, signedAt: input.signedAt, termsVersion: input.signature.termsVersion, termsText: input.termsText, sharingAuthorized: input.signature.sharingAuthorization, screeningConsented: input.signature.screeningConsent } });
 
     return;
   }
