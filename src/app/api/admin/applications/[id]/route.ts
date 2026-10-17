@@ -4,7 +4,7 @@ import { assertSameOrigin, requireAdminRequest } from "@/lib/auth";
 import { updateApplicationStatus } from "@/features/applications/service";
 
 const schema = z.object({
-  status: z.enum(["received", "needs_information", "under_review", "approved", "declined", "withdrawn"])
+  status: z.enum(["needs_information", "under_review", "approved", "declined", "withdrawn"])
 });
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {

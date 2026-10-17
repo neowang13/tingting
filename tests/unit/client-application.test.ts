@@ -264,7 +264,6 @@ describe("client application workflow", () => {
     expect((await applicationReceipt(client, applicationId)).toString("utf8"))
       .toContain("I am between roles and do not have current pay stubs.");
     const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
-    await updateApplicationStatus(admin, applicationId, "received");
     await expect(updateApplicationStatus(admin, applicationId, "under_review"))
       .resolves.toMatchObject({ status: "under_review", files: [] });
   });
@@ -347,7 +346,13 @@ describe("client application workflow", () => {
     const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
     await expect(updateApplicationStatus(admin, applicationId, "approved"))
       .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
-    expect((await updateApplicationStatus(admin, applicationId, "received")).status).toBe("received");
+    await expect(updateApplicationStatus(admin, applicationId, "received"))
+      .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
+    await expect(updateApplicationStatus(admin, applicationId, "under_review"))
+      .rejects.toMatchObject({ code: "APPLICATION_FILES_NOT_CLEARED" });
+    expect((await updateApplicationStatus(admin, applicationId, "needs_information")).status).toBe("needs_information");
+    await expect(updateApplicationStatus(admin, applicationId, "received"))
+      .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
     await expect(updateApplicationStatus(admin, applicationId, "under_review"))
       .rejects.toMatchObject({ code: "APPLICATION_FILES_NOT_CLEARED" });
     const fileId = application.files[0].id;
@@ -411,6 +416,14 @@ describe("client application workflow", () => {
       .toBe(converted.tenant.id);
   });
 
+  it("allows historical received applications to enter review without another acknowledgement", async () => {
+    await getClientApplication(client, applicationId);
+    globalThis.__tingtingClientApplications!.get(applicationId)!.status = "received";
+    const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
+    await expect(updateApplicationStatus(admin, applicationId, "under_review"))
+      .resolves.toMatchObject({ status: "under_review" });
+  });
+
   it("keeps approval recorded when applicant email delivery fails", async () => {
     await saveCompleteDraft();
     const uploaded = await uploadRequiredFiles();
@@ -423,7 +436,6 @@ describe("client application workflow", () => {
     }, { requestId: "test", userAgentHash: "hash" });
     const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
     for (const file of uploaded) await reviewApplicationFile(admin, file.id, "cleared");
-    await updateApplicationStatus(admin, applicationId, "received");
     await updateApplicationStatus(admin, applicationId, "under_review");
     const approved = await updateApplicationStatus(admin, applicationId, "approved", {
       notifier: { send: vi.fn().mockRejectedValue(new Error("provider unavailable")) }

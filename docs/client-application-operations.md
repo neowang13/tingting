@@ -70,9 +70,11 @@ copy private application details into chat, analytics, issue trackers, or genera
 
 Allowed progression:
 
-`Submitted → Received → Needs information / Under review → Approved / Declined`
+`Submitted → Under review → Approved / Declined`
 
-`Needs information → Received`; submitted/received/review records may be withdrawn.
+`Submitted / Under review → Needs information → Under review`; open submitted
+records may be withdrawn. There is no manual receipt acknowledgement. Historical
+`Received` records can still move directly to review, needs information, or withdrawal.
 The UI and server enforce transitions and append an audit event. Status means only
 the recorded operational state. `Submitted` is not approval, and screening-pending
 files must not be opened until the approved risk-control process clears them.
@@ -83,6 +85,9 @@ dialog. Approval queues a separate email to the applicant stating that the appli
 was approved and that the team will contact them; it also states that the email is not
 a tenancy agreement. The application decision remains recorded if the email provider
 fails, and the Admin UI shows a manual-contact warning.
+Requesting information and declining do not automatically notify the applicant;
+staff must arrange that contact. Approved, declined, and withdrawn records cannot
+be reopened through the current status workflow.
 
 After both parties sign the tenancy agreement, use `Mark as tenant` on the approved
 application. Upload the final signed agreement as a PDF (maximum 20 MB); selection

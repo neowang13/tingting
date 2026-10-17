@@ -5863,6 +5863,21 @@ a {
   line-height: 1.2;
 }
 
+.admin-auth-card.mcp-consent-card { width: min(680px, 100%); }
+.mcp-consent-card p { margin: 16px 0; line-height: 1.6; overflow-wrap: anywhere; }
+.mcp-permissions { margin: 24px 0; padding: 16px; border: 1px solid var(--admin-input-line); border-radius: 10px; }
+.mcp-permissions legend { padding: 0 6px; font-weight: 600; }
+.mcp-permissions label { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; line-height: 1.5; cursor: pointer; }
+.mcp-permissions input { margin-top: 3px; }
+.mcp-consent-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.mcp-consent-actions .button { flex: 1; min-width: 180px; }
+.admin-auth-card .mcp-consent-actions .button.secondary { color: var(--admin-ink); background: #fff; border: 1px solid var(--admin-input-line); }
+.mcp-connections { max-width: 760px; }
+.mcp-connection { margin: 20px 0; border: 1px solid var(--admin-input-line); border-radius: 12px; background: #fff; padding: 24px; }
+.mcp-connection ul { padding-left: 20px; line-height: 1.7; }
+.mcp-connections-link { display: block; margin: 12px 16px; padding: 12px; color: #fff; }
+.mcp-mobile-connection { display: block; padding: 16px 0; font-weight: 600; }
+
 .admin-auth-card h2 {
   margin: 20px 0 6px;
   font-size: 18px;

@@ -1,6 +1,7 @@
 # HTTP API Contract
 
-All responses use:
+Application HTTP routes use the envelope below. MCP, OAuth, and OAuth discovery
+routes use their protocol-specific response formats:
 
 ```json
 {
@@ -14,7 +15,7 @@ Errors use `success: false` with `error.code`, `error.message`, and optional
 validation details. In production, `/api/admin/*` is an interactive,
 browser-only API authenticated from the HttpOnly Supabase SSR Cookie Session.
 Client JavaScript does not read, store, or attach an access token. These routes
-also verify the active administrator profile, AAL2, the 30-minute idle limit,
+also verify the active administrator profile, configured MFA, the 1-hour idle limit,
 the 12-hour absolute limit, and same-origin writes. Local memory mode supplies
 a signed demo administrator session.
 
@@ -28,6 +29,12 @@ authenticated owner, and requires same-origin writes. It never accepts an
 Admin cookie as client authorization or returns private object paths/URLs.
 
 ## Public
+
+The separate private `/api/mcp` endpoint uses MCP JSON-RPC over Streamable HTTP,
+not this HTTP envelope. It is disabled by default and accepts only independently
+issued, scoped OAuth access tokens following the existing Admin login and consent.
+No static connector keys, browser cookies, or old Automation API tokens are accepted
+by the MCP endpoint. See [MCP setup and tool contracts](./admin-mcp.md).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -62,10 +69,10 @@ Admin cookie as client authorization or returns private object paths/URLs.
 | PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
 | GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
 | POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
-| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue a minimal Admin email notification |
+| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue the completed applicant details and attachments for Admin email delivery |
 | GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
-| PATCH | `/api/admin/applications/:id` | Perform a documented staff status transition |
+| PATCH | `/api/admin/applications/:id` | Set needs_information, under_review, approved, declined, or withdrawn within the allowed workflow; received is no longer a target |
 | POST | `/api/admin/applications/:id/tenant` | Convert an approved application with a signed lease PDF and `signedAgreementConfirmed: true` to a linked tenant |
 
 Application starts and draft writes are same-origin, rate-limited, owner-scoped, and

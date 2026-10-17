@@ -4,11 +4,13 @@ import { useHydrated } from "@/components/shared/use-hydrated";
 import { createBrowserClient } from "@supabase/ssr";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { adminLoginDestination } from "@/lib/admin-login-destination";
 
-export function LoginForm({ authMode, onAuthenticated, initialEmail = "" }: {
+export function LoginForm({ authMode, onAuthenticated, initialEmail = "", returnTo }: {
   authMode: "local" | "supabase";
   onAuthenticated?: () => void;
   initialEmail?: string;
+  returnTo?: string;
 }) {
   const router = useRouter();
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -66,6 +68,8 @@ export function LoginForm({ authMode, onAuthenticated, initialEmail = "" }: {
       onAuthenticated();
       return;
     }
+    const destination = adminLoginDestination(returnTo);
+    if (destination !== "/admin") { window.location.assign(destination); return; }
     router.replace("/admin");
     router.refresh();
   }

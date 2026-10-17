@@ -28,6 +28,7 @@ export function AdminShell({
           <span>Admin</span>
         </div>
         <div className="admin-desktop-navigation"><AdminNavigation /></div>
+        {process.env.MCP_ENABLED === "true" && <Link className="mcp-connections-link" href="/admin/mcp">Connected apps</Link>}
         <div className="admin-sidebar-user">
           <span className="admin-avatar">{admin.displayName.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
           <div><strong>{admin.displayName.split(/\s+/).slice(0, 2).join(" ")}</strong><small>{admin.email}</small></div>
@@ -40,7 +41,7 @@ export function AdminShell({
             <h1>{title}</h1>
             {description && <p className="admin-page-description">{description}</p>}
           </div>
-          <AdminMobileNavigation />
+          <AdminMobileNavigation mcpEnabled={process.env.MCP_ENABLED === "true"} />
         </header>
         <div className="admin-content">{children}</div>
       </main>

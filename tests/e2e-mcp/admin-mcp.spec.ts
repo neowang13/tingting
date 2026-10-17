@@ -1,0 +1,47 @@
+import { createHash } from "node:crypto";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test } from "@playwright/test";
+
+test("Admin signs in to authorize Muse, manages properties, then revokes its access", async ({ page, request }) => {
+  const origin = "http://127.0.0.1:3231"; const resource = `${origin}/api/mcp`;
+  const callback = `${origin}/muse-callback`; const verifier = "v".repeat(43);
+  const registration = await request.post("/api/mcp/oauth/register", { data: { client_name: "Personal Muse", redirect_uris: [callback], token_endpoint_auth_method: "none" } });
+  expect(registration.status()).toBe(201); const { client_id } = await registration.json();
+  const params = new URLSearchParams({ client_id, redirect_uri: callback, resource, response_type: "code", state: "browser-test-state-123456789",
+    code_challenge: createHash("sha256").update(verifier).digest("base64url"), code_challenge_method: "S256", scope: "rentals:read rentals:write" });
+  await page.goto(`/api/mcp/oauth/authorize?${params}`);
+  await expect(page).toHaveURL(/\/admin\/login\?next=/);
+  await page.getByLabel("Email", { exact: true }).fill("admin@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("test-admin-password");
+  await page.getByRole("button", { name: "Sign In", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Connect your assistant" })).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Create and edit properties/ })).toBeChecked();
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+  expect(accessibility.violations.map(v => v.id)).toEqual([]);
+  await page.screenshot({ path: "test-results/mcp-consent-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(async () => { await document.fonts.ready; await new Promise(requestAnimationFrame); await new Promise(requestAnimationFrame); });
+  await expect(page.getByRole("heading", { name: "Connect your assistant" })).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/mcp-consent-mobile.png", animations: "disabled" });
+  await page.route("**/muse-callback?**", route => route.fulfill({ status: 200, contentType: "text/plain", body: "Returned to Muse" }));
+  await page.getByRole("button", { name: "Allow connection" }).click();
+  await expect(page).toHaveURL(/\/muse-callback\?state=.*&code=/);
+  const code = new URL(page.url()).searchParams.get("code")!;
+  const exchange = await request.post("/api/mcp/oauth/token", { form: { grant_type: "authorization_code", client_id, redirect_uri: callback, code_verifier: verifier, code, resource } });
+  expect(exchange.status()).toBe(200); const { access_token } = await exchange.json();
+  const headers = { authorization: `Bearer ${access_token}`, accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-11-25" };
+  const tools = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 1, method: "tools/list" } });
+  const names = (await tools.json()).result.tools.map((t: { name: string }) => t.name);
+  expect(names).toContain("create_rental"); expect(names).toContain("upload_rental_image"); expect(names).toContain("set_rental_publication");
+  expect(names).not.toContain("set_application_status");
+  await page.goto("/admin/mcp");
+  await expect(page.getByRole("heading", { name: "Personal Muse" })).toBeVisible();
+  await page.getByRole("button", { name: "Open navigation" }).click();
+  const menu = page.getByRole("dialog", { name: "Navigation", exact: true });
+  await expect(menu.getByRole("link", { name: "Connected apps", exact: true })).toBeVisible();
+  await menu.getByRole("link", { name: "Connected apps", exact: true }).click();
+  await page.getByRole("button", { name: "Revoke access" }).click();
+  await expect(page.getByText(/^Revoked ·/)).toBeVisible();
+  expect((await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list" } })).status()).toBe(401);
+});

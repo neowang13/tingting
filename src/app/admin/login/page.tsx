@@ -1,5 +1,6 @@
 import { isDemoMode } from "@/lib/auth";
 import { LoginForm } from "@/components/admin/login-form";
+import { adminLoginDestination } from "@/lib/admin-login-destination";
 
 const loginMessages: Record<string, string> = {
   session_expired: "Your session expired. Sign in again to continue.",
@@ -11,9 +12,9 @@ const loginMessages: Record<string, string> = {
 export default async function LoginPage({
   searchParams
 }: {
-  searchParams: Promise<{ error?: string; reset?: string }>;
+  searchParams: Promise<{ error?: string; reset?: string; next?: string }>;
 }) {
-  const { error, reset } = await searchParams;
+  const { error, reset, next } = await searchParams;
   return (
     <main className="admin-body admin-auth-page">
       <section className="admin-auth-card">
@@ -24,7 +25,7 @@ export default async function LoginPage({
         </p>
         {reset === "success" && <p className="form-status success" role="status">Password updated. Sign in with the new password.</p>}
         {error && loginMessages[error] && <p className="form-status error" role="alert">{loginMessages[error]}</p>}
-        <LoginForm authMode={isDemoMode() ? "local" : "supabase"} />
+        <LoginForm authMode={isDemoMode() ? "local" : "supabase"} returnTo={adminLoginDestination(next)} />
         <p className="admin-auth-help">Private staff access. Do not share administrator credentials.</p>
       </section>
     </main>
