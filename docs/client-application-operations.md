@@ -68,6 +68,12 @@ Use `/admin/applications`. This is a need-to-know queue and does not expose priv
 object paths or public download URLs. The configured submission email is the operational delivery path. Do not manually
 copy private application details into chat, analytics, issue trackers, or general admin notes.
 
+The four views are **Under review**, **Approved**, **Rejected** and **Contract signed**.
+Under review is the default and includes new submissions, historical received
+records, active reviews and applications awaiting more information. Draft and
+withdrawn applications are excluded. This grouping does not change the recorded
+application status. Legacy `view=open` links also open Under review.
+
 Allowed progression:
 
 `Submitted → Under review → Approved / Declined`

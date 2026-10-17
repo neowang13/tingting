@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { Temporal } from "@js-temporal/polyfill";
 import { AdminShell } from "@/components/admin/admin-shell";
 import { ApplicationQueue } from "@/components/admin/application-queue";
+import { resolveApplicationQueueFilter } from "@/features/applications/staff-queue";
 import { PropertyListActions } from "@/components/admin/property-list-actions";
 import { RentalEditor } from "@/components/admin/rental-editor";
 import { TenantEditor } from "@/components/admin/tenant-editor";
@@ -144,9 +145,7 @@ export default async function AdminPage({ params, searchParams }: Props) {
 
   if (area === "applications" && !id) {
     const query = await searchParams;
-    const requestedView = typeof query.view === "string" ? query.view : "open";
-    const initialFilter = (["open", "under_review", "approved", "rejected", "contract_signed"] as const)
-      .find((view) => view === requestedView) ?? "open";
+    const initialFilter = resolveApplicationQueueFilter(query.view);
     return (
       <AdminShell
         admin={admin}

@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.4] - 2026-10-17
+### Changed
+- Simplify the application queue to four views. Under review now opens by default and includes new submissions and applications awaiting information; legacy All open links remain compatible.
+
 ## [0.2.3] - 2026-10-17
 ### Fixed
 - Render application submission, saved-draft and signing times consistently in Pacific time to prevent server/browser hydration mismatches.
