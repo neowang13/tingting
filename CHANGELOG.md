@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] - 2026-10-17
+
+### Changed
+- Open application review directly on the primary applicant's full details. Switch applicants by name to view one person's details, signed declaration and supporting files together.
+- Keep the applicant switcher available while reviewing, support keyboard navigation and horizontal name scrolling on mobile, and preserve whole-application decisions.
+- Display the original saved signing text when available; identify missing historical declarations without substituting current terms.
+
 ## [0.2.1] - 2026-10-17
 
 ### Fixed
