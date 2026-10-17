@@ -5,7 +5,7 @@ import { renderApplicationSubmittedNotification } from "@/features/applications/
 const mocks = vi.hoisted(() => ({ createClient: vi.fn() }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: mocks.createClient }));
 
-import { loadApplicationSubmissionNotificationData } from "@/features/applications/service";
+import { listApplicationsForStaff, loadApplicationSubmissionNotificationData } from "@/features/applications/service";
 
 function submittedRow() {
   const draft = applicationDraftSchema.parse({
@@ -79,6 +79,19 @@ describe("Supabase application submission notification", () => {
       expect(message.text).toContain(value);
     }
     expect(message.text).toContain("Adults: 2\nChildren: 1\nTotal occupants: 3\nNeeds showing: Yes\nPets: One cat\nParking: Required");
+  });
+
+  it("loads each applicant's original signed declaration only for the staff view", async () => {
+    const row = { ...submittedRow(), application_applicant_signatures: [{ applicant_id: "co", signature_legal_name: "Co Test", signed_at: "2026-10-15T18:00:00.000Z", terms_version: "historical-terms-1", displayed_terms_text: "Original signed text, not current terms.", sharing_authorized: true, screening_consented: true, request_context: { privateEvidence: "must-not-be-returned" } }] };
+    const order = vi.fn().mockResolvedValue({ data: [row], error: null });
+    const select = vi.fn().mockReturnValue({ is: vi.fn().mockReturnValue({ order }) });
+    mocks.createClient.mockReturnValue({ from: vi.fn().mockReturnValue({ select }) });
+    const admin = { userId: "admin", email: "admin@example.test", displayName: "Admin", authenticatedAt: "2026-10-17T12:00:00Z", assuranceLevel: "aal2" as const };
+    const [application] = await listApplicationsForStaff(admin);
+    expect(select.mock.calls[0][0]).toContain("application_applicant_signatures!");
+    expect(application.applicantDetails?.[0].signature).toBeNull();
+    expect(application.applicantDetails?.[1].signature).toEqual({ legalName: "Co Test", signedAt: "2026-10-15T18:00:00.000Z", termsVersion: "historical-terms-1", termsText: "Original signed text, not current terms.", sharingAuthorized: true, screeningConsented: true });
+    expect(JSON.stringify(application)).not.toContain("must-not-be-returned");
   });
 
   it("rejects invalid co-applicant data instead of substituting the primary draft", async () => {

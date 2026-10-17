@@ -304,8 +304,10 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             </div>
 
             <div className="application-review-content">
-              {selected.applicantDetails?.length ? <JointApplicantReview application={selected} renderDetails={applicant => <ApplicationDetails application={{ ...selected, draft: applicant.draft }} showTenancy={false} />} /> : <ApplicationDetails application={selected} />}
-              <ApplicationFiles application={selected} />
+              <JointApplicantReview application={selected}
+                renderDetails={applicant => <ApplicationDetails application={{ ...selected, draft: applicant.draft }} />}
+                renderFiles={applicant => <ApplicationFiles application={{ ...selected, draft: applicant.draft, files: applicant.files }} />}
+              />
 
               {selected.status === "approved" && !selected.convertedTenantId && showTenantForm && (
                 <TenantConversionForm
@@ -358,27 +360,15 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
   );
 }
 
-function ApplicationDetails({ application, showTenancy = true }: { application: ClientApplicationRecord; showTenancy?: boolean }) {
+function ApplicationDetails({ application }: { application: ClientApplicationRecord }) {
   const { draft } = application;
-  const totalOccupants = draft.tenancy.adultCount !== null && draft.tenancy.childCount !== null
-    ? draft.tenancy.adultCount + draft.tenancy.childCount
-    : draft.tenancy.occupantCount;
   return <div className="application-detail-grid">
-    <DetailCard title="Applicant">
+    <DetailCard title="Personal details">
       <Detail label="Legal name" value={applicantName(application)} />
       <Detail label="Email" value={draft.personal.email} href={`mailto:${draft.personal.email}`} />
       <Detail label="Phone" value={draft.personal.phone} href={`tel:${draft.personal.phone}`} />
       <Detail label="Alternate phone" value={draft.personal.alternatePhone} />
     </DetailCard>
-    {showTenancy && <DetailCard title="Requested tenancy">
-      <Detail label="Move-in" value={draft.tenancy.desiredMoveInDate} />
-      <Detail label="Lease term" value={draft.tenancy.leaseTerm.replaceAll("_", " ")} />
-      <Detail label="Adults" value={draft.tenancy.adultCount === null ? "Not recorded" : String(draft.tenancy.adultCount)} />
-      <Detail label="Children" value={draft.tenancy.childCount === null ? "Not recorded" : String(draft.tenancy.childCount)} />
-      <Detail label="Total occupants" value={totalOccupants ? String(totalOccupants) : "—"} />
-      <Detail label="Pets / parking" value={`${draft.tenancy.hasPets ? `Pets: ${draft.tenancy.petDetails || "yes"}` : "No pets"} · ${draft.tenancy.needsParking ? "Parking required" : "No parking"}`} />
-      <Detail label="Property fit" value={draft.tenancy.reasonForChoosing} wide />
-    </DetailCard>}
     <DetailCard title="Current housing">
       <Detail label="Address" value={draft.housing.currentAddress} wide />
       <Detail label="Since" value={draft.housing.currentHousingSince} />
@@ -406,7 +396,7 @@ function ApplicationDetails({ application, showTenancy = true }: { application: 
 }
 
 function DetailCard({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="application-detail-card"><h3>{title}</h3><dl>{children}</dl></section>;
+  return <section className="application-detail-card"><h4>{title}</h4><dl>{children}</dl></section>;
 }
 
 function Detail({ label, value, href, wide = false }: { label: string; value: string; href?: string; wide?: boolean }) {
@@ -419,13 +409,12 @@ function ApplicationFiles({ application }: { application: ClientApplicationRecor
     return explanation ? [{ documentType, explanation }] : [];
   });
   return <section className="application-documents-panel">
-    <div><h3>Private income and credit score documents</h3><p>{application.files.length === 0 ? "No files to screen. Review the applicant explanations below." : "Review the uploaded documents as part of the application. No separate clearance step is required."}</p>{application.files.some(file => file.scanStatus === "rejected") && <p>A rejected attachment prevents approval.</p>}</div>
+    <div><h4>Documents <span>({application.files.length})</span></h4>{application.files.length === 0 && <p>No files uploaded.</p>}{application.files.some(file => file.scanStatus === "rejected") && <p>A rejected attachment prevents approval.</p>}</div>
     {application.files.length > 0 && <ul>{application.files.map((file) => (
       <li key={file.id}>
         <FileText aria-hidden />
-        <span><strong>{file.originalFilename}</strong><small>{application.applicants.find(a => a.id === file.applicantId)?.legalName || "Applicant"} · {APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus === "rejected" ? "Rejected" : "Uploaded"}</small></span>
-        {file.scanStatus !== "rejected" && <a className="admin-action secondary compact" href={`/api/admin/application-files/${file.id}`}>Secure download</a>}
-
+        <span><strong>{file.originalFilename}</strong><small>{APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus === "rejected" ? "Rejected" : "Uploaded"}</small></span>
+        {file.scanStatus !== "rejected" && <a className="admin-action secondary compact" href={`/api/admin/application-files/${file.id}`}>Open file ↗</a>}
       </li>
     ))}</ul>}
     {explanations.length > 0 && <div className="application-document-explanations-admin">

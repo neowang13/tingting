@@ -80,9 +80,14 @@ the recorded operational state. `Submitted` is not approval. Per-file clearance 
 not a required step. Explicitly rejected attachments block approval, but do not
 prevent starting review or declining the application.
 
-Open `Review application` to inspect the complete application and private-file
-screening state. Approve and decline controls are available only inside that review
-dialog. Approval queues a separate email to the primary applicant's verified login
+Open `Review application` to see one card per applicant, with personal details,
+housing, income, references, signed declarations and that applicant's supporting
+files directly inside the card. Primary comes first; wide screens show two cards
+per row, and narrow screens stack them. Shared tenancy details appear once.
+Long signed terms can expand within the applicant's own card; missing historical
+signature text is identified rather than replaced with current terms. Approve and
+decline controls are available only inside that review dialog.
+Approval queues a separate email to the primary applicant's verified login
 account address, rather than the editable form email, stating that the application
 was approved and that the team will contact them; it also states that the email is not
 a tenancy agreement. The application decision remains recorded if the email provider
