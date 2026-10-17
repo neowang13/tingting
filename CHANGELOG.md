@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.3] - 2026-10-17
+### Fixed
+- Render application submission, saved-draft and signing times consistently in Pacific time to prevent server/browser hydration mismatches.
+
 ## [0.2.2] - 2026-10-17
 
 ### Changed

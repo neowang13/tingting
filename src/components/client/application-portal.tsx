@@ -307,7 +307,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
   if (!editable) {
     return <div className="client-application-flow">
       <ApplicationOverview application={application} completedCount={7} />
-      <section className="client-panel submission-receipt-panel"><p className="eyebrow">Application received</p><h2>Your application has been submitted</h2><p>Keep the receipt for your records. Ting Ting will contact you if more information is required.</p><div className="submission-receipt-summary"><p><strong>Submitted:</strong> {application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "—"}</p><p><strong>Consent recorded:</strong> {application.consentedAt ? new Date(application.consentedAt).toLocaleString("en-CA") : "—"}</p><a className="button secondary" href={`/api/client/applications/${application.id}/receipt`}>Download submission receipt</a></div></section>
+      <section className="client-panel submission-receipt-panel"><p className="eyebrow">Application received</p><h2>Your application has been submitted</h2><p>Keep the receipt for your records. Ting Ting will contact you if more information is required.</p><div className="submission-receipt-summary"><p><strong>Submitted:</strong> {application.submittedAt ? `${new Date(application.submittedAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT` : "—"}</p><p><strong>Consent recorded:</strong> {application.consentedAt ? `${new Date(application.consentedAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT` : "—"}</p><a className="button secondary" href={`/api/client/applications/${application.id}/receipt`}>Download submission receipt</a></div></section>
       <ApplicationHelp />
     </div>;
   }
@@ -330,7 +330,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           const number = index + 1;
           return <li key={step.label}><button type="button" className={number === activeStep ? "active" : undefined} aria-current={number === activeStep ? "step" : undefined} onClick={() => { setActiveStep(number); setError(""); setMessage(""); }}><span>{completed[index] ? "✓" : number}</span><span><small>Step {number}</small>{step.label}</span></button></li>;
         })}</ol>
-        <div className="application-save-state"><strong>{completedCount} of 7 sections ready</strong><span>{lastSaved ? `Last saved ${new Date(lastSaved).toLocaleString("en-CA")}` : "Not saved yet"}</span></div>
+        <div className="application-save-state"><strong>{completedCount} of 7 sections ready</strong><span>{lastSaved ? `Last saved ${new Date(lastSaved).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT` : "Not saved yet"}</span></div>
       </aside>
 
       <section className="client-panel application-step-panel" aria-labelledby="application-step-title">

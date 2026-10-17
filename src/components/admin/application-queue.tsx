@@ -258,7 +258,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
                 <td><strong>{application.applicants.filter(a => a.status !== "revoked").map(a => a.legalName).join(" & ") || applicantName(application)}</strong><small>{application.applicants.filter(a => a.userId).length} linked users · {application.id}</small></td>
                 <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
                 <td><span className={`application-status application-status-${application.status}`}>{application.status.replaceAll("_", " ")}</span></td>
-                <td>{application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "Not submitted"}</td>
+                <td>{application.submittedAt ? `${new Date(application.submittedAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT` : "Not submitted"}</td>
                 <td><span className={filesRejected ? "document-state pending" : "document-state cleared"}>{application.files.length} files<br />{documentStatus}</span></td>
                 <td>
                   <button className="application-review-button" type="button" onClick={(event) => openReview(application, event.currentTarget)}>
@@ -300,7 +300,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             <div className="application-review-summary">
               <span className={`application-status application-status-${selected.status}`}>{selected.status.replaceAll("_", " ")}</span>
               <span>Reference {selected.id}</span>
-              <span>{selected.submittedAt ? `Submitted ${new Date(selected.submittedAt).toLocaleString("en-CA")}` : "Not submitted"}</span>
+              <span>{selected.submittedAt ? `Submitted ${new Date(selected.submittedAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT` : "Not submitted"}</span>
             </div>
 
             <div className="application-review-content">
