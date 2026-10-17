@@ -11,6 +11,7 @@ import {
   type ApplicationStatusUpdateResult,
   type ClientApplicationRecord
 } from "@/features/applications/contracts";
+import { APPLICATION_QUEUE_TABS, matchesApplicationQueueFilter, type ApplicationQueueFilter } from "@/features/applications/staff-queue";
 
 function applicantName(application: ClientApplicationRecord) {
   return [application.draft.personal.legalFirstName, application.draft.personal.legalLastName]
@@ -33,9 +34,7 @@ function readableError(body: unknown, fallback: string) {
   return fallback;
 }
 
-type ApplicationQueueFilter = "open" | ApplicationStatus | "decided" | "rejected" | "contract_signed";
-
-export function ApplicationQueue({ initial, initialFilter = "open", initialApplicationId }: { initial: ClientApplicationRecord[]; initialFilter?: ApplicationQueueFilter; initialApplicationId?: string }) {
+export function ApplicationQueue({ initial, initialFilter = "under_review", initialApplicationId }: { initial: ClientApplicationRecord[]; initialFilter?: ApplicationQueueFilter; initialApplicationId?: string }) {
   const [applications, setApplications] = useState(initial);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<ApplicationQueueFilter>(initialFilter);
@@ -54,31 +53,14 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
   const visibleApplications = useMemo(() => {
     const term = query.trim().toLowerCase();
     return applications.filter((application) => {
-      const decided = ["approved", "declined", "withdrawn"].includes(application.status);
-      const inFilter = filter === "open"
-        ? !decided && application.status !== "draft"
-        : filter === "rejected"
-          ? application.status === "declined"
-          : filter === "contract_signed"
-            ? application.status === "approved" && Boolean(application.leaseDocument)
-        : filter === "decided"
-          ? decided
-          : application.status === filter;
-      if (!inFilter) return false;
+      if (!matchesApplicationQueueFilter(application, filter)) return false;
       if (!term) return true;
       return [application.id, applicantName(application), application.propertyTitle, application.propertyAddress]
         .some((value) => value.toLowerCase().includes(term));
     });
   }, [applications, filter, query]);
 
-  const filterCount = (value: typeof filter) => applications.filter((application) => {
-    const decided = ["approved", "declined", "withdrawn"].includes(application.status);
-    if (value === "open") return !decided && application.status !== "draft";
-    if (value === "rejected") return application.status === "declined";
-    if (value === "contract_signed") return application.status === "approved" && Boolean(application.leaseDocument);
-    if (value === "decided") return decided;
-    return application.status === value;
-  }).length;
+  const filterCount = (value: ApplicationQueueFilter) => applications.filter(application => matchesApplicationQueueFilter(application, value)).length;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -224,8 +206,8 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
     <div className="prototype-page application-queue-page">
       <div className="application-queue-toolbar">
         <div>
-          <strong>{filterCount("open")} open applications</strong>
-          <span>{filterCount("submitted") + filterCount("received")} awaiting review · {applications.filter((application) => application.files.some((file) => file.scanStatus === "rejected")).length} with rejected files</span>
+          <strong>{filterCount("under_review")} application{filterCount("under_review") === 1 ? "" : "s"} under review</strong>
+          <span>{applications.filter(application => ["submitted", "received"].includes(application.status)).length} awaiting review · {applications.filter((application) => application.files.some((file) => file.scanStatus === "rejected")).length} with rejected files</span>
         </div>
         <label className="application-queue-search">
           <span className="sr-only">Search applications</span>
@@ -233,13 +215,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
         </label>
       </div>
       <div className="application-filter-pills" aria-label="Filter applications">
-        {([
-          ["open", "All open"],
-          ["under_review", "Under review"],
-          ["approved", "Approved"],
-          ["rejected", "Rejected"],
-          ["contract_signed", "Contract signed"]
-        ] as const).map(([value, label]) => <button key={value} type="button" className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}>{label} · {filterCount(value)}</button>)}
+        {APPLICATION_QUEUE_TABS.map(([value, label]) => <button key={value} type="button" className={filter === value ? "active" : undefined} onClick={() => setFilter(value)}>{label} · {filterCount(value)}</button>)}
       </div>
       <p className="legal-review-warning">
         Applicant records are need-to-know data. Download documents only for approved screening,

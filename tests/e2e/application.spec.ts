@@ -167,8 +167,9 @@ test("Silverkey Admin properties, applications, users, responsive navigation, an
 
   await page.getByRole("link", { name: "Applications", exact: true }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /All open/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Under review/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /All open/ })).toHaveCount(0);
+  await expect(page.locator(".application-filter-pills button")).toHaveCount(4);
+  await expect(page.getByRole("button", { name: /Under review/ })).toHaveClass("active");
   await expect(page.getByRole("button", { name: /Approved/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Rejected/ })).toBeVisible();
   await expect(page.getByRole("button", { name: /Contract signed/ })).toBeVisible();

@@ -124,9 +124,14 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await page.getByLabel("Password").fill("test-admin-password");
   await page.getByRole("button", { name: "Sign In" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Properties" })).toBeVisible();
-  await page.goto("/admin/applications");
+  await page.goto("/admin/applications?view=open");
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
+  await expect(page.locator(".application-filter-pills button")).toHaveCount(4);
+  await expect(page.getByRole("button", { name: /All open/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Under review/ })).toHaveText("Under review · 1");
+  await expect(page.getByRole("button", { name: /Under review/ })).toHaveClass("active");
+  await page.screenshot({ path: ".gstack/qa-reports/four-application-tabs.png", fullPage: false });
   await expect(page.locator(".application-queue-table tbody tr").first()).toContainText(" PT");
   expect(renderErrors.filter(error => /hydration|hydrating|#418/i.test(error))).toEqual([]);
   await page.getByRole("button", { name: "Review application" }).click();
@@ -143,6 +148,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await expect(page.getByRole("button", { name: "Mark received" })).toHaveCount(0);
   await expect(reviewDialog.getByRole("button", { name: "Request information" })).toBeVisible();
   await reviewDialog.getByRole("button", { name: "Request information" }).click();
+  await expect(page.getByRole("button", { name: /Under review/ })).toHaveText("Under review · 1");
   await expect(reviewDialog.getByRole("button", { name: "Information received" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();
   await page.getByRole("button", { name: "Start review" }).click();
@@ -177,6 +183,9 @@ test("client login, explanation-only application, affirmative consent, receipt, 
     .analyze();
   expect(modalResults.violations.map(({ id }) => id)).toEqual([]);
   await reviewDialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(page.getByRole("button", { name: /Under review/ })).toHaveText("Under review · 0");
+  await page.getByRole("button", { name: /Contract signed/ }).click();
+  await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
   await page.getByRole("link", { name: "Users", exact: true }).click();
   await page.getByLabel("User status", { exact: true }).selectOption("tenant");
   const tenantUser = page.getByRole("row").filter({ hasText: "client@example.test" });

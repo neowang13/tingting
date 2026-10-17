@@ -64,7 +64,7 @@ export function UserDetails({ user }: { user: AdminUser }) {
           <td>{application.status.replaceAll("_", " ")}<small>{application.role === "primary" ? "Primary applicant" : "Co-applicant"}</small></td>
           <td>{application.relatedUsers.map(other => <div key={other.userId}><Link href={`/admin/users/${other.userId}`}>{other.legalName} ↗</Link></div>)}</td>
           <td>{application.convertedAt && application.hasSignedLease ? "Confirmed by admin" : application.hasSignedLease ? "Uploaded; awaiting confirmation" : "Not uploaded"}</td>
-          <td><Link className="row-action" href={`/admin/applications?application=${application.id}&view=${application.status === "approved" ? "approved" : "open"}`}>Review application</Link></td>
+          <td><Link className="row-action" href={`/admin/applications?application=${application.id}&view=${application.status === "approved" ? "approved" : application.status === "declined" ? "rejected" : "under_review"}`}>Review application</Link></td>
         </tr>)}</tbody>
       </table></div>}
     </section>
