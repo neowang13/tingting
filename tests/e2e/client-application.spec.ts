@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 
 test("client login, explanation-only application, affirmative consent, receipt, and staff queue", async ({ page, request }) => {
   test.setTimeout(60_000);
+  const renderErrors: string[] = [];
+  page.on("pageerror", error => renderErrors.push(error.message));
 
   const denied = await request.get("/api/client/applications/30000000-0000-4000-8000-000000000009/paper-form");
   expect(denied.status()).toBe(401);
@@ -107,6 +109,9 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await page.getByRole("button", { name: "Submit application" }).click();
   await expect(page.getByRole("link", { name: "Download submission receipt" })).toBeVisible();
   await expect(page.getByText("Submitted", { exact: true }).first()).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Download submission receipt" })).toBeVisible();
+  await expect(page.locator(".submission-receipt-summary")).toContainText(" PT");
 
   const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
   expect(results.violations.map(({ id }) => id)).toEqual([]);
@@ -122,6 +127,8 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await page.goto("/admin/applications");
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
+  await expect(page.locator(".application-queue-table tbody tr").first()).toContainText(" PT");
+  expect(renderErrors.filter(error => /hydration|hydrating|#418/i.test(error))).toEqual([]);
   await page.getByRole("button", { name: "Review application" }).click();
   const reviewDialog = page.getByRole("dialog", { name: "Bright Downtown One Bedroom" });
   await expect(reviewDialog).toBeVisible();

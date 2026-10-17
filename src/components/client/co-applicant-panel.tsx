@@ -143,7 +143,7 @@ export function CoApplicantPanel({
               <span className={`co-applicant-status status-${applicant.status}`}>{applicant.status === "invited" && applicant.invitationDeliveryStatus ? ({ scheduled: "Waiting to send", sent: "Invitation sent", delivered: "Email delivered", failed: "Delivery failed" }[applicant.invitationDeliveryStatus]) : copy.label}</span>
               <small>{copy.description}</small>
               {applicant.userId && <small>User account linked</small>}
-              {applicant.signedAt && <small>Signed {new Date(applicant.signedAt).toLocaleString("en-CA")}</small>}
+              {applicant.signedAt && <small>Signed {new Date(applicant.signedAt).toLocaleString("en-CA", { timeZone: "America/Vancouver" })} PT</small>}
             </div>
             {(canResend || canRevoke) && <div className="co-applicant-actions">
               {canResend && <button className="text-button" type="button" disabled={busy} onClick={() => void onResend(applicant.id)}>
