@@ -154,11 +154,11 @@ export function createAdminMcpServer(principal: McpPrincipal) {
     return { ...applicationSummary(a), form: a.draft, consentedAt: a.consentedAt,
       coApplicants: a.applicantDetails?.filter(p => p.role === "co_applicant"), legalReviewStatus: a.legalReviewStatus };
   });
-  register("set_application_status", "applications:write", "SENSITIVE WRITE. Apply only the administrator's explicit decision to one application. Submitted applications can move directly to needs_information or under_review; needs_information returns directly to under_review. There is no mark-received step. All files must be cleared before review/approval/decline. Approving sends the existing applicant approval email. Approval does not sign a lease or create a tenant. Show applicant, property, current/new status and email side effect before asking for approval. Never make an autonomous screening decision.", {
+  register("set_application_status", "applications:write", "SENSITIVE WRITE. Apply only the administrator's explicit decision to one application. Submitted applications can move directly to needs_information or under_review; needs_information returns directly to under_review. There is no mark-received or per-file clearance step. Rejected attachments block approval, but do not block review or decline. Approving emails the primary applicant's verified login-account address, which may differ from the form contact email. A queued email is not confirmed inbox delivery. Approval does not sign a lease or create a tenant. Show applicant, property, current/new status and email side effect before asking for approval. Never make an autonomous screening decision.", {
     ...writeFields, id: z.uuid(), expectedUpdatedAt: version, status: appStatus.exclude(["draft", "submitted", "received"])
   }, true, async input => {
     const result = await updateApplicationStatus(principal.admin, input.id, input.status, { expectedUpdatedAt: input.expectedUpdatedAt });
-    return { application: applicationSummary(result), applicantNotification: { status: result.applicantNotification.status } };
+    return { application: applicationSummary(result), applicantNotification: { status: result.applicantNotification.status, recipientEmail: result.applicantNotification.recipientEmail } };
   });
   register("list_showings", "showings:read", "Read viewing requests, contacts and current dates/times. Accepted with a null time means date registered, time still to be arranged. Multiple groups may share a date. Paginated.", {
     ...page, propertyId: z.uuid().optional(), status: showingStatusSchema.optional(), from: z.iso.date().optional(), to: z.iso.date().optional()

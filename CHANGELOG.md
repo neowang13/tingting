@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-10-17
+
+### Fixed
+- Approval emails use the applicant's verified login account and show the actual recipient. Approved applications can resend the notification.
+- Applications can enter review and receive a decision without per-file clearance. Explicitly rejected attachments still prevent approval.
+
 ## [0.2.0] - 2026-10-17
 
 ### Added

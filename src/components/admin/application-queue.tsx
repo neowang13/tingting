@@ -99,6 +99,36 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
     dialogRef.current?.close();
   }
 
+  function showApprovalEmailResult(updated: ApplicationStatusUpdateResult) {
+    const notification = updated.applicantNotification;
+    if (["queued", "sent"].includes(notification.status)) {
+      setNotice(`Application approved. The applicant approval email was queued for ${notification.recipientEmail}. Inbox delivery is not yet confirmed.`);
+    } else if (notification.status === "disabled") {
+      setError("Application approved, but applicant email delivery is disabled. Contact the applicant manually.");
+    } else {
+      setError(`Application approved, but the approval email could not be sent${notification.recipientEmail ? ` to ${notification.recipientEmail}` : " to a verified account email"}. You can retry using Resend approval email.`);
+    }
+  }
+
+  async function resendApprovalEmail(applicationId: string) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`/api/admin/applications/${applicationId}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resend_approval", deliveryId: crypto.randomUUID() })
+      });
+      const body = await response.json();
+      if (!response.ok || !body.success) throw new Error(readableError(body, "The approval email could not be resent."));
+      showApprovalEmailResult(body.data as ApplicationStatusUpdateResult);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "The approval email could not be resent.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function changeStatus(applicationId: string, status: ApplicationStatus) {
     setBusy(true);
     setError("");
@@ -116,45 +146,12 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       const updated = body.data as ApplicationStatusUpdateResult;
       setApplications((current) => current.map((item) => item.id === applicationId ? updated : item));
       if (status === "approved") {
-        if (["queued", "sent"].includes(updated.applicantNotification.status)) {
-          setNotice("Application approved. The applicant approval email was queued successfully.");
-        } else if (updated.applicantNotification.status === "disabled") {
-          setError("Application approved, but applicant email delivery is disabled. Contact the applicant manually.");
-        } else {
-          setError("Application approved, but the approval email could not be sent. Contact the applicant manually.");
-        }
+        showApprovalEmailResult(updated);
       } else {
         setNotice(`Application moved to ${status.replaceAll("_", " ")}.`);
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "The application status could not be updated.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function reviewFile(applicationId: string, fileId: string, decision: "cleared" | "rejected") {
-    setBusy(true);
-    setError("");
-    setNotice("");
-    try {
-      const response = await fetch(`/api/admin/application-files/${fileId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision })
-      });
-      const body = await response.json();
-      if (!response.ok || !body.success) {
-        throw new Error(readableError(body, "The file screening decision could not be recorded."));
-      }
-      setApplications((current) => current.map((application) => application.id !== applicationId ? application : {
-        ...application,
-        files: application.files.map((file) => file.id === fileId ? { ...file, scanStatus: decision } : file),
-        applicantDetails: application.applicantDetails?.map(applicant => ({ ...applicant, files: applicant.files.map(file => file.id === fileId ? { ...file, scanStatus: decision } : file) }))
-      }));
-      setNotice(decision === "cleared" ? "Document marked as cleared." : "Document rejected.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "The file screening decision could not be recorded.");
     } finally {
       setBusy(false);
     }
@@ -228,7 +225,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       <div className="application-queue-toolbar">
         <div>
           <strong>{filterCount("open")} open applications</strong>
-          <span>{filterCount("submitted") + filterCount("received")} awaiting review · {applications.filter((application) => application.files.some((file) => file.scanStatus !== "cleared")).length} with unscreened files</span>
+          <span>{filterCount("submitted") + filterCount("received")} awaiting review · {applications.filter((application) => application.files.some((file) => file.scanStatus === "rejected")).length} with rejected files</span>
         </div>
         <label className="application-queue-search">
           <span className="sr-only">Search applications</span>
@@ -252,17 +249,17 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
         <table className="admin-table application-queue-table">
           <thead><tr><th>Applicant</th><th>Property</th><th>Status</th><th>Submitted</th><th>Documents</th><th>Action</th></tr></thead>
           <tbody>{visibleApplications.map((application) => {
-            const filesCleared = application.files.every((file) => file.scanStatus === "cleared");
+            const filesRejected = application.files.some((file) => file.scanStatus === "rejected");
             const documentStatus = application.files.length === 0
               ? "No files to screen"
-              : filesCleared ? "Cleared" : "Screening required";
+              : filesRejected ? "Rejected attachment" : "Uploaded";
             return (
               <tr key={application.id}>
                 <td><strong>{application.applicants.filter(a => a.status !== "revoked").map(a => a.legalName).join(" & ") || applicantName(application)}</strong><small>{application.applicants.filter(a => a.userId).length} linked users · {application.id}</small></td>
                 <td><strong>{application.propertyTitle}</strong><small>{application.propertyAddress}</small></td>
                 <td><span className={`application-status application-status-${application.status}`}>{application.status.replaceAll("_", " ")}</span></td>
                 <td>{application.submittedAt ? new Date(application.submittedAt).toLocaleString("en-CA") : "Not submitted"}</td>
-                <td><span className={filesCleared ? "document-state cleared" : "document-state pending"}>{application.files.length} files<br />{documentStatus}</span></td>
+                <td><span className={filesRejected ? "document-state pending" : "document-state cleared"}>{application.files.length} files<br />{documentStatus}</span></td>
                 <td>
                   <button className="application-review-button" type="button" onClick={(event) => openReview(application, event.currentTarget)}>
                     <FileText size={17} aria-hidden /> Review application
@@ -308,7 +305,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
 
             <div className="application-review-content">
               {selected.applicantDetails?.length ? <JointApplicantReview application={selected} renderDetails={applicant => <ApplicationDetails application={{ ...selected, draft: applicant.draft }} showTenancy={false} />} /> : <ApplicationDetails application={selected} />}
-              <ApplicationFiles application={selected} busy={busy} onReview={reviewFile} />
+              <ApplicationFiles application={selected} />
 
               {selected.status === "approved" && !selected.convertedTenantId && showTenantForm && (
                 <TenantConversionForm
@@ -330,16 +327,19 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
               <button className="admin-action secondary" type="button" onClick={closeReview}>Close</button>
               {["submitted", "received"].includes(selected.status) && <>
                 <button className="admin-action secondary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "needs_information")}>Request information</button>
-                <button className="admin-action primary" disabled={busy || selected.files.some((file) => file.scanStatus !== "cleared")} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
+                <button className="admin-action primary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
               </>}
               {selected.status === "needs_information" && (
-                <button className="admin-action primary" disabled={busy || selected.files.some((file) => file.scanStatus !== "cleared")} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
+                <button className="admin-action primary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
               )}
               {selected.status === "under_review" && <>
                 <button className="admin-action secondary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "needs_information")}>Request information</button>
                 <button className="admin-action danger" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "declined")}><X size={17} aria-hidden /> Decline</button>
-                <button className="admin-action success" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "approved")}><CheckCircle2 size={17} aria-hidden /> Approve &amp; email client</button>
+                <button className="admin-action success" disabled={busy || selected.files.some((file) => file.scanStatus === "rejected")} type="button" onClick={() => changeStatus(selected.id, "approved")}><CheckCircle2 size={17} aria-hidden /> Approve &amp; email client</button>
               </>}
+              {selected.status === "approved" && (
+                <button className="admin-action secondary" disabled={busy} type="button" onClick={() => resendApprovalEmail(selected.id)}>Resend approval email</button>
+              )}
               {selected.status === "approved" && !selected.convertedTenantId && !showTenantForm && (
                 <button className="admin-action success" disabled={busy} type="button" onClick={() => {
                   const term = selected.draft.tenancy.leaseTerm;
@@ -413,26 +413,19 @@ function Detail({ label, value, href, wide = false }: { label: string; value: st
   return <div className={wide ? "wide" : undefined}><dt>{label}</dt><dd>{href && value ? <a href={href}>{value}</a> : value || "—"}</dd></div>;
 }
 
-function ApplicationFiles({ application, busy, onReview }: {
-  application: ClientApplicationRecord;
-  busy: boolean;
-  onReview: (applicationId: string, fileId: string, decision: "cleared" | "rejected") => Promise<void>;
-}) {
+function ApplicationFiles({ application }: { application: ClientApplicationRecord }) {
   const explanations = APPLICATION_REQUIRED_DOCUMENT_TYPES.flatMap((documentType) => {
     const explanation = application.draft.documentExplanations[documentType];
     return explanation ? [{ documentType, explanation }] : [];
   });
   return <section className="application-documents-panel">
-    <div><h3>Private income and credit score documents</h3><p>{application.files.length === 0 ? "No files to screen. Review the applicant explanations below." : "Download only to the approved screening workstation."}</p></div>
+    <div><h3>Private income and credit score documents</h3><p>{application.files.length === 0 ? "No files to screen. Review the applicant explanations below." : "Review the uploaded documents as part of the application. No separate clearance step is required."}</p>{application.files.some(file => file.scanStatus === "rejected") && <p>A rejected attachment prevents approval.</p>}</div>
     {application.files.length > 0 && <ul>{application.files.map((file) => (
       <li key={file.id}>
         <FileText aria-hidden />
-        <span><strong>{file.originalFilename}</strong><small>{application.applicants.find(a => a.id === file.applicantId)?.legalName || "Applicant"} · {APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></span>
+        <span><strong>{file.originalFilename}</strong><small>{application.applicants.find(a => a.id === file.applicantId)?.legalName || "Applicant"} · {APPLICATION_DOCUMENT_LABELS[file.documentType]} · {Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus === "rejected" ? "Rejected" : "Uploaded"}</small></span>
         {file.scanStatus !== "rejected" && <a className="admin-action secondary compact" href={`/api/admin/application-files/${file.id}`}>Secure download</a>}
-        {["manual_review_required", "screening_pending"].includes(file.scanStatus) && <>
-          <button className="admin-action success compact" disabled={busy} type="button" onClick={() => onReview(application.id, file.id, "cleared")}>Mark cleared</button>
-          <button className="admin-action danger compact" disabled={busy} type="button" onClick={() => onReview(application.id, file.id, "rejected")}>Reject file</button>
-        </>}
+
       </li>
     ))}</ul>}
     {explanations.length > 0 && <div className="application-document-explanations-admin">

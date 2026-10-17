@@ -134,7 +134,10 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await page.screenshot({ path: '.gstack/qa-reports/joint-application-20261015/admin-joint.png', fullPage: true });
   await expect(dialog.getByRole('button', { name: 'Mark received', exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Request information', exact: true }).click();
-  await expect(dialog.getByRole('button', { name: 'Start review', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Mark cleared', exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Start review', exact: true })).toBeEnabled();
+  await dialog.getByRole('button', { name: 'Start review', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: 'Approve & email client', exact: true })).toBeEnabled();
   await expect(dialog.locator('.joint-applicant-card')).toHaveCount(2);
   await otherContext.close();
 });

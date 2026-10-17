@@ -195,5 +195,6 @@ export interface ApplicationStatusUpdateResult extends ClientApplicationRecord {
   applicantNotification: {
     status: ApplicantNotificationStatus;
     providerMessageId: string | null;
+    recipientEmail: string | null;
   };
 }

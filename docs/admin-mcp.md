@@ -1,6 +1,6 @@
 # 私有管理员 MCP / Muse 接入
 
-更新：2026-10-17。接口为 `https://silverkey.ca/api/mcp`，官方 MCP SDK、无会话 Streamable HTTP、JSON 响应。默认关闭；生产数据库已应用迁移065–067，应用代码尚未部署，Muse 尚未连接。
+更新：2026-10-17。接口为 `https://silverkey.ca/api/mcp`，官方 MCP SDK、无会话 Streamable HTTP、JSON 响应。默认关闭；生产通过环境变量启用，当前版本需要迁移065–068。实际 Muse 连接须单独联调。
 
 Owner 确认的“上架”包含填写房源资料、上传照片、创建草稿、检查并发布，不能只操作已有房源的发布状态。首次授权可以包含房源读写权限，不设只读过渡阶段。申请与预约权限独立选择。
 
@@ -47,15 +47,15 @@ Owner 确认的“上架”包含填写房源资料、上传照片、创建草�
 
 ## 申请与预约边界
 
-申请状态遵循 submitted → under_review → approved / declined；submitted 和 under_review 可转为 needs_information，补资料后直接进入 under_review。未终结的已提交申请可撤回。网站和 MCP 均不再提供“标记已接收”操作，历史 received 记录仍可直接进入审核、要求补资料或撤回。不能从 draft 或 submitted 直接批准；所有附件筛查通过后才能审核、批准或拒绝。附件筛查仍在网站完成，不提供文件下载或筛查豁免。批准不等于签约或转租客。
+申请状态遵循 submitted → under_review → approved / declined；submitted 和 under_review 可转为 needs_information，补资料后直接进入 under_review。未终结的已提交申请可撤回。网站和 MCP 均不再提供“标记已接收”操作，历史 received 记录仍可直接进入审核、要求补资料或撤回。不能从 draft 或 submitted 直接批准。审核和审批不再要求逐个 Mark cleared；明确拒绝的附件仍阻止批准，但不阻止审核或拒绝申请。上传时保留格式、大小及危险 PDF 检查；MCP 不提供文件下载。批准不等于签约或转租客。
 
-批准触发现有申请人通知邮件；needs_information 和 declined 目前不会自动通知申请人。approved、declined、withdrawn 是终止状态，当前流程不能重新打开申请。
+批准邮件发往主申请人的已验证登录账号邮箱，不使用独立填写的表单联系邮箱替代；返回实际收件地址。queued 表示邮件服务接受请求，不代表收件箱已收到。网站对已批准申请提供 Resend approval email；重发不重新审批或更改申请状态，受 Admin 权限和频率限制。needs_information 和 declined 目前不会自动通知申请人。approved、declined、withdrawn 是终止状态，当前流程不能重新打开申请。
 
 预约支持同日期多组。accepted 且时间为空只表示日期登记；具体时间统一 America/Vancouver，需在将来且无夏令时歧义。改期/确认限已发布日历和一个月窗口。取消/拒绝后不能重新打开；变更不会自动发访客邮件或 SMS，返回 `notification: not_sent`，管理员应自行联系。修改开放日期不改变已有预约。MCP 暂不新建预约。
 
 ## 部署与 Muse 自用连接
 
-1. 在隔离数据库验证并应用065–067（依赖001–064），再部署代码。迁移不会随网站构建自动执行。保持 MCP 关闭直到数据库准备好。
+1. 在隔离数据库验证并应用065–068（依赖001–064），再部署代码。迁移不会随网站构建自动执行。保持 MCP 关闭直到数据库准备好。
 2. 生产使用 Supabase、HTTPS、正确 APP_BASE_URL 和已有有效 Admin；设置 `MCP_ENABLED=true`。不配置静态密钥。
 3. 在 Muse 创建仅供自己使用的 Custom Connector，不需要公开上架。可使用以下说明：
 
@@ -104,4 +104,4 @@ corepack pnpm exec playwright test --config=playwright.mcp.config.ts
 
 2026-10-17 流程简化验收：网站与 MCP 不再接受 received 作为新目标状态；提交后及补资料后均可直接进入审核，历史 received 记录可继续处理。412项自动测试通过（29项 Supabase 集成测试跳过），lint / typecheck 通过；67个迁移和两组 MCP SQL 测试通过。单人申请、共同申请及 Admin 闲置退出的浏览器验证通过；共同申请验证使用启用第二个演示账号的本地测试配置。生产尚未部署。
 
-2026-10-17 发布准备：生产数据库已应用065–067；应用代码部署、MCP 激活和真实 Muse 联调仍待完成。
+2026-10-17 MCP 初版已通过 PR #28 上线并启用；本轮审核和邮件修复依赖迁移068。实际 Muse 联调须单独完成。

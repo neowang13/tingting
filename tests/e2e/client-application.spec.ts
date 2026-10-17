@@ -142,6 +142,9 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await expect(page.getByRole("button", { name: "Decline" })).toBeVisible();
   await page.getByRole("button", { name: "Approve & email client" }).click();
   await expect(reviewDialog.getByText(/approval email was queued/)).toBeVisible();
+  await expect(reviewDialog.getByText(/queued for client@example.test/)).toBeVisible();
+  await reviewDialog.getByRole("button", { name: "Resend approval email", exact: true }).click();
+  await expect(reviewDialog.getByText(/queued for client@example.test/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Mark as tenant" })).toBeVisible();
   await page.getByRole("button", { name: "Mark as tenant" }).click();
   const createTenant = reviewDialog.getByRole("button", { name: "Create & link tenant" });
