@@ -123,7 +123,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await expect(page.getByRole("heading", { level: 1, name: "Client applications" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Review application" })).toBeVisible();
   await page.getByRole("button", { name: "Review application" }).click();
-  const reviewDialog = page.getByRole("dialog", { name: "Demo Applicant" });
+  const reviewDialog = page.getByRole("dialog", { name: "Bright Downtown One Bedroom" });
   await expect(reviewDialog).toBeVisible();
   const requestedTenancy = reviewDialog.getByRole("region", { name: "Joint application and linked users" });
   await expect(requestedTenancy).toContainText("2 adults");

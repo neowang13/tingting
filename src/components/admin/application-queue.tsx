@@ -291,8 +291,8 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             <header className="application-review-header">
               <div>
                 <span className="eyebrow">RENTAL APPLICATION</span>
-                <h2 id="application-review-title">{selected.applicants.filter(a => a.status !== "revoked").map(a => a.legalName).join(" & ") || applicantName(selected)}</h2>
-                <p>{selected.propertyTitle} · {selected.propertyAddress}</p>
+                <h2 id="application-review-title">{selected.propertyTitle}</h2>
+                <p>{selected.propertyAddress}</p>
               </div>
               <button className="dialog-close" type="button" aria-label="Close application review" onClick={closeReview}><X aria-hidden /></button>
             </header>
@@ -304,7 +304,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
             </div>
 
             <div className="application-review-content">
-              <JointApplicantReview application={selected}
+              <JointApplicantReview key={selected.id} application={selected}
                 renderDetails={applicant => <ApplicationDetails application={{ ...selected, draft: applicant.draft }} />}
                 renderFiles={applicant => <ApplicationFiles application={{ ...selected, draft: applicant.draft, files: applicant.files }} />}
               />

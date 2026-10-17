@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode, type KeyboardEvent } from "react";
 import type { ClientApplicationRecord } from "@/features/applications/contracts";
 import type { ApplicationNotificationApplicant } from "@/features/applications/notification";
 import { applicationDraftSchema } from "@/features/applications/schemas";
@@ -34,6 +34,38 @@ export function JointApplicantReview({ application, renderDetails, renderFiles }
   renderFiles: (applicant: ApplicationNotificationApplicant) => ReactNode;
 }) {
   const applicants = reviewApplicants(application);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = applicants.find(applicant => applicant.id === selectedId) ?? applicants[0];
+  const selectedIndex = applicants.findIndex(applicant => applicant.id === selected.id);
+  const switcherRef = useRef<HTMLDivElement>(null);
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const tabsId = useId();
+  const panelId = `${tabsId}-panel`;
+
+  function selectApplicant(index: number, focus = false) {
+    setSelectedId(applicants[index].id);
+    const tab = tabRefs.current[index];
+    if (focus) tab?.focus({ preventScroll: true });
+    const strip = tab?.parentElement;
+    if (tab && strip) {
+      const bounds = tab.getBoundingClientRect();
+      const visible = strip.getBoundingClientRect();
+      if (bounds.left < visible.left) strip.scrollLeft -= visible.left - bounds.left + 3;
+      else if (bounds.right > visible.right) strip.scrollLeft += bounds.right - visible.right + 3;
+    }
+    const scroller = switcherRef.current?.closest(".application-review-content");
+    if (scroller) scroller.scrollTop = 0;
+  }
+
+  function handleTabKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    const next = event.key === "ArrowRight" ? (index + 1) % applicants.length
+      : event.key === "ArrowLeft" ? (index - 1 + applicants.length) % applicants.length
+      : event.key === "Home" ? 0 : event.key === "End" ? applicants.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    selectApplicant(next, true);
+  }
+
   const tenancy = application.draft.tenancy;
   const occupants = tenancy.adultCount !== null && tenancy.childCount !== null ? tenancy.adultCount + tenancy.childCount : tenancy.occupantCount;
   const assignedFileIds = new Set(applicants.flatMap(applicant => applicant.files.map(file => file.id)));
@@ -45,28 +77,36 @@ export function JointApplicantReview({ application, renderDetails, renderFiles }
       <div><dt>Pets / parking</dt><dd>{tenancy.hasPets ? tenancy.petDetails || "Has pets" : "No pets"} · {tenancy.needsParking ? "Parking required" : "No parking"}</dd></div>
       {tenancy.reasonForChoosing && <div><dt>Property fit</dt><dd>{tenancy.reasonForChoosing}</dd></div>}
     </dl>
-    <div className={`joint-applicant-cards${applicants.length === 1 ? " single-applicant" : ""}`}>{applicants.map(applicant => (
-      <article key={applicant.id} className="joint-applicant-card" aria-label={`${applicant.legalName} application`}>
+    <div className="joint-applicant-switcher" ref={switcherRef}>
+      <div className="joint-applicant-switcher-caption"><span>{applicants.length} {applicants.length === 1 ? "applicant" : "applicants"}</span><span>Viewing {selectedIndex + 1} of {applicants.length}</span></div>
+      <div className="joint-applicant-tabs" role="tablist" aria-label="Choose applicant" aria-orientation="horizontal">
+        {applicants.map((applicant, index) => <button key={applicant.id} id={`${tabsId}-${applicant.id}`} ref={element => { tabRefs.current[index] = element; }} type="button" role="tab" aria-selected={applicant.id === selected.id} aria-controls={panelId} tabIndex={applicant.id === selected.id ? 0 : -1} onClick={() => selectApplicant(index)} onKeyDown={event => handleTabKey(event, index)}>
+          <strong>{applicant.legalName}</strong><span>{applicant.role === "primary" ? "Primary applicant" : "Co-applicant"}</span>
+        </button>)}
+      </div>
+    </div>
+    <div className="joint-applicant-panel" id={panelId} role="tabpanel" aria-labelledby={`${tabsId}-${selected.id}`} tabIndex={0}>
+      <article key={selected.id} className="joint-applicant-card" aria-label={`${selected.legalName} application`}>
         <header className="joint-applicant-heading">
-          <div><span>{applicant.role === "primary" ? "Primary applicant" : "Co-applicant"}</span><h3>{applicant.legalName}</h3></div>
-          {applicant.userId && <Link href={`/admin/users/${applicant.userId}`}>View user ↗</Link>}
+          <div><span>{selected.role === "primary" ? "Primary applicant" : "Co-applicant"}</span><h3>{selected.legalName}</h3></div>
+          {selected.userId && <Link href={`/admin/users/${selected.userId}`}>View user ↗</Link>}
         </header>
-        {applicant.role === "primary" || application.applicantDetails?.some(item => item.id === applicant.id)
-          ? renderDetails(applicant)
+        {selected.role === "primary" || application.applicantDetails?.some(item => item.id === selected.id)
+          ? renderDetails(selected)
           : <p>Personal details were not recorded for this applicant.</p>}
-        <section className="joint-signed-content" aria-label={`${applicant.legalName} signed declaration`}>
+        <section className="joint-signed-content" aria-label={`${selected.legalName} signed declaration`}>
           <h4>Signed declaration</h4>
-          {applicant.signature ? <>
-            <p className="joint-signature-record"><strong>{applicant.signature.legalName}</strong><time dateTime={applicant.signature.signedAt}>{signedTime(applicant.signature.signedAt)} PT</time></p>
-            <dl><div><dt>Share with landlord</dt><dd>{applicant.signature.sharingAuthorized ? "Authorized" : "Not recorded"}</dd></div><div><dt>Reference, housing & income checks</dt><dd>{applicant.signature.screeningConsented ? "Consented" : "Not recorded"}</dd></div></dl>
-            <details className="joint-signed-terms"><summary>Full signed terms · {applicant.signature.termsVersion}</summary><div>{applicant.signature.termsText.split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></details>
-          </> : <p>{applicant.signedAt ? `Signed ${signedTime(applicant.signedAt)} PT. Original declaration text is unavailable for this historical record.` : `Not signed · ${applicant.status.replaceAll("_", " ")}`}</p>}
-          {applicant.files.some(file => file.documentType === "credit_score_report") && <p className="joint-report-confirmation">{applicant.creditReportVoluntaryAt ? "Credit report voluntarily provided by this applicant." : "Credit report voluntary confirmation not recorded."}</p>}
+          {selected.signature ? <>
+            <p className="joint-signature-record"><strong>{selected.signature.legalName}</strong><time dateTime={selected.signature.signedAt}>{signedTime(selected.signature.signedAt)} PT</time></p>
+            <dl><div><dt>Share with landlord</dt><dd>{selected.signature.sharingAuthorized ? "Authorized" : "Not recorded"}</dd></div><div><dt>Reference, housing & income checks</dt><dd>{selected.signature.screeningConsented ? "Consented" : "Not recorded"}</dd></div></dl>
+            <details className="joint-signed-terms"><summary>Full signed terms · {selected.signature.termsVersion}</summary><div>{selected.signature.termsText.split("\n").filter(Boolean).map((line, index) => <p key={index}>{line}</p>)}</div></details>
+          </> : <p>{selected.signedAt ? `Signed ${signedTime(selected.signedAt)} PT. Original declaration text is unavailable for this historical record.` : `Not signed · ${selected.status.replaceAll("_", " ")}`}</p>}
+          {selected.files.some(file => file.documentType === "credit_score_report") && <p className="joint-report-confirmation">{selected.creditReportVoluntaryAt ? "Credit report voluntarily provided by this applicant." : "Credit report voluntary confirmation not recorded."}</p>}
         </section>
-        {renderFiles(applicant)}
-        {applicant.role === "co_applicant" && !applicant.signedAt && <p className="joint-invitation-status">Invitation: {applicant.invitationDeliveryStatus ? deliveryLabels[applicant.invitationDeliveryStatus] : "Delivery not recorded"}{applicant.userId ? " · Account linked" : " · Waiting to accept"}</p>}
+        {renderFiles(selected)}
+        {selected.role === "co_applicant" && !selected.signedAt && <p className="joint-invitation-status">Invitation: {selected.invitationDeliveryStatus ? deliveryLabels[selected.invitationDeliveryStatus] : "Delivery not recorded"}{selected.userId ? " · Account linked" : " · Waiting to accept"}</p>}
       </article>
-    ))}</div>
+    </div>
     {otherFiles.length > 0 && <section className="joint-unassigned-files" aria-label="Other application attachments"><h3>Other application attachments</h3><p>These historical files are not linked to an applicant shown above.</p>{renderFiles({ ...applicants[0], files: otherFiles, draft: { ...applicants[0].draft, documentExplanations: { employment_income_proof: "", rental_payment_history: "", credit_score_report: "" } } })}</section>}
   </section>;
 }
