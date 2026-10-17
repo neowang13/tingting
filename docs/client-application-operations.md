@@ -85,6 +85,9 @@ dialog. Approval queues a separate email to the applicant stating that the appli
 was approved and that the team will contact them; it also states that the email is not
 a tenancy agreement. The application decision remains recorded if the email provider
 fails, and the Admin UI shows a manual-contact warning.
+Requesting information and declining do not automatically notify the applicant;
+staff must arrange that contact. Approved, declined, and withdrawn records cannot
+be reopened through the current status workflow.
 
 After both parties sign the tenancy agreement, use `Mark as tenant` on the approved
 application. Upload the final signed agreement as a PDF (maximum 20 MB); selection

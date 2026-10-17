@@ -1,6 +1,6 @@
 # 私有管理员 MCP / Muse 接入
 
-2026-10-16。接口为 `https://silverkey.ca/api/mcp`，官方 MCP SDK、无会话 Streamable HTTP、JSON 响应。默认关闭；本地实现不代表生产已启用或 Muse 已连接。
+更新：2026-10-17。接口为 `https://silverkey.ca/api/mcp`，官方 MCP SDK、无会话 Streamable HTTP、JSON 响应。默认关闭；生产数据库已应用迁移065–067，应用代码尚未部署，Muse 尚未连接。
 
 Owner 确认的“上架”包含填写房源资料、上传照片、创建草稿、检查并发布，不能只操作已有房源的发布状态。首次授权可以包含房源读写权限，不设只读过渡阶段。申请与预约权限独立选择。
 
@@ -49,6 +49,8 @@ Owner 确认的“上架”包含填写房源资料、上传照片、创建草�
 
 申请状态遵循 submitted → under_review → approved / declined；submitted 和 under_review 可转为 needs_information，补资料后直接进入 under_review。未终结的已提交申请可撤回。网站和 MCP 均不再提供“标记已接收”操作，历史 received 记录仍可直接进入审核、要求补资料或撤回。不能从 draft 或 submitted 直接批准；所有附件筛查通过后才能审核、批准或拒绝。附件筛查仍在网站完成，不提供文件下载或筛查豁免。批准不等于签约或转租客。
 
+批准触发现有申请人通知邮件；needs_information 和 declined 目前不会自动通知申请人。approved、declined、withdrawn 是终止状态，当前流程不能重新打开申请。
+
 预约支持同日期多组。accepted 且时间为空只表示日期登记；具体时间统一 America/Vancouver，需在将来且无夏令时歧义。改期/确认限已发布日历和一个月窗口。取消/拒绝后不能重新打开；变更不会自动发访客邮件或 SMS，返回 `notification: not_sent`，管理员应自行联系。修改开放日期不改变已有预约。MCP 暂不新建预约。
 
 ## 部署与 Muse 自用连接
@@ -96,8 +98,10 @@ corepack pnpm exec playwright test --config=playwright.mcp.config.ts
 
 专项单元测试覆盖 OAuth Admin 登录边界、scope、PKCE、回调和 resource 绑定、刷新重放、撤销、静态密钥拒绝，以及官方 MCP 客户端完成新建房源/上传/编辑/上架/下架。浏览器测试使用真实本地 Admin 登录和授权页，验证权限选择、移动布局、无障碍及撤销后401。SQL 测试为 `tests/sql/admin-mcp.sql` 和 `tests/sql/admin-mcp-oauth.sql`，只能在隔离数据库执行。
 
-官方说明：[Muse 自用 Custom Connector](https://www.meta.com/help/artificial-intelligence/1687253048996149/)、[MCP HTTP 授权](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)。未修改生产配置、数据库或发送真实通知，尚未在实际 Muse 账号联通。
+官方说明：[Muse 自用 Custom Connector](https://www.meta.com/help/artificial-intelligence/1687253048996149/)、[MCP HTTP 授权](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)。真实 Muse 账号联通仍待验收，网站部署成功也不能代替此项验证。
 
-本轮验收记录：412项测试通过，29项需要独立 Supabase 的测试跳过；22项 MCP/OAuth 专项通过。真实本地浏览器完成 Admin 登录、权限选择、手机导航撤销及撤销后401，授权页无障碍检查通过。全部67个迁移在隔离 PostgreSQL 17 从头重放，管理与 OAuth SQL 行为测试通过并回滚。测试只使用 memory 数据和 mock 通知；没有生产写入、真实通知或实际 Muse 账号连接。
+本地验收记录：412项测试通过，29项需要独立 Supabase 的测试跳过；22项 MCP/OAuth 专项通过。真实本地浏览器完成 Admin 登录、权限选择、手机导航撤销及撤销后401，授权页无障碍检查通过。全部67个迁移在隔离 PostgreSQL 17 从头重放，管理与 OAuth SQL 行为测试通过并回滚。浏览器和工具测试使用 memory 数据和 mock 通知；这些验收未写入生产业务记录、发送真实通知或连接实际 Muse 账号。
 
 2026-10-17 流程简化验收：网站与 MCP 不再接受 received 作为新目标状态；提交后及补资料后均可直接进入审核，历史 received 记录可继续处理。412项自动测试通过（29项 Supabase 集成测试跳过），lint / typecheck 通过；67个迁移和两组 MCP SQL 测试通过。单人申请、共同申请及 Admin 闲置退出的浏览器验证通过；共同申请验证使用启用第二个演示账号的本地测试配置。生产尚未部署。
+
+2026-10-17 发布准备：生产数据库已应用065–067；应用代码部署、MCP 激活和真实 Muse 联调仍待完成。
