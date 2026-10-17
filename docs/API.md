@@ -73,6 +73,7 @@ by the MCP endpoint. See [MCP setup and tool contracts](./admin-mcp.md).
 | GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
 | PATCH | `/api/admin/applications/:id` | Set needs_information, under_review, approved, declined, or withdrawn within the allowed workflow; received is no longer a target |
+| POST | `/api/admin/applications/:id` | Resend an approved notification to the verified account email; body `{ action: "resend_approval", deliveryId: UUID }`, Admin-only, same-origin and rate-limited |
 | POST | `/api/admin/applications/:id/tenant` | Convert an approved application with a signed lease PDF and `signedAgreementConfirmed: true` to a linked tenant |
 
 Application starts and draft writes are same-origin, rate-limited, owner-scoped, and
@@ -83,8 +84,9 @@ save, upload to, or submit an application unless both the canonical form and act
 consent version have completed legal/privacy approval.
 Form and receipt responses are `private, no-store`. Uploads allow only content-
 sniffed PDF/JPEG/PNG files up to 10 MB, reject active PDF features, use random
-private-bucket keys, and remain `manual_review_required` until the approved
-malware-risk process clears them. See the
+private-bucket keys, and retain `manual_review_required` as a legacy file flag.
+Staff can start review and approve or decline the application without a per-file
+confirmation step. Explicitly rejected attachments still prevent approval. See the
 [client application runbook](./client-application-operations.md).
 
 ## Rentals

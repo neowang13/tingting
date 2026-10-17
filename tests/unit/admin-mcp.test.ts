@@ -202,11 +202,12 @@ describe("official SDK Streamable HTTP interoperability and management", () => {
     expect((await call(client, "set_application_status", args)).data.code).toBe("INVALID_APPLICATION_STATUS");
     stored.status = "submitted";
     stored.files = [{ id: crypto.randomUUID(), documentType: "credit_score_report", originalFilename: "report.pdf", mimeType: "application/pdf", byteSize: 1, scanStatus: "screening_pending", uploadedAt: initial.updatedAt }];
-    expect((await call(client, "set_application_status", { ...args, status: "under_review", operationId: crypto.randomUUID() })).data.code).toBe("APPLICATION_FILES_NOT_CLEARED");
-    stored.files[0].scanStatus = "cleared";
     const review = await call(client, "set_application_status", { ...args, status: "under_review", operationId: crypto.randomUUID() });
     expect(review.error).toBe(false);
     const approvedArgs = { ...args, expectedUpdatedAt: review.data.application.updatedAt, operationId: crypto.randomUUID() };
+    stored.files[0].scanStatus = "rejected";
+    expect((await call(client, "set_application_status", { ...approvedArgs, operationId: crypto.randomUUID() })).data.code).toBe("APPLICATION_FILE_REJECTED");
+    stored.files[0].scanStatus = "screening_pending";
     const approved = await call(client, "set_application_status", approvedArgs);
     expect(approved.error).toBe(false); expect(approved.data.application.status).toBe("approved");
     expect((await call(client, "set_application_status", approvedArgs)).data.replayed).toBe(true);

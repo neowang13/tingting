@@ -32,6 +32,7 @@ declare
 begin
  if has_table_privilege('anon','public.mcp_operations','SELECT') or has_table_privilege('authenticated','public.mcp_operations','INSERT')
    or has_function_privilege('authenticated','public.mcp_transition_application(uuid,timestamptz,text,uuid)','EXECUTE')
+   or has_function_privilege('authenticated','public.review_application_file(uuid,text,uuid)','EXECUTE')
    or has_function_privilege('anon','public.mcp_manage_showing(uuid,timestamptz,text,date,time,text,uuid)','EXECUTE') then
    raise exception 'MCP privilege boundary leaked';
  end if;
@@ -49,14 +50,19 @@ begin
    perform public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_version,'approved','00000000-0000-4000-8000-000000000650');
    raise exception 'submitted application approved without review';
  exception when sqlstate 'TT409' then null; end;
- begin
-   perform public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_version,'under_review','00000000-0000-4000-8000-000000000650');
-   raise exception 'unscreened files allowed review';
- exception when sqlstate 'TT409' then null; end;
  if (select status from public.client_applications where id='00000000-0000-4000-8000-000000000653') <> 'submitted' then raise exception 'failed transition partly committed'; end if;
- update public.client_application_files set scan_status='cleared' where id='00000000-0000-4000-8000-000000000654';
  v_new := public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_version,'under_review','00000000-0000-4000-8000-000000000650');
  if v_new <= v_version then raise exception 'application version failed to advance'; end if;
+ begin
+   perform public.review_application_file('00000000-0000-4000-8000-000000000654','rejected','00000000-0000-4000-8000-000000000651');
+   raise exception 'non-admin reviewed file';
+ exception when insufficient_privilege then null; end;
+ perform public.review_application_file('00000000-0000-4000-8000-000000000654','rejected','00000000-0000-4000-8000-000000000650');
+ begin
+   perform public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_new,'approved','00000000-0000-4000-8000-000000000650');
+   raise exception 'rejected file allowed approval';
+ exception when sqlstate 'TT409' then null; end;
+ update public.client_application_files set scan_status='screening_pending' where id='00000000-0000-4000-8000-000000000654';
  begin
    perform public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_version,'needs_information','00000000-0000-4000-8000-000000000650');
    raise exception 'stale version was accepted';
@@ -72,7 +78,12 @@ begin
    perform public.mcp_transition_application('00000000-0000-4000-8000-000000000653',v_new,'approved','00000000-0000-4000-8000-000000000650');
    raise exception 'terminal application approved twice';
  exception when sqlstate 'TT409' then null; end;
- select count(*) into v_count from public.client_application_audit_events where application_id='00000000-0000-4000-8000-000000000653' and request_context->>'source'='mcp';
+ begin
+   perform public.review_application_file('00000000-0000-4000-8000-000000000654','rejected','00000000-0000-4000-8000-000000000650');
+   raise exception 'file changed after approval';
+ exception when sqlstate 'TT409' then null; end;
+ if (select scan_status from public.client_application_files where id='00000000-0000-4000-8000-000000000654') <> 'screening_pending' then raise exception 'terminal file partly changed'; end if;
+ select count(*) into v_count from public.client_application_audit_events where application_id='00000000-0000-4000-8000-000000000653' and request_context->>'source'='admin';
  if v_count <> 4 then raise exception 'application audit did not commit exactly once per transition'; end if;
 
  insert into public.client_applications(id,owner_user_id,property_title,property_address,form_version_id,terms_version_id,status,submitted_at,consented_at)

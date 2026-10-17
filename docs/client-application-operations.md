@@ -41,8 +41,8 @@ submission continue to fail closed if either approval is withdrawn.
    scripts, launch actions, and embedded files. The assigned downloadable form remains
    available only as a `private, no-store` fallback.
 5. Objects use random keys in the private `client-applications` bucket. New files are
-   `manual_review_required`; an approved malware-screening workstation or future
-   scanner integration must clear them before staff opens or distributes them.
+   `manual_review_required` as a legacy attachment flag. Manual clearance does not
+   block staff review or decisions. Upload validation is not antivirus certification.
 6. Server submission revalidates all required online sections. Each applicant uses
    their own verified User account and separately checks the landlord-sharing and
    reference/housing/income verification authorizations. An uploaded credit report
@@ -76,15 +76,19 @@ Allowed progression:
 records may be withdrawn. There is no manual receipt acknowledgement. Historical
 `Received` records can still move directly to review, needs information, or withdrawal.
 The UI and server enforce transitions and append an audit event. Status means only
-the recorded operational state. `Submitted` is not approval, and screening-pending
-files must not be opened until the approved risk-control process clears them.
+the recorded operational state. `Submitted` is not approval. Per-file clearance is
+not a required step. Explicitly rejected attachments block approval, but do not
+prevent starting review or declining the application.
 
 Open `Review application` to inspect the complete application and private-file
 screening state. Approve and decline controls are available only inside that review
-dialog. Approval queues a separate email to the applicant stating that the application
+dialog. Approval queues a separate email to the primary applicant's verified login
+account address, rather than the editable form email, stating that the application
 was approved and that the team will contact them; it also states that the email is not
 a tenancy agreement. The application decision remains recorded if the email provider
-fails, and the Admin UI shows a manual-contact warning.
+fails. The Admin UI shows the recipient and distinguishes provider acceptance from
+inbox delivery. Approved records offer **Resend approval email**, protected by Admin
+authentication, same-origin checks, rate limits and a retry identifier.
 Requesting information and declining do not automatically notify the applicant;
 staff must arrange that contact. Approved, declined, and withdrawn records cannot
 be reopened through the current status workflow.
@@ -108,9 +112,12 @@ For corrections or missing information, contact the applicant without including
 sensitive content in URLs. The applicant should upload replacement information only
 through Client Login. Staff may download an attachment only from the authenticated
 Admin queue to the approved screening workstation. The response is private/no-store,
-never a public URL, and carries the current scan-status header. Recording `cleared` or
-`rejected` requires recent AAL2 authentication; review cannot start until every file
-is cleared.
+never a public URL, and carries the current attachment-status header. The queue has
+no per-file confirmation or rejection buttons: staff review the documents, then
+approve or decline the application. The legacy file-decision API still requires
+recent AAL2 authentication, refuses changes after a final application decision,
+and locks the parent application to serialize file rejection with approval.
+Explicitly rejected attachments still prevent approval.
 
 Use `/admin/users` to review every registered Client account, including accounts
 still waiting for email verification. Tenant status requires the approved application,

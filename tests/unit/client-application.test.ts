@@ -348,18 +348,12 @@ describe("client application workflow", () => {
       .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
     await expect(updateApplicationStatus(admin, applicationId, "received"))
       .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
-    await expect(updateApplicationStatus(admin, applicationId, "under_review"))
-      .rejects.toMatchObject({ code: "APPLICATION_FILES_NOT_CLEARED" });
+    expect((await updateApplicationStatus(admin, applicationId, "under_review")).status).toBe("under_review");
     expect((await updateApplicationStatus(admin, applicationId, "needs_information")).status).toBe("needs_information");
     await expect(updateApplicationStatus(admin, applicationId, "received"))
       .rejects.toMatchObject({ code: "INVALID_APPLICATION_STATUS" });
-    await expect(updateApplicationStatus(admin, applicationId, "under_review"))
-      .rejects.toMatchObject({ code: "APPLICATION_FILES_NOT_CLEARED" });
     const fileId = application.files[0].id;
     expect((await getApplicationFileForStaff(admin, fileId)).bytes.toString("utf8")).toContain("%PDF");
-    for (const file of application.files) {
-      expect((await reviewApplicationFile(admin, file.id, "cleared")).scanStatus).toBe("cleared");
-    }
     expect((await updateApplicationStatus(admin, applicationId, "under_review")).status).toBe("under_review");
 
     const approvalSend = vi.fn<EmailProvider["send"]>().mockResolvedValue({
@@ -373,7 +367,7 @@ describe("client application workflow", () => {
     expect(approved.applicantNotification.status).toBe("queued");
     expect(approvalSend).toHaveBeenCalledWith(expect.objectContaining({
       to: "client@example.test",
-      idempotencyKey: `application-approved-${applicationId}`,
+      idempotencyKey: expect.stringMatching(new RegExp(`^application-approved-${applicationId}-[a-f0-9]{16}$`)),
       subject: expect.stringContaining("approved")
     }));
     expect(approvalSend.mock.calls[0][0].text).toContain("will contact you");
@@ -424,6 +418,17 @@ describe("client application workflow", () => {
       .resolves.toMatchObject({ status: "under_review" });
   });
 
+  it("allows review and decline of rejected attachments but prevents approval", async () => {
+    await getClientApplication(client, applicationId);
+    const application = globalThis.__tingtingClientApplications!.get(applicationId)!;
+    application.status = "submitted";
+    application.files = [{ id: crypto.randomUUID(), documentType: "credit_score_report", originalFilename: "rejected.pdf", mimeType: "application/pdf", byteSize: 20, scanStatus: "rejected", uploadedAt: new Date().toISOString() }];
+    const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
+    await expect(updateApplicationStatus(admin, applicationId, "under_review")).resolves.toMatchObject({ status: "under_review" });
+    await expect(updateApplicationStatus(admin, applicationId, "approved")).rejects.toMatchObject({ code: "APPLICATION_FILE_REJECTED" });
+    await expect(updateApplicationStatus(admin, applicationId, "declined")).resolves.toMatchObject({ status: "declined" });
+  });
+
   it("keeps approval recorded when applicant email delivery fails", async () => {
     await saveCompleteDraft();
     const uploaded = await uploadRequiredFiles();
@@ -442,5 +447,16 @@ describe("client application workflow", () => {
     });
     expect(approved.status).toBe("approved");
     expect(approved.applicantNotification.status).toBe("failed");
+  });
+
+  it.each(["approved", "declined", "withdrawn"] as const)("prevents legacy file decisions after an application is %s", async (status) => {
+    await getClientApplication(client, applicationId);
+    const application = globalThis.__tingtingClientApplications!.get(applicationId)!;
+    const fileId = crypto.randomUUID();
+    application.status = status;
+    application.files = [{ id: fileId, documentType: "credit_score_report", originalFilename: "uploaded.pdf", mimeType: "application/pdf", byteSize: 20, scanStatus: "manual_review_required", uploadedAt: new Date().toISOString() }];
+    const admin = { userId: crypto.randomUUID(), email: "admin@example.test", displayName: "Admin", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal2" as const };
+    await expect(reviewApplicationFile(admin, fileId, "rejected")).rejects.toMatchObject({ code: "APPLICATION_NOT_REVIEWABLE" });
+    expect(application.files[0].scanStatus).toBe("manual_review_required");
   });
 });

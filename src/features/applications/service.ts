@@ -1059,7 +1059,10 @@ export async function reviewApplicationFile(
 ) {
   const now = new Date().toISOString();
   if (process.env.DATA_BACKEND !== "supabase") {
-    const application = [...demoStore().values()].find((item) => item.files.some((file) => file.id === fileId));
+    const application = [...demoStore().values()].find((item) => item.files.some((file) => file.id === fileId) || getMemoryAllApplicantFilesForStaff(item.id).some((file) => file.id === fileId));
+    if (application && ["approved", "declined", "withdrawn"].includes(application.status)) {
+      throw new ApiError(409, "APPLICATION_NOT_REVIEWABLE", "Files cannot be changed after the application decision.");
+    }
     const file = application?.files.find((item) => item.id === fileId);
     if (!application || !file) {
       const guestFile = reviewMemoryApplicantFileForStaff(fileId, decision);
@@ -1074,21 +1077,11 @@ export async function reviewApplicationFile(
     return structuredClone(file);
   }
   const service = supabaseService();
-  const updated = await service.from("client_application_files")
-    .update({ scan_status: decision, reviewed_at: now })
-    .eq("id", fileId)
-    .in("scan_status", ["manual_review_required", "screening_pending"])
-    .select("id,application_id,applicant_id,document_type,original_filename,mime_type,byte_size,scan_status,uploaded_at")
-    .maybeSingle();
-  if (updated.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The screening decision could not be saved.");
-  if (!updated.data) throw new ApiError(409, "APPLICATION_FILE_ALREADY_REVIEWED", "This file is missing or already reviewed.");
-  await service.from("client_application_audit_events").insert({
-    application_id: updated.data.application_id,
-    actor_user_id: admin.userId,
-    actor_type: "staff",
-    action: `application.file_${decision}`,
-    request_context: { fileId }
+  const updated = await service.rpc("review_application_file", {
+    p_file_id: fileId, p_decision: decision, p_actor_id: admin.userId
   });
+  if (updated.error?.code === "TT409") throw new ApiError(409, "APPLICATION_NOT_REVIEWABLE", "This file is already reviewed or its application has a final decision.");
+  if (updated.error || !updated.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The screening decision could not be saved.");
   return {
     id: updated.data.id,
     applicantId: updated.data.applicant_id,
@@ -1272,19 +1265,40 @@ async function recordApplicationAudit(
   });
 }
 
+async function approvalNotificationRecipient(application: ClientApplicationRecord) {
+  if (process.env.DATA_BACKEND !== "supabase") {
+    return getMemoryApplicationApplicants(application.id)
+      .find((applicant) => applicant.role === "primary" && applicant.userId === application.ownerUserId)?.email.trim() || null;
+  }
+  const result = await supabaseService().auth.admin.getUserById(application.ownerUserId);
+  if (result.error || !result.data.user?.email || !result.data.user.email_confirmed_at) {
+    throw new ApiError(503, "APPLICATION_APPLICANT_EMAIL_UNVERIFIED", "The applicant's verified account email could not be confirmed.");
+  }
+  return result.data.user.email.trim();
+}
+
 async function notifyApplicantOfApproval(
   application: ClientApplicationRecord,
-  options: { notifier?: EmailProvider; recipient?: string | null }
+  options: { notifier?: EmailProvider; recipient?: string | null; deliveryId?: string }
 ): Promise<ApplicationStatusUpdateResult["applicantNotification"]> {
-  const recipient = options.recipient === undefined
-    ? application.draft.personal.email.trim()
-    : options.recipient;
+  let recipient: string | null;
+  try {
+    recipient = options.recipient === undefined
+      ? await approvalNotificationRecipient(application)
+      : options.recipient?.trim() || null;
+  } catch {
+    await recordApplicationAudit(application.id, "application.applicant_approval_notification_failed", {
+      actorType: "system",
+      requestContext: { safeErrorCode: "APPLICATION_APPLICANT_EMAIL_UNVERIFIED" }
+    });
+    return { status: "failed", providerMessageId: null, recipientEmail: null };
+  }
   if (!recipient) {
     await recordApplicationAudit(application.id, "application.applicant_approval_notification_failed", {
       actorType: "system",
       requestContext: { safeErrorCode: "APPLICATION_APPLICANT_EMAIL_MISSING" }
     });
-    return { status: "failed", providerMessageId: null };
+    return { status: "failed", providerMessageId: null, recipientEmail: null };
   }
 
   const emailMode = resolveEmailProviderMode();
@@ -1292,7 +1306,7 @@ async function notifyApplicantOfApproval(
     await recordApplicationAudit(application.id, "application.applicant_approval_notification_disabled", {
       actorType: "system"
     });
-    return { status: "disabled", providerMessageId: null };
+    return { status: "disabled", providerMessageId: null, recipientEmail: recipient };
   }
 
   try {
@@ -1304,23 +1318,61 @@ async function notifyApplicantOfApproval(
       subject: notification.subject,
       text: notification.text,
       html: notification.html,
-      idempotencyKey: `application-approved-${application.id}`
+      idempotencyKey: `application-approved-${application.id}-${sha256(recipient.toLowerCase()).slice(0, 16)}${options.deliveryId ? `-${options.deliveryId}` : ""}`
     });
     await recordApplicationAudit(application.id, "application.applicant_approval_notification_queued", {
       actorType: "system",
       requestContext: {
         providerMessageId: delivery.providerMessageId,
-        status: delivery.status
+        status: delivery.status,
+        recipientSource: "verified_account",
+        recipientSha256: sha256(recipient.toLowerCase())
       }
     });
-    return { status: delivery.status, providerMessageId: delivery.providerMessageId };
+    return { status: delivery.status, providerMessageId: delivery.providerMessageId, recipientEmail: recipient };
   } catch {
     await recordApplicationAudit(application.id, "application.applicant_approval_notification_failed", {
       actorType: "system",
       requestContext: { safeErrorCode: "APPLICATION_APPLICANT_EMAIL_DELIVERY_FAILED" }
     });
-    return { status: "failed", providerMessageId: null };
+    return { status: "failed", providerMessageId: null, recipientEmail: recipient };
   }
+}
+
+function memoryStaffApplication(stored: DemoApplication): ClientApplicationRecord {
+  const files = new Map([...getMemoryAllApplicantFilesForStaff(stored.id), ...stored.files].map(file => [file.id, file]));
+  return { ...structuredClone(stored), applicants: getMemoryApplicationApplicants(stored.id), files: structuredClone([...files.values()]), applicantDetails: getMemoryApplicationNotificationApplicants(stored.id) };
+}
+
+async function loadStaffApplication(id: string) {
+  let application: ClientApplicationRecord | undefined;
+  if (process.env.DATA_BACKEND !== "supabase") {
+    const stored = demoStore().get(id);
+    if (stored) application = memoryStaffApplication(stored);
+  }
+  else {
+    const result = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("id", id).is("deleted_at", null).maybeSingle();
+    if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
+    if (result.data) application = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
+  }
+  if (!application) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  return application;
+}
+
+export async function resendApplicationApproval(
+  admin: AdminIdentity,
+  id: string,
+  deliveryId: string,
+  options: { notifier?: EmailProvider; recipient?: string | null } = {}
+): Promise<ApplicationStatusUpdateResult> {
+  const application = await loadStaffApplication(id);
+  if (application.status !== "approved") {
+    throw new ApiError(409, "APPLICATION_NOT_APPROVED", "Only approved applications can receive an approval email.");
+  }
+  await recordApplicationAudit(id, "application.applicant_approval_notification_requested", {
+    actorUserId: admin.userId, actorType: "staff", requestContext: { deliveryId }
+  });
+  return { ...structuredClone(application), applicantNotification: await notifyApplicantOfApproval(application, { ...options, deliveryId }) };
 }
 
 export async function updateApplicationStatus(
@@ -1329,20 +1381,13 @@ export async function updateApplicationStatus(
   next: ApplicationStatus,
   options: { notifier?: EmailProvider; recipient?: string | null; expectedUpdatedAt?: string } = {}
 ): Promise<ApplicationStatusUpdateResult> {
-  let current: ClientApplicationRecord | undefined;
-  if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
-  else {
-    const result = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("id", id).maybeSingle();
-    if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
-    if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
-  }
-  if (!current) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  const current = await loadStaffApplication(id);
   if (options.expectedUpdatedAt && applicationVersion(current) !== options.expectedUpdatedAt) {
     throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application changed. Reload before deciding.");
   }
   if (!staffTransitions[current.status].includes(next)) throw new ApiError(409, "INVALID_APPLICATION_STATUS", `Cannot move ${current.status} to ${next}.`);
-  if (["under_review", "approved", "declined"].includes(next) && current.files.some((file) => file.scanStatus !== "cleared")) {
-    throw new ApiError(409, "APPLICATION_FILES_NOT_CLEARED", "All application files must pass the approved screening process before review.");
+  if (next === "approved" && current.files.some((file) => file.scanStatus === "rejected")) {
+    throw new ApiError(409, "APPLICATION_FILE_REJECTED", "An application with rejected attachments cannot be approved. Request replacement information first.");
   }
   const now = new Date().toISOString();
   let application: ClientApplicationRecord;
@@ -1351,26 +1396,19 @@ export async function updateApplicationStatus(
     stored.status = next;
     stored.updatedAt = new Date(Math.max(Date.now(), Date.parse(applicationVersion(stored)) + 1)).toISOString();
     stored.audit.push({ action: `application.status.${next}`, createdAt: now });
-    application = structuredClone(stored);
+    application = memoryStaffApplication(stored);
   } else {
     const service = supabaseService();
-    const updated = options.expectedUpdatedAt
-      ? await service.rpc("mcp_transition_application", {
-        p_id: id, p_expected_updated_at: options.expectedUpdatedAt, p_next: next, p_actor_id: admin.userId
-      })
-      : await service.from("client_applications").update({ status: next, updated_at: now })
-        .eq("id", id).eq("status", current.status).select("id").maybeSingle();
-    if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application status changed. Reload and try again.");
-    if (!options.expectedUpdatedAt) await recordApplicationAudit(id, `application.status.${next}`, {
-      actorUserId: admin.userId,
-      actorType: "staff"
+    const updated = await service.rpc("mcp_transition_application", {
+      p_id: id, p_expected_updated_at: options.expectedUpdatedAt ?? applicationVersion(current), p_next: next, p_actor_id: admin.userId
     });
-    application = { ...current, status: next, updatedAt: options.expectedUpdatedAt ? String(updated.data) : now };
+    if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application status changed. Reload and try again.");
+    application = { ...current, status: next, updatedAt: String(updated.data) };
   }
 
   const applicantNotification = next === "approved"
     ? await notifyApplicantOfApproval(application, options)
-    : { status: "not_applicable" as ApplicantNotificationStatus, providerMessageId: null };
+    : { status: "not_applicable" as ApplicantNotificationStatus, providerMessageId: null, recipientEmail: null };
   return { ...application, applicantNotification };
 }
 
