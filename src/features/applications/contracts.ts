@@ -111,7 +111,7 @@ Version ${APPLICATION_TERMS_VERSION}.
 export type ApplicationStatus =
   | "draft"
   | "submitted"
-  | "received"
+  | "received" // Historical records only; no longer a staff transition target.
   | "needs_information"
   | "under_review"
   | "approved"
@@ -163,6 +163,7 @@ export interface ApplicationLeaseDocumentRecord {
 
 export interface ClientApplicationRecord {
   id: string;
+  updatedAt?: string;
   participatingApplicantId?: string;
   applicantDetails?: import("@/features/applications/notification").ApplicationNotificationApplicant[];
   ownerUserId: string;

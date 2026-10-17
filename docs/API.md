@@ -29,6 +29,12 @@ Admin cookie as client authorization or returns private object paths/URLs.
 
 ## Public
 
+The separate private `/api/mcp` endpoint uses MCP JSON-RPC over Streamable HTTP,
+not this HTTP envelope. It is disabled by default and accepts only independently
+issued, scoped OAuth access tokens following the existing Admin login and consent.
+No static connector keys, browser cookies, or old Automation API tokens are accepted
+by the MCP endpoint. See [MCP setup and tool contracts](./admin-mcp.md).
+
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Runtime and backend health |

@@ -23,6 +23,7 @@ interface DemoRateLimit {
 export interface StoredShowingRequest {
   id: string;
   createdAt: string;
+  updatedAt?: string;
   propertyId: string;
   propertySlug: string;
   propertyTitle: string;
@@ -35,8 +36,8 @@ export interface StoredShowingRequest {
   phone: string;
   email: string;
   notes: string;
-  status: "accepted";
-  acceptedAt: string;
+  status: "requested" | "accepted" | "declined" | "reschedule_requested" | "cancelled";
+  acceptedAt: string | null;
 }
 
 declare global {

@@ -70,9 +70,11 @@ copy private application details into chat, analytics, issue trackers, or genera
 
 Allowed progression:
 
-`Submitted → Received → Needs information / Under review → Approved / Declined`
+`Submitted → Under review → Approved / Declined`
 
-`Needs information → Received`; submitted/received/review records may be withdrawn.
+`Submitted / Under review → Needs information → Under review`; open submitted
+records may be withdrawn. There is no manual receipt acknowledgement. Historical
+`Received` records can still move directly to review, needs information, or withdrawal.
 The UI and server enforce transitions and append an audit event. Status means only
 the recorded operational state. `Submitted` is not approval, and screening-pending
 files must not be opened until the approved risk-control process clears them.

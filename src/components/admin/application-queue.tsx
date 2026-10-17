@@ -228,7 +228,7 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
       <div className="application-queue-toolbar">
         <div>
           <strong>{filterCount("open")} open applications</strong>
-          <span>{filterCount("submitted")} waiting to be received · {applications.filter((application) => application.files.some((file) => file.scanStatus !== "cleared")).length} with unscreened files</span>
+          <span>{filterCount("submitted") + filterCount("received")} awaiting review · {applications.filter((application) => application.files.some((file) => file.scanStatus !== "cleared")).length} with unscreened files</span>
         </div>
         <label className="application-queue-search">
           <span className="sr-only">Search applications</span>
@@ -328,15 +328,12 @@ export function ApplicationQueue({ initial, initialFilter = "open", initialAppli
 
             <footer className="application-review-actions">
               <button className="admin-action secondary" type="button" onClick={closeReview}>Close</button>
-              {selected.status === "submitted" && (
-                <button className="admin-action primary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "received")}>Mark received</button>
-              )}
-              {selected.status === "received" && <>
+              {["submitted", "received"].includes(selected.status) && <>
                 <button className="admin-action secondary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "needs_information")}>Request information</button>
                 <button className="admin-action primary" disabled={busy || selected.files.some((file) => file.scanStatus !== "cleared")} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
               </>}
               {selected.status === "needs_information" && (
-                <button className="admin-action primary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "received")}>Information received</button>
+                <button className="admin-action primary" disabled={busy || selected.files.some((file) => file.scanStatus !== "cleared")} type="button" onClick={() => changeStatus(selected.id, "under_review")}>Start review</button>
               )}
               {selected.status === "under_review" && <>
                 <button className="admin-action secondary" disabled={busy} type="button" onClick={() => changeStatus(selected.id, "needs_information")}>Request information</button>

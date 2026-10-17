@@ -136,6 +136,13 @@ The matching verification matrix is in
 
 ## Current product baseline
 
+The private administrator MCP endpoint is implemented separately from the retired
+external automation API. It is disabled by default and requires migration 065,
+an Admin sign-in and explicit OAuth consent (migration 066), and scoped tokens. See
+[Administrator MCP / Muse setup](./docs/admin-mcp.md) for tools, limitations,
+the property-entry workflow, connection revocation, and activation. Muse account configuration and end-to-end
+verification are still required before claiming it is connected.
+
 [PRD.md](./PRD.md) is the current product scope and deployment baseline.
 The 2026-10-15 cleanup starts from the last successful production commit
 `418b420e7f3c45d973879f2ee139ac75389fca81` and retires the external agent integration.

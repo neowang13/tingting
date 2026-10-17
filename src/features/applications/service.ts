@@ -67,7 +67,7 @@ import type { ApplicantSignatureInput } from "@/features/applications/schemas";
 
 const DEMO_APPLICATION_ID = "30000000-0000-4000-8000-000000000009";
 const APPLICATION_SELECT = `
-  id,owner_user_id,property_title,property_address,status,assigned_at,submitted_at,
+  id,updated_at,owner_user_id,property_title,property_address,status,assigned_at,submitted_at,
   consented_at,retain_until,draft_payload,draft_updated_at,converted_tenant_id,converted_at,
   rental_listings(slug),
   application_form_versions!inner(version,sha256,legal_review_status,filename,content_type,content_text,storage_path),
@@ -176,6 +176,7 @@ function mapApplication(row: Record<string, unknown>, options: { includeAllAppli
   }
   const application: ClientApplicationRecord = {
     id: String(row.id),
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
     ownerUserId: String(row.owner_user_id),
     propertySlug: rental?.slug ? String(rental.slug) : null,
     propertyTitle: String(row.property_title),
@@ -1245,8 +1246,10 @@ export async function getSignedLeaseForStaff(admin: AdminIdentity, leaseFileId: 
 }
 
 const staffTransitions: Record<ApplicationStatus, ApplicationStatus[]> = {
-  draft: [], submitted: ["received", "withdrawn"], received: ["needs_information", "under_review", "withdrawn"],
-  needs_information: ["received", "withdrawn"], under_review: ["needs_information", "approved", "declined", "withdrawn"],
+  draft: [], submitted: ["needs_information", "under_review", "withdrawn"],
+  // Keep historical received records actionable without creating new ones.
+  received: ["needs_information", "under_review", "withdrawn"],
+  needs_information: ["under_review", "withdrawn"], under_review: ["needs_information", "approved", "declined", "withdrawn"],
   approved: [], declined: [], withdrawn: []
 };
 
@@ -1324,7 +1327,7 @@ export async function updateApplicationStatus(
   admin: AdminIdentity,
   id: string,
   next: ApplicationStatus,
-  options: { notifier?: EmailProvider; recipient?: string | null } = {}
+  options: { notifier?: EmailProvider; recipient?: string | null; expectedUpdatedAt?: string } = {}
 ): Promise<ApplicationStatusUpdateResult> {
   let current: ClientApplicationRecord | undefined;
   if (process.env.DATA_BACKEND !== "supabase") current = demoStore().get(id);
@@ -1334,6 +1337,9 @@ export async function updateApplicationStatus(
     if (result.data) current = mapApplication(result.data as unknown as Record<string, unknown>, { includeAllApplicantFiles: true });
   }
   if (!current) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
+  if (options.expectedUpdatedAt && applicationVersion(current) !== options.expectedUpdatedAt) {
+    throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application changed. Reload before deciding.");
+  }
   if (!staffTransitions[current.status].includes(next)) throw new ApiError(409, "INVALID_APPLICATION_STATUS", `Cannot move ${current.status} to ${next}.`);
   if (["under_review", "approved", "declined"].includes(next) && current.files.some((file) => file.scanStatus !== "cleared")) {
     throw new ApiError(409, "APPLICATION_FILES_NOT_CLEARED", "All application files must pass the approved screening process before review.");
@@ -1343,24 +1349,33 @@ export async function updateApplicationStatus(
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
     stored.status = next;
+    stored.updatedAt = new Date(Math.max(Date.now(), Date.parse(applicationVersion(stored)) + 1)).toISOString();
     stored.audit.push({ action: `application.status.${next}`, createdAt: now });
     application = structuredClone(stored);
   } else {
     const service = supabaseService();
-    const updated = await service.from("client_applications").update({ status: next, updated_at: now })
-      .eq("id", id).eq("status", current.status).select("id").maybeSingle();
+    const updated = options.expectedUpdatedAt
+      ? await service.rpc("mcp_transition_application", {
+        p_id: id, p_expected_updated_at: options.expectedUpdatedAt, p_next: next, p_actor_id: admin.userId
+      })
+      : await service.from("client_applications").update({ status: next, updated_at: now })
+        .eq("id", id).eq("status", current.status).select("id").maybeSingle();
     if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_STATUS_CHANGED", "The application status changed. Reload and try again.");
-    await recordApplicationAudit(id, `application.status.${next}`, {
+    if (!options.expectedUpdatedAt) await recordApplicationAudit(id, `application.status.${next}`, {
       actorUserId: admin.userId,
       actorType: "staff"
     });
-    application = { ...current, status: next };
+    application = { ...current, status: next, updatedAt: options.expectedUpdatedAt ? String(updated.data) : now };
   }
 
   const applicantNotification = next === "approved"
     ? await notifyApplicantOfApproval(application, options)
     : { status: "not_applicable" as ApplicantNotificationStatus, providerMessageId: null };
   return { ...application, applicantNotification };
+}
+
+export function applicationVersion(application: ClientApplicationRecord) {
+  return application.updatedAt ?? application.draftUpdatedAt ?? application.assignedAt;
 }
 
 export async function convertApprovedApplicationToTenant(

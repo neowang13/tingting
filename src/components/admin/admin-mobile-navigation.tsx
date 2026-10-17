@@ -4,8 +4,9 @@ import { Menu, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import { AdminNavigation } from "@/components/admin/admin-navigation";
 import { LogoutButton } from "@/components/admin/logout-button";
+import Link from "next/link";
 
-export function AdminMobileNavigation() {
+export function AdminMobileNavigation({ mcpEnabled = false }: { mcpEnabled?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -33,6 +34,7 @@ export function AdminMobileNavigation() {
         <button className="admin-menu-button" type="button" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={22} aria-hidden /></button>
       </div>
       <AdminNavigation onNavigate={() => setOpen(false)} />
+      {mcpEnabled && <Link className="mcp-mobile-connection" href="/admin/mcp" onClick={() => setOpen(false)}>Connected apps</Link>}
       <div className="admin-drawer-signout"><LogoutButton /></div>
     </dialog>
   </div>;

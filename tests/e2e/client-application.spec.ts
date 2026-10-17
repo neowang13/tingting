@@ -132,7 +132,10 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   await expect(reviewDialog.getByText("No files to screen. Review the applicant explanations below.")).toBeVisible();
   await reviewDialog.getByRole("button", { name: "View applicant details \u2192" }).click();
   await expect(reviewDialog.getByText("My employment documents are not currently available.")).toBeVisible();
-  await page.getByRole("button", { name: "Mark received" }).click();
+  await expect(page.getByRole("button", { name: "Mark received" })).toHaveCount(0);
+  await expect(reviewDialog.getByRole("button", { name: "Request information" })).toBeVisible();
+  await reviewDialog.getByRole("button", { name: "Request information" }).click();
+  await expect(reviewDialog.getByRole("button", { name: "Information received" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start review" })).toBeVisible();
   await page.getByRole("button", { name: "Start review" }).click();
   await expect(page.getByRole("button", { name: "Approve & email client" })).toBeVisible();
