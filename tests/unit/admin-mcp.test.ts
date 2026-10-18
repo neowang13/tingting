@@ -147,21 +147,28 @@ describe("official SDK Streamable HTTP interoperability and management", () => {
     expect((await call(client, "set_rental_publication", { ...args, expectedViewingDraftVersion: "stale" })).error).toBe(true);
     expect((await call(client, "set_rental_publication", { ...args, operationId: crypto.randomUUID() })).data.rental.status).toBe("published");
   });
-  it("creates a rental with uploaded photos, edits details, publishes it, and removes it from the website", async () => {
+  it.each([
+    { streetAddress: undefined, unitNumber: null, addressLine: "" },
+    { streetAddress: null, unitNumber: null, addressLine: "" },
+    { streetAddress: "", unitNumber: null, addressLine: "" },
+    { streetAddress: "", unitNumber: "101", addressLine: "Unit 101" }
+  ])("creates, publishes and unpublishes a rental with photos and optional street address $streetAddress, unit $unitNumber", async ({ streetAddress, unitNumber, addressLine }) => {
     const client = await connect();
     const editor = (await call(client, "get_rental_editor")).data;
     expect(editor.schema.properties).toHaveProperty("pricing");
+    expect(editor.schema.properties.property.required).not.toContain("streetAddress");
     const photo = await sharp({ create: { width: 128, height: 128, channels: 3, background: "#446644" } }).png().toBuffer();
     const image = await call(client, "upload_rental_image", { operationId: crypto.randomUUID(), confirmed: true, filename: "living-room.png", altText: "Living room", base64: photo.toString("base64") });
     expect(image.error).toBe(false);
     const listing = { ...editor.template, slug: "mcp-new-home", title: "New rental home", description: "Administrator supplied rental details.",
-      property: { ...editor.template.property, streetAddress: "1 Test Street", provinceCode: "BC" },
+      property: { ...editor.template.property, streetAddress, unitNumber, provinceCode: "BC" },
       pricing: { monthlyRentCents: 280000, currencyCode: "CAD" }, availability: { ...editor.template.availability, status: "available_now" },
       images: [{ mediaAssetId: image.data.mediaAssetId, sortOrder: 0, isCover: true }] };
     const createArgs = { operationId: crypto.randomUUID(), confirmed: true, listing };
     const created = await call(client, "create_rental", createArgs);
     expect(created.error).toBe(false); expect(created.data.rental.status).toBe("draft");
     expect(created.data.missingForPublication).toEqual([]);
+    expect(created.data.rental.address).toBe(addressLine ? `${addressLine}, Vancouver` : "Vancouver");
     expect((await call(client, "create_rental", createArgs)).data.replayed).toBe(true);
     let current = (await call(client, "get_rental", { id: created.data.rental.id })).data;
     const updated = await call(client, "update_rental", { operationId: crypto.randomUUID(), confirmed: true, id: current.rental.id,
@@ -172,6 +179,7 @@ describe("official SDK Streamable HTTP interoperability and management", () => {
       action: "publish", expectedUpdatedAt: current.rental.updatedAt, expectedViewingDraftVersion: current.viewingDraft.updatedAt,
       expectedViewingPublishedVersion: current.viewingDraft.publishedUpdatedAt });
     expect(published.error).toBe(false); expect((await getRepository().getPublicRentalBySlug(listing.slug))?.title).toBe("Updated rental home");
+    expect((await getRepository().getPublicRentalBySlug(listing.slug))?.addressLine).toBe(addressLine);
     const removed = await call(client, "set_rental_publication", { operationId: crypto.randomUUID(), confirmed: true, id: current.rental.id,
       action: "unpublish", expectedUpdatedAt: published.data.rental.updatedAt, expectedViewingDraftVersion: null, expectedViewingPublishedVersion: null });
     expect(removed.error).toBe(false); expect(await getRepository().getPublicRentalBySlug(listing.slug)).toBeNull();

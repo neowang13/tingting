@@ -355,7 +355,7 @@ export function RentalEditor({
             </select></label>
             <label className="field"><span>Building name</span><input name="buildingName" defaultValue={initial.property.buildingName ?? ""} /></label>
             <label className="field"><span>Unit number</span><input name="unitNumber" defaultValue={initial.property.unitNumber ?? ""} /></label>
-            <label className="field field-wide"><span>Street address</span><input name="streetAddress" required defaultValue={initial.property.streetAddress} /></label>
+            <label className="field field-wide"><span>Street address (optional)</span><input name="streetAddress" defaultValue={initial.property.streetAddress} /></label>
             <label className="field"><span>Neighbourhood</span><input name="neighbourhood" defaultValue={initial.property.neighbourhood ?? ""} /></label>
             <label className="field"><span>City</span><input name="city" required defaultValue={initial.property.city} /></label>
             <label className="field"><span>Province</span><select name="provinceCode" defaultValue={initial.property.provinceCode ?? "BC"}>

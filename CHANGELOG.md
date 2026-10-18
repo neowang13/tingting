@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.7] - 2026-10-17
+### Fixed
+- Create and publish rental listings without a street address; city remains required. Omitted addresses display cleanly on public pages, applications and viewing requests.
+- Clarify that assistants can download administrator-authorized Facebook listing photos through their browser and upload the files. Hidden connector image URLs require a browser download or original photo attachments; publication still requires a cover image.
+
 ## [0.2.6] - 2026-10-17
 ### Fixed
 - Allow Muse OAuth requests that omit the resource parameter by binding them to the single configured MCP resource. Explicitly incorrect targets remain rejected, with Admin consent, PKCE and token audience validation preserved.

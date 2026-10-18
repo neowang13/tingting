@@ -163,6 +163,9 @@ test("Silverkey Admin properties, applications, users, responsive navigation, an
   await expect(page.getByText("P-000001", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Create property" })).toHaveAttribute("href", "/admin/properties/new");
   await expect(page.getByRole("link", { name: "Edit", exact: true }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Create property", exact: true }).click();
+  await expect(page.getByLabel("Street address (optional)")).not.toHaveAttribute("required", "");
+  await page.getByRole("navigation", { name: "Admin navigation" }).getByRole("link", { name: "Properties", exact: true }).click();
   await expectNoSeriousAccessibilityViolations(page);
 
   await page.getByRole("link", { name: "Applications", exact: true }).click();

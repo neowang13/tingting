@@ -5,6 +5,7 @@ import type { EmailProvider } from "@/features/notifications/providers/types";
 import { getRepository } from "@/data/repository";
 import { deliverOwnerNotifications } from "@/features/notifications/owner-notifications";
 import { ApiError } from "@/lib/api";
+import { formatPropertyAddress } from "@/lib/property-address";
 import { showingRequestInputSchema } from "@/lib/schemas";
 import { renderShowingRequestNotification } from "@/features/showings/notification";
 import {
@@ -154,7 +155,7 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
       p_rental_listing_id: property.id,
       p_property_slug: property.slug,
       p_property_title: property.title,
-      p_property_address: `${property.addressLine}, ${property.city}`,
+      p_property_address: formatPropertyAddress(property.addressLine, property.city),
       p_name: input.name,
       p_phone: input.phone,
       p_email: input.email,
@@ -183,7 +184,7 @@ export async function submitShowingRequest(payload: unknown, request: Request, o
       propertyId: property.id,
       propertySlug: property.slug,
       propertyTitle: property.title,
-      propertyAddress: `${property.addressLine}, ${property.city}`,
+      propertyAddress: formatPropertyAddress(property.addressLine, property.city),
       requestedStartAt: slot.requestedStartAt,
       requestedLocalDate: slot.requestedLocalDate,
       requestedLocalTime: slot.requestedLocalTime,

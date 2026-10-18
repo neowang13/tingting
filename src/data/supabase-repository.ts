@@ -59,6 +59,7 @@ import {
 } from "@/lib/schemas";
 import type { DataRepository } from "@/data/repository";
 import { refreshPublicRentalMediaUrls } from "@/lib/public-image-url";
+import { normalizePropertyAddressLine } from "@/lib/property-address";
 
 type Row = Record<string, unknown>;
 
@@ -198,7 +199,7 @@ function mapRental(value: unknown): RentalListing {
     id: text(row, "id"),
     slug: text(row, "slug"),
     title: text(row, "title"),
-    addressLine: text(row, "address_line"),
+    addressLine: normalizePropertyAddressLine(text(row, "address_line")),
     neighbourhood: nullableText(row, "neighbourhood"),
     city: text(row, "city"),
     monthlyRentCents: numberValue(row, "monthly_rent_cents"),
