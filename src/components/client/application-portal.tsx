@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { CreditReportConsent } from "@/components/client/credit-report-consent";
+import { ApplicationFileList } from "@/components/client/application-file-list";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
@@ -221,6 +222,18 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     }
   }
 
+  async function removeFile(file: ApplicationFileRecord) {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/client/applications/${application.id}/files/${file.id}`, { method: "DELETE" });
+      if (!response.ok) { setError(await responseMessage(response)); return; }
+      setFiles(current => current.filter(item => item.id !== file.id));
+      setMessage(`${file.originalFilename} removed from your application.`);
+    } catch {
+      setError("The file could not be removed. Check your connection and try again.");
+    } finally { setBusy(false); }
+  }
+
   async function inviteCoApplicant(input: { legalName: string; email: string }) {
     setInviting(true);
     setError("");
@@ -426,7 +439,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
             </ol>
             <p>Before uploading, redact your SIN, full bank or account numbers, login credentials, and unrelated personal information. Do not upload photo ID or credit card information unless specifically requested.</p>
           </div>
-          <p>Accepted formats: PDF, JPEG, or PNG. Maximum 10 MB per file and 8 files total.</p>
+          <p>Accepted formats: PDF, JPEG, or PNG. Maximum 10 MB per file and 8 files total. You can remove or replace files before signing.</p>
           <div className="application-document-categories">
             {APPLICATION_DOCUMENT_TYPES.map((documentType) => {
               const categoryFiles = files.filter((file) => file.documentType === documentType);
@@ -439,12 +452,12 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
                   <strong>{APPLICATION_DOCUMENT_LABELS[documentType]}{required ? " *" : ""}</strong>
                   <small>{documentType === "bank_statement" ? "Conditional" : required ? "Required" : "Optional"}</small>
                 </div>
-                {categoryFiles.length > 0 && <ul className="application-file-list">{categoryFiles.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}
+                <ApplicationFileList files={categoryFiles} busy={busy} remove={removeFile} />
                 {documentType === "bank_statement" && <p className="field-hint">If you cannot provide recent pay stubs, you must upload a recent bank statement.</p>}
                 <label className={`application-file-picker${busy ? " is-disabled" : ""}`}>
                   <input aria-label={`Choose ${APPLICATION_DOCUMENT_LABELS[documentType]} file`} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void uploadSelectedFile(event, documentType)} disabled={busy} />
                   <span className="application-file-picker-icon" aria-hidden="true">↑</span>
-                  <span><strong>{busy ? "Uploading securely…" : categoryFiles.length > 0 ? "Upload another file" : "Choose file to upload"}</strong><small>{busy ? "Please wait while the file is stored." : "Your file uploads automatically after you select it."}</small></span>
+                  <span><strong>{busy ? "Updating documents…" : categoryFiles.length > 0 ? "Upload another file" : "Choose file to upload"}</strong><small>{busy ? "Please wait while your documents are updated." : "Your file uploads automatically after you select it."}</small></span>
                 </label>
                 {documentType === "credit_score_report" && <CreditReportConsent checked={draft.creditReportVoluntary} disabled={busy} hasReport={categoryFiles.length > 0} onChange={value => setDraft(current => ({ ...current, creditReportVoluntary: value }))} />}
                 {required && <div className="application-document-explanation">

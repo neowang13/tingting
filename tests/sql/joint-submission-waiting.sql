@@ -270,4 +270,31 @@ begin
     or not has_function_privilege('service_role', 'public.complete_joint_application_if_ready(uuid,timestamptz)', 'execute') then
     raise exception 'automatic completion helper privileges are unsafe'; end if;
 end $$;
+-- User document removal relies on the same row trigger as signed evidence.
+do $$
+declare v_app uuid; v_primary uuid; v_co uuid; v_primary_file uuid; v_co_file uuid;
+begin
+  v_app := pg_temp.waiting_application('2'); v_co := pg_temp.waiting_co(v_app);
+  select id into strict v_primary from public.application_applicants where application_id=v_app and role='primary';
+  v_primary_file := pg_temp.waiting_file(v_app, v_primary);
+  v_co_file := pg_temp.waiting_file(v_app, v_co);
+  delete from public.client_application_files where id=v_primary_file;
+  if exists(select 1 from public.client_application_files where id=v_primary_file) then raise exception 'unsigned removal failed'; end if;
+  v_primary_file := pg_temp.waiting_file(v_app, v_primary);
+  perform pg_temp.waiting_primary_sign(v_app, '{}', now());
+  begin
+    delete from public.client_application_files where id=v_primary_file;
+    raise exception 'signed primary evidence was deleted';
+  exception when sqlstate 'TT409' then if sqlerrm <> 'application_signatures_locked' then raise; end if; end;
+  -- The unsigned co-applicant can still correct their own documents.
+  delete from public.client_application_files where id=v_co_file;
+  if exists(select 1 from public.client_application_files where id=v_co_file) then raise exception 'unsigned co-applicant could not remove a file'; end if;
+  v_co_file := pg_temp.waiting_file(v_app, v_co);
+  perform pg_temp.waiting_co_sign(v_co, now());
+  begin
+    delete from public.client_application_files where id=v_co_file;
+    raise exception 'signed co-applicant evidence was deleted';
+  exception when sqlstate 'TT409' then if sqlerrm <> 'application_signatures_locked' then raise; end if; end;
+  if has_table_privilege('authenticated','public.client_application_files','delete') then raise exception 'direct client deletion bypasses server ownership checks'; end if;
+end $$;
 rollback;

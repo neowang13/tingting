@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { CreditReportConsent } from "@/components/client/credit-report-consent";
+import { ApplicationFileList } from "@/components/client/application-file-list";
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   APPLICATION_DOCUMENT_LABELS,
@@ -237,6 +238,19 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
     }
   }
 
+  async function removeFile(file: ApplicationFileRecord) {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const response = await fetch(`/api/application-guests/files/${file.id}`, { method: "DELETE" });
+      const body = await readEnvelope<{ removed: boolean }>(response);
+      if (!response.ok || !body.data) { setError(accessError(response, body)); return; }
+      setFiles(current => current.filter(item => item.id !== file.id));
+      setMessage(`${file.originalFilename} removed from your application.`);
+    } catch {
+      setError("The file could not be removed. Check your connection and try again.");
+    } finally { setBusy(false); }
+  }
+
   async function sign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -324,7 +338,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
       {step === 2 && <TenancyStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(1)} onSubmit={continueStep} />}
       {step === 3 && <HousingIncomeStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(2)} onSubmit={continueStep} />}
       {step === 4 && <ContactsStep draft={draft} busy={busy} updateSection={updateSection} onBack={() => setStep(3)} onSubmit={continueStep} />}
-      {step === 5 && <DocumentsStep updateCreditConsent={value => setDraft(current => ({ ...current, creditReportVoluntary: value }))} draft={draft} files={files} busy={busy} updateExplanation={updateDocumentExplanation} upload={uploadSelectedFile} onBack={() => setStep(4)} onSubmit={continueStep} />}
+      {step === 5 && <DocumentsStep updateCreditConsent={value => setDraft(current => ({ ...current, creditReportVoluntary: value }))} draft={draft} files={files} busy={busy} updateExplanation={updateDocumentExplanation} upload={uploadSelectedFile} remove={removeFile} onBack={() => setStep(4)} onSubmit={continueStep} />}
       {step === 6 && <ReviewSignStep data={data} draft={draft} files={files} busy={busy} onBack={() => setStep(5)} onEdit={setStep} onSubmit={sign} />}
       {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
       {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
@@ -403,17 +417,18 @@ function ContactsStep({ draft, busy, updateSection, onBack, onSubmit }: GuestSte
   </div></fieldset><GuestActions busy={busy} onBack={onBack} /></form>;
 }
 
-function DocumentsStep({ draft, files, busy, updateExplanation, updateCreditConsent, upload, onBack, onSubmit }: {
+function DocumentsStep({ draft, files, busy, updateExplanation, updateCreditConsent, upload, remove, onBack, onSubmit }: {
   draft: ApplicationDraft;
   files: ApplicationFileRecord[];
   busy: boolean;
   updateCreditConsent: (value: boolean) => void;
   updateExplanation: (documentType: keyof ApplicationDraft["documentExplanations"], value: string) => void;
   upload: (event: ChangeEvent<HTMLInputElement>, documentType: ApplicationDocumentType) => void;
+  remove: (file: ApplicationFileRecord) => Promise<void>;
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Your verification documents</h2><p>Only the credit score report category is required; upload your report or explain why you cannot provide it. All other documents are optional. The primary applicant cannot view your private files or screening details.</p><p className="field-hint">PDF, JPEG, or PNG; maximum 10 MB. Redact your SIN, account numbers, and login credentials.</p><div className="application-document-categories">
+  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Your verification documents</h2><p>Only the credit score report category is required; upload your report or explain why you cannot provide it. All other documents are optional. The primary applicant cannot view your private files or screening details.</p><p className="field-hint">PDF, JPEG, or PNG; maximum 10 MB. You can remove or replace files before signing. Redact your SIN, account numbers, and login credentials.</p><div className="application-document-categories">
     {APPLICATION_DOCUMENT_TYPES.map((documentType) => {
       const categoryFiles = files.filter((file) => file.documentType === documentType);
       const requiredType = CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.find((type) => type === documentType);
@@ -421,7 +436,7 @@ function DocumentsStep({ draft, files, busy, updateExplanation, updateCreditCons
       const explanationId = `guest-document-explanation-${documentType}`;
       return <section className="application-document-category" key={documentType}>
         <div><strong>{APPLICATION_DOCUMENT_LABELS[documentType]}{requiredType ? " *" : ""}</strong><small>{requiredType ? "Required" : "Optional"}</small></div>
-        {categoryFiles.length > 0 && <ul className="application-file-list">{categoryFiles.map((file) => <li key={file.id}><span>{file.originalFilename}</span><small>{Math.ceil(file.byteSize / 1024)} KB · {file.scanStatus.replaceAll("_", " ")}</small></li>)}</ul>}
+        <ApplicationFileList files={categoryFiles} busy={busy} remove={remove} />
         <label className={`application-file-picker${busy ? " is-disabled" : ""}`}>
           <input aria-label={`Choose ${APPLICATION_DOCUMENT_LABELS[documentType]} file`} type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" onChange={(event) => void upload(event, documentType)} disabled={busy} />
           <span className="application-file-picker-icon" aria-hidden="true">↑</span><span><strong>{categoryFiles.length ? "Upload another file" : "Choose file to upload"}</strong><small>The file uploads after you select it.</small></span>

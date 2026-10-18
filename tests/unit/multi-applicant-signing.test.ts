@@ -9,6 +9,7 @@ import {
   saveGuestApplicantDraft,
   signGuestApplicant,
   uploadGuestApplicantFile,
+  removeGuestApplicantFile,
 } from "@/features/applications/applicant-signing";
 import {
   getClientApplication,
@@ -16,6 +17,7 @@ import {
   saveApplicationDraft,
   submitClientApplication,
   uploadApplicationFile,
+  removeApplicationFile,
 } from "@/features/applications/service";
 import { applicationDraftSchema } from "@/features/applications/schemas";
 import type { ClientIdentity } from "@/features/applications/contracts";
@@ -56,6 +58,21 @@ beforeEach(async () => {
 });
 
 describe("multi-applicant signing", () => {
+  it("scopes file removal to the invited account and its own documents", async () => {
+    const invited = await createCoApplicantInvitation(owner, applicationId, { legalName: "Guest Applicant", email: coUser.email }, context);
+    const session = await exchangeCoApplicantInvitation(invited.invitationToken, context);
+    const pdf = new File(["%PDF-1.7\n%%EOF"], "wrong.pdf", { type: "application/pdf" });
+    const primaryFile = await uploadApplicationFile(owner, applicationId, pdf, "other");
+    const guestFile = await uploadGuestApplicantFile(session.sessionToken, pdf, "credit_score_report", context);
+    await expect(removeGuestApplicantFile(session.sessionToken, guestFile.id, owner, context)).rejects.toMatchObject({ status: 403 });
+    await expect(removeGuestApplicantFile(session.sessionToken, primaryFile.id, coUser, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(removeApplicationFile(owner, applicationId, guestFile.id, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await removeGuestApplicantFile(session.sessionToken, guestFile.id, coUser, context);
+    expect((await getGuestApplication(session.sessionToken)).applicant.files).toHaveLength(0);
+    expect((await getClientApplication(owner, applicationId)).files).toHaveLength(1);
+    await expect(removeGuestApplicantFile(session.sessionToken, guestFile.id, coUser, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(uploadGuestApplicantFile(session.sessionToken, pdf, "credit_score_report", context)).resolves.toMatchObject({ documentType: "credit_score_report" });
+  });
   it("lets the verified invitee correct their legal name and requires the signature to match their saved details", async () => {
     await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 7 });
     const invited = await createCoApplicantInvitation(owner, applicationId, {
@@ -146,6 +163,7 @@ describe("multi-applicant signing", () => {
       .resolves.toMatchObject({ documentType: "employment_income_proof" });
     await expect(uploadGuestApplicantFile(session.sessionToken, pdf, "employment_income_proof", context))
       .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_SIGNED" });
+    await expect(removeGuestApplicantFile(session.sessionToken, crypto.randomUUID(), coUser, context)).rejects.toMatchObject({ code: "APPLICATION_APPLICANT_SIGNED" });
 
     await expect(submitClientApplication(owner, applicationId, {
       signatureLegalName: "Wrong Name",
@@ -196,6 +214,7 @@ describe("multi-applicant signing", () => {
       notifier: { send }, recipient: "admin@example.test",
     });
     expect(waiting.status).toBe("draft");
+    await expect(removeApplicationFile(owner, applicationId, crypto.randomUUID(), context)).rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
     expect(waiting.submittedAt).toBeNull();
     expect(waiting.applicants.find(a => a.role === "primary")).toMatchObject({ status: "signed", signedAt: expect.any(String) });
     expect(send).not.toHaveBeenCalled();
