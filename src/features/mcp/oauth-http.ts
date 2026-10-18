@@ -57,7 +57,9 @@ export async function oauthGET(request: Request, action: string) {
     for (const key of params.keys()) if (params.getAll(key).length !== 1) throw new ApiError(400, "invalid_request", "Repeated parameters are not allowed.");
     const input = z.object({ client_id: z.uuid(), redirect_uri: z.string().max(2048), response_type: z.literal("code"),
       code_challenge: z.string().regex(/^[A-Za-z0-9_-]{43}$/), code_challenge_method: z.literal("S256"),
-      resource: z.literal(mcpResource()), scope: z.string().max(500).optional(), state: z.string().max(2048).optional() }).parse(Object.fromEntries(params));
+      // This server has one resource. OAuth clients may omit it (RFC 8707),
+      // but a supplied target must still match exactly; grants stay audience-bound.
+      resource: z.literal(mcpResource()).default(mcpResource()), scope: z.string().max(500).optional(), state: z.string().max(2048).optional() }).parse(Object.fromEntries(params));
     const client = await getOAuthClient(input.client_id);
     if (!client || !client.redirect_uris.includes(input.redirect_uri)) throw new ApiError(400, "invalid_request", "The callback does not match this registered application.");
     let admin;
@@ -111,7 +113,7 @@ export async function oauthPOST(request: Request, action: string) {
       return response;
     }
     if (action === "token") {
-      const input = z.object({ grant_type: z.enum(["authorization_code", "refresh_token"]), client_id: z.uuid(), resource: z.literal(mcpResource()),
+      const input = z.object({ grant_type: z.enum(["authorization_code", "refresh_token"]), client_id: z.uuid(), resource: z.literal(mcpResource()).default(mcpResource()),
         code: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional(), redirect_uri: z.string().max(2048).optional(),
         code_verifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/).optional(), refresh_token: z.string().regex(/^[A-Za-z0-9_-]{43}$/).optional() }).parse(await smallBody(request, true));
       if (input.grant_type === "authorization_code" && (!input.code || !input.redirect_uri || !input.code_verifier)

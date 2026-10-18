@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.6] - 2026-10-17
+### Fixed
+- Allow Muse OAuth requests that omit the resource parameter by binding them to the single configured MCP resource. Explicitly incorrect targets remain rejected, with Admin consent, PKCE and token audience validation preserved.
+
 ## [0.2.5] - 2026-10-17
 ### Changed
 - Remove the applicant-record handling reminder from the Admin application queue.
