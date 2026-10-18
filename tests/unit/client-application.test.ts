@@ -16,6 +16,7 @@ import {
   getClientApplication,
   listClientApplications,
   resetDemoApplicationsForTests,
+  removeApplicationFile,
   reviewApplicationFile,
   saveApplicationDraft,
   startOrReuseClientApplication,
@@ -75,6 +76,20 @@ beforeEach(() => {
 });
 
 describe("client application workflow", () => {
+  it("removes only owned unsigned files, restores upload capacity, and invalidates the required category", async () => {
+    const context = { requestId: "file-remove", userAgentHash: "test-agent" };
+    const files = [];
+    for (let i = 0; i < 8; i++) files.push(await uploadApplicationFile(client, applicationId, pdfFile(), i === 0 ? "credit_score_report" : "other"));
+    await expect(uploadApplicationFile(client, applicationId, pdfFile(), "other")).rejects.toMatchObject({ code: "TOO_MANY_APPLICATION_FILES" });
+    await expect(removeApplicationFile({ ...client, userId: crypto.randomUUID() }, applicationId, files[0].id, context)).rejects.toMatchObject({ code: "APPLICATION_NOT_FOUND" });
+    await removeApplicationFile(client, applicationId, files[0].id, context);
+    const updated = await getClientApplication(client, applicationId);
+    expect(updated.files).toHaveLength(7);
+    expect(applicationDocumentRequirementSatisfied("credit_score_report", updated.files, updated.draft.documentExplanations)).toBe(false);
+    await expect(removeApplicationFile(client, applicationId, files[0].id, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(getApplicationFileForStaff({ userId: "admin", displayName: "Admin", email: "admin@example.test", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal1" }, files[0].id)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report")).resolves.toMatchObject({ documentType: "credit_score_report" });
+  });
   it("loads legacy occupant totals without inventing an adult-child split", () => {
     const legacy = applicationDraftSchema.parse({ tenancy: { occupantCount: 3 } });
 
@@ -290,6 +305,7 @@ describe("client application workflow", () => {
       appBaseUrl: "https://silverkey.ca"
     });
     expect(submitted.status).toBe("submitted");
+    await expect(removeApplicationFile(client, applicationId, application.files[0].id, { requestId: "locked-delete", userAgentHash: "test-agent" })).rejects.toMatchObject({ code: "APPLICATION_ALREADY_SUBMITTED" });
     expect(submitted.consentedAt).not.toBeNull();
     expect(new Date(submitted.consentedAt!).getTime()).toBeLessThanOrEqual(new Date(submitted.submittedAt!).getTime());
     expect(submitted.retainUntil).not.toBeNull();

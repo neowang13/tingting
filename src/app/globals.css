@@ -5012,6 +5012,8 @@ a {
 .application-file-list { display: grid; gap: 8px; padding: 0; list-style: none; }
 .application-file-list li { display: flex; justify-content: space-between; gap: 20px; border: 1px solid #dfdcd4; border-radius: 8px; padding: 12px; }
 .application-file-list small { color: #66716d; text-transform: capitalize; }
+.application-file-details { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.application-file-remove { align-self: center; flex: 0 0 auto; }
 .application-document-guidance { margin: 18px 0; border: 1px solid #d9c68d; border-radius: 10px; background: #fff9e9; padding: 16px 18px; color: #523d14; }
 .application-document-guidance ul,
 .application-document-guidance ol { margin: 10px 0; padding-left: 22px; }

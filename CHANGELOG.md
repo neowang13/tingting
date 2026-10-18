@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.10] - 2026-10-17
+### Added
+- Let primary and co-applicants remove their own uploaded documents before signing, confirm removal, and upload replacements. Recheck required categories and release upload slots immediately.
+- Protect file deletion with account ownership, same-origin requests, rate limits, and the existing database signature lock. Remove private storage objects after the database accepts deletion and record an audit event.
+
 ## [0.2.9] - 2026-10-17
 ### Fixed
 - Keep primary action links white on green throughout the applicant portal, including My applications and co-applicant sign-in links. Ordinary link styling no longer overrides button labels.
