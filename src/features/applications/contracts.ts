@@ -25,6 +25,19 @@ export const APPLICATION_REQUIRED_DOCUMENT_TYPES = [
   "employment_income_proof"
 ] as const satisfies readonly ApplicationDocumentType[];
 
+export const CO_APPLICANT_REQUIRED_DOCUMENT_TYPES = [
+  "credit_score_report"
+] as const satisfies readonly ApplicationDocumentType[];
+
+export function coApplicantSlots(adultCount: number | null) {
+  return adultCount !== null && Number.isInteger(adultCount) && adultCount >= 1 && adultCount <= 12 ? adultCount - 1 : 0;
+}
+
+export function applicationRosterComplete(adultCount: number | null, applicants: ReadonlyArray<Pick<ApplicationApplicantRecord, "role" | "status">>) {
+  return adultCount !== null && Number.isInteger(adultCount) && adultCount >= 1 && adultCount <= 12
+    && applicants.filter(applicant => applicant.role === "co_applicant" && applicant.status !== "revoked").length === coApplicantSlots(adultCount);
+}
+
 export type RequiredApplicationDocumentType = typeof APPLICATION_REQUIRED_DOCUMENT_TYPES[number];
 export type ApplicationDocumentExplanations = Record<RequiredApplicationDocumentType, string>;
 

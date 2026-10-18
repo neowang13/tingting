@@ -8,9 +8,11 @@ import { createGuestBearerToken, hashGuestToken, invitationBearerToken } from "@
 import {
   APPLICATION_DOCUMENT_LABELS,
   APPLICATION_MAX_FILE_BYTES,
-  APPLICATION_REQUIRED_DOCUMENT_TYPES,
+  CO_APPLICANT_REQUIRED_DOCUMENT_TYPES,
   APPLICATION_UPLOAD_BUCKET,
   applicationDocumentRequirementSatisfied,
+  coApplicantSlots,
+  applicationRosterComplete,
   type ApplicationApplicantRecord,
   type ApplicationDocumentType,
   type ApplicationFileRecord,
@@ -33,6 +35,7 @@ export interface ApplicationRequestContext {
   requestId: string;
   userAgentHash: string;
   ipHash?: string;
+  submissionNotification?: { recipient: string | null; appBaseUrl: string };
 }
 
 interface MemoryApplicant extends ApplicationApplicantRecord {
@@ -269,11 +272,23 @@ async function assertMemoryOwner(identity: ClientIdentity, applicationId: string
 }
 
 async function assertSupabaseOwner(identity: ClientIdentity, applicationId: string) {
-  const result = await serviceClient().from("client_applications").select("id,status,deleted_at").eq("id", applicationId)
+  const result = await serviceClient().from("client_applications").select("id,status,deleted_at,draft_payload").eq("id", applicationId)
     .eq("owner_user_id", identity.userId).is("deleted_at", null).maybeSingle();
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application could not be loaded.");
   if (!result.data) throw new ApiError(404, "APPLICATION_NOT_FOUND", "Application not found.");
   return result.data;
+}
+
+function assertInvitationCapacity(adultCount: number | null, activeCount: number) {
+  const slots = coApplicantSlots(adultCount);
+  if (slots === 0) throw new ApiError(409, "APPLICATION_ADULT_COUNT_REQUIRED", "Save at least two adults in Household & tenancy before inviting another applicant.");
+  if (activeCount >= slots) throw new ApiError(409, "APPLICATION_APPLICANT_CAPACITY", "All additional adult places already have an applicant. Review the adult count or revoke an unused invitation.");
+}
+
+function assertCompleteMemoryRoster(applicationId: string) {
+  const all = [...memoryStores().applicants.values()].filter(applicant => applicant.applicationId === applicationId);
+  const primary = all.find(applicant => applicant.role === "primary")!;
+  if (!applicationRosterComplete(primary.draft.tenancy.adultCount, all)) throw new ApiError(409, "APPLICATION_APPLICANT_COUNT_MISMATCH", "Invite every additional adult before anyone signs. The adult count must match the applicant list.");
 }
 
 function mapApplicantRow(row: Record<string, unknown>): ApplicationApplicantRecord {
@@ -342,7 +357,7 @@ export async function createCoApplicantInvitation(identity: ClientIdentity, appl
     const primary = await assertMemoryOwner(identity, applicationId);
     await assertApplicationSignaturesUnlocked(applicationId);
     const active = [...memoryStores().applicants.values()].filter(a => a.applicationId === applicationId && a.status !== "revoked");
-    if (active.filter(a => a.role === "co_applicant").length >= 8) throw new ApiError(400, "TOO_MANY_APPLICATION_APPLICANTS", "An application can include at most eight co-applicants.");
+    assertInvitationCapacity(primary.draft.tenancy.adultCount, active.filter(a => a.role === "co_applicant").length);
     if (active.some(a => a.email.toLowerCase() === input.email.toLowerCase())) throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "An active applicant already uses this email address.");
     const applicant: MemoryApplicant = { ...structuredClone(primary), id: crypto.randomUUID(), role: "co_applicant", ownerUserId: null,
       legalName: input.legalName, email: input.email.toLowerCase(), status: "invited", invitationExpiresAt: expiresAt, draftUpdatedAt: null, signedAt: null,
@@ -352,7 +367,9 @@ export async function createCoApplicantInvitation(identity: ClientIdentity, appl
     await memoryInvitationDelivery(applicant, invitationId, token, expiresAt, options.notifier);
     return { applicant: publicApplicant(applicant), invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
   }
-  await assertSupabaseOwner(identity, applicationId);
+  const owned = await assertSupabaseOwner(identity, applicationId);
+  const existing = await getApplicationApplicants(identity, applicationId);
+  assertInvitationCapacity(applicationDraftSchema.parse(owned.draft_payload).tenancy.adultCount, existing.filter(a => a.role === "co_applicant" && a.status !== "revoked").length);
   const service = serviceClient();
   const id = crypto.randomUUID();
   const created = await service.rpc("create_linked_applicant_invitation", {
@@ -361,6 +378,8 @@ export async function createCoApplicantInvitation(identity: ClientIdentity, appl
     p_draft: applicationDraftSchema.parse({ personal: { ...splitLegalName(input.legalName), email: input.email } }), p_request_context: context
   });
   if (created.error?.code === "23505") throw new ApiError(409, "APPLICATION_APPLICANT_EXISTS", "An active applicant already uses this email address.");
+  if (created.error?.message.includes("application_signatures_locked")) throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "Applicants cannot be changed after signing has started.");
+  if (created.error?.message.includes("co_applicant_capacity_reached") || created.error?.message.includes("tenancy_adult_count_required")) throw new ApiError(409, "APPLICATION_APPLICANT_CAPACITY", "Save the adult count and review the existing applicants before inviting another adult.");
   if (created.error) throw new ApiError(503, "APPLICATION_INVITATION_CREATE_FAILED", "The co-applicant invitation could not be created. Try again.");
   const status = await sendCoApplicantInvitationNow({ invitationId, applicationId, applicantId: id, email: input.email.toLowerCase(), notifier: options.notifier });
   return { applicant: { ...(await getApplicationApplicants(identity, applicationId)).find(a => a.id === id)!, invitationDeliveryStatus: status }, invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
@@ -371,7 +390,8 @@ export async function resendCoApplicantInvitation(identity: ClientIdentity, appl
   const token = invitationBearerToken(invitationId);
   const expiresAt = invitationExpiry();
   if (process.env.DATA_BACKEND !== "supabase") {
-    await assertMemoryOwner(identity, applicationId);
+    const owned = await assertMemoryOwner(identity, applicationId);
+    if (coApplicantSlots(owned.draft.tenancy.adultCount) === 0) throw new ApiError(409, "APPLICATION_ADULT_COUNT_REQUIRED", "Set the household adult count to at least two before sending invitations.");
     const stores = memoryStores();
     const applicant = stores.applicants.get(applicantId);
     if (!applicant || applicant.applicationId !== applicationId || applicant.role !== "co_applicant") throw new ApiError(404, "APPLICATION_APPLICANT_NOT_FOUND", "Co-applicant not found.");
@@ -382,7 +402,8 @@ export async function resendCoApplicantInvitation(identity: ClientIdentity, appl
     await memoryInvitationDelivery(applicant, invitationId, token, expiresAt, options.notifier);
     return { applicant: publicApplicant(applicant), invitationId, invitationToken: token, invitationUrl: invitationUrl(token) };
   }
-  await assertSupabaseOwner(identity, applicationId);
+  const owned = await assertSupabaseOwner(identity, applicationId);
+  if (coApplicantSlots(applicationDraftSchema.parse(owned.draft_payload).tenancy.adultCount) === 0) throw new ApiError(409, "APPLICATION_ADULT_COUNT_REQUIRED", "Set the household adult count to at least two before sending invitations.");
   const result = await serviceClient().rpc("resend_linked_applicant_invitation", { p_application_id: applicationId, p_owner_user_id: identity.userId,
     p_applicant_id: applicantId, p_invitation_id: invitationId, p_token_sha256: hashGuestToken(token), p_expires_at: expiresAt, p_request_context: context });
   if (result.error) throw new ApiError(409, "APPLICATION_INVITATION_RESEND_FAILED", "The invitation cannot be resent. Refresh the applicant status and try again.");
@@ -559,19 +580,20 @@ export async function saveGuestApplicantDraft(sessionToken: string, input: { dra
     : parsedDraft;
   const view = await getGuestApplication(sessionToken);
   draft.tenancy = view.applicant.draft.tenancy;
-  if (draft.personal.legalFirstName && draft.personal.legalLastName
-    && normalizedName(draftLegalName(draft)) !== normalizedName(view.applicant.legalName)) {
-    throw new ApiError(400, "APPLICATION_APPLICANT_IDENTITY_MISMATCH", "The draft legal name must match the invited applicant.");
-  }
+  // The verified account identifies the invitee; the invitation may contain a
+  // nickname or an incomplete name. Their own completed personal details prevail.
+  const legalName = draft.personal.legalFirstName && draft.personal.legalLastName
+    ? draftLegalName(draft) : view.applicant.legalName;
   const now = new Date().toISOString();
   if (process.env.DATA_BACKEND !== "supabase") {
     const applicant = await memoryGuest(sessionToken);
     if (applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "A signed application cannot be edited.");
+    applicant.legalName = legalName;
     applicant.draft = structuredClone(draft); applicant.draftUpdatedAt = now;
     return { draft: structuredClone(draft), draftUpdatedAt: now };
   }
   const guest = await supabaseGuest(sessionToken);
-  const updated = await serviceClient().from("application_applicants").update({ draft_payload: draft, draft_updated_at: now, updated_at: now })
+  const updated = await serviceClient().from("application_applicants").update({ legal_name: legalName, draft_payload: draft, draft_updated_at: now, updated_at: now })
     .eq("id", guest.applicantId).eq("application_id", guest.applicationId).neq("status", "signed").neq("status", "revoked").select("id").maybeSingle();
   if (updated.error || !updated.data) throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "A signed application cannot be edited.");
   await serviceClient().from("client_application_audit_events").insert({ application_id: guest.applicationId, actor_user_id: null, actor_type: "guest", action: "application.guest_draft_saved", request_context: { ...context, activeStep: input.activeStep, applicantId: guest.applicantId } });
@@ -582,7 +604,7 @@ function validateApplicantReady(draft: ApplicationDraft, files: ApplicationFileR
   assertCreditReportVoluntary(draft, files);
   const issues = validateCompleteApplicationDraft(draft);
   if (issues.length) throw new ApiError(400, "APPLICATION_DRAFT_INCOMPLETE", `Complete ${issues[0].section.replaceAll("_", " ")} before signing.`);
-  const missing = APPLICATION_REQUIRED_DOCUMENT_TYPES.find((type) => !applicationDocumentRequirementSatisfied(type, files, draft.documentExplanations));
+  const missing = CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.find((type) => !applicationDocumentRequirementSatisfied(type, files, draft.documentExplanations));
   if (missing) throw new ApiError(400, "APPLICATION_DOCUMENTS_REQUIRED", `Upload the required ${APPLICATION_DOCUMENT_LABELS[missing].toLowerCase()} or provide an explanation before signing.`);
   if (files.some((file) => file.scanStatus === "rejected")) throw new ApiError(400, "APPLICATION_FILE_REJECTED", "Remove or replace the rejected file before signing.");
 }
@@ -591,8 +613,7 @@ export async function signGuestApplicant(sessionToken: string, rawInput: Applica
   const input = applicantSignatureSchema.parse(rawInput);
   const view = await getGuestApplication(sessionToken);
   if (view.applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "This applicant has already signed.");
-  if (normalizedName(input.signatureLegalName) !== normalizedName(view.applicant.legalName)) throw new ApiError(400, "APPLICATION_SIGNATURE_NAME_MISMATCH", "The typed signature must match the invited legal name.");
-  if (normalizedName(draftLegalName(view.applicant.draft)) !== normalizedName(view.applicant.legalName)) throw new ApiError(400, "APPLICATION_APPLICANT_IDENTITY_MISMATCH", "The completed draft legal name must match the invited applicant.");
+  if (normalizedName(input.signatureLegalName) !== normalizedName(draftLegalName(view.applicant.draft))) throw new ApiError(400, "APPLICATION_SIGNATURE_NAME_MISMATCH", "The typed signature must match the legal name in your saved personal details.");
   if (input.termsVersion !== view.application.termsVersion || input.termsSha256 !== view.application.termsSha256 || input.formVersion !== view.application.formVersion || input.formSha256 !== view.application.formSha256) throw new ApiError(409, "APPLICATION_VERSION_CHANGED", "The form or consent changed. Review the current version before signing.");
   const guestFiles = view.applicant.files as ApplicationFileRecord[];
   validateApplicantReady(view.applicant.draft, guestFiles);
@@ -601,10 +622,13 @@ export async function signGuestApplicant(sessionToken: string, rawInput: Applica
   const evidenceHash = digest(JSON.stringify({ applicationId: view.application.id, applicantId: view.applicant.id, draft: view.applicant.draft, files: fileSnapshot, ...input }));
   if (process.env.DATA_BACKEND !== "supabase") {
     const applicant = await memoryGuest(sessionToken);
+    assertCompleteMemoryRoster(applicant.applicationId);
     memoryStores().signatures.set(applicant.id, { applicantId: applicant.id, signedAt: now, evidenceHash,
       evidence: { legalName: input.signatureLegalName, signedAt: now, termsVersion: input.termsVersion, termsText: view.application.termsText, sharingAuthorized: input.sharingAuthorization, screeningConsented: input.screeningConsent } });
     applicant.status = "signed"; applicant.signedAt = now;
     if (guestFiles.some(file => file.documentType === "credit_score_report") && applicant.draft.creditReportVoluntary) { applicant.creditReportVoluntaryAt = now; applicant.creditReportConsentVersion = "2026-10-15.1"; }
+    const { completePendingJointSubmission } = await import("@/features/applications/service");
+    await completePendingJointSubmission(applicant.applicationId);
     return publicApplicant(applicant);
   }
   const signed = await serviceClient().rpc("sign_guest_application_applicant", {
@@ -622,9 +646,11 @@ export async function signGuestApplicant(sessionToken: string, rawInput: Applica
   });
   if (signed.error?.message.includes("applicant_signed")) throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "This applicant has already signed.");
   if (signed.error?.message.includes("applicant_revoked") || signed.error?.message.includes("guest_session_invalid")) throw new ApiError(401, "APPLICATION_GUEST_SESSION_INVALID", "This guest application session is invalid or expired.");
-  if (signed.error?.message.includes("applicant_identity_mismatch")) throw new ApiError(400, "APPLICATION_APPLICANT_IDENTITY_MISMATCH", "The invited, draft, and typed legal names must match.");
+  if (signed.error?.message.includes("applicant_identity_mismatch")) throw new ApiError(400, "APPLICATION_SIGNATURE_NAME_MISMATCH", "The typed signature must match the legal name in your saved personal details. Save your details and review them before signing again.");
+  if (signed.error?.message.includes("application_materials_not_approved")) throw new ApiError(409, "APPLICATION_MATERIALS_NOT_APPROVED", "The application form or terms are awaiting approval. Contact the property manager before signing.");
   if (signed.error?.message.includes("application_version_changed")) throw new ApiError(409, "APPLICATION_VERSION_CHANGED", "The form or consent changed. Review the current version before signing.");
   if (signed.error?.message.includes("application_snapshot_changed")) throw new ApiError(409, "APPLICATION_SNAPSHOT_CHANGED", "The application changed while it was being signed. Review it and sign again.");
+  if (signed.error?.message.includes("co_applicant_roster_incomplete")) throw new ApiError(409, "APPLICATION_APPLICANT_COUNT_MISMATCH", "Ask the primary applicant to invite every additional adult before anyone signs.");
   if (signed.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The signature could not be recorded.");
   return { ...view.applicant, status: "signed" as const, signedAt: now };
 }
@@ -690,6 +716,7 @@ export async function recordPrimarySignatureAndCreditRequests(input: { applicati
   const evidenceHash = digest(JSON.stringify({ applicationId: input.applicationId, draft: input.draft, files: fileSnapshot, signature: input.signature }));
   if (process.env.DATA_BACKEND !== "supabase") {
     const primary = await assertMemoryOwner(input.identity, input.applicationId);
+    assertCompleteMemoryRoster(input.applicationId);
     primary.legalName = expectedName; primary.status = "signed"; primary.signedAt = input.signedAt;
     if (input.files.some(file => file.documentType === "credit_score_report") && input.draft.creditReportVoluntary) { primary.creditReportVoluntaryAt = input.signedAt; primary.creditReportConsentVersion = "2026-10-15.1"; }
     memoryStores().signatures.set(primary.id, { applicantId: primary.id, signedAt: input.signedAt, evidenceHash,
@@ -713,8 +740,10 @@ export async function recordPrimarySignatureAndCreditRequests(input: { applicati
     p_retain_until: input.retainUntil,
   });
   if (result.error?.message.includes("co_applicants_unsigned")) throw new ApiError(409, "APPLICATION_CO_APPLICANTS_UNSIGNED", "Every active co-applicant must sign before final submission.");
+  if (result.error?.message.includes("co_applicant_roster_incomplete")) throw new ApiError(409, "APPLICATION_APPLICANT_COUNT_MISMATCH", "Invite every additional adult before confirming your submission.");
   if (result.error?.message.includes("application_not_draft")) throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application has already been submitted.");
   if (result.error?.message.includes("applicant_identity_mismatch")) throw new ApiError(400, "APPLICATION_SIGNATURE_NAME_MISMATCH", "The typed signature must match the primary applicant's legal name.");
+  if (result.error?.message.includes("application_materials_not_approved")) throw new ApiError(409, "APPLICATION_MATERIALS_NOT_APPROVED", "The application form or terms are awaiting approval. Contact the property manager before signing.");
   if (result.error?.message.includes("application_version_changed")) throw new ApiError(409, "APPLICATION_VERSION_CHANGED", "The form or consent changed. Review the current version before submitting.");
   if (result.error?.message.includes("application_snapshot_changed")) throw new ApiError(409, "APPLICATION_SNAPSHOT_CHANGED", "The application changed while it was being submitted. Review it and submit again.");
   if (result.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "The application signature could not be recorded.");

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.8] - 2026-10-17
+### Changed
+- Let the primary applicant sign and submit their part first, then automatically submit the joint application and queue the Admin notification after every declared adult signs. Show the waiting status and lock signed details and the applicant roster.
+- Require only the credit score report category for co-applicants; other supporting documents are optional.
+
+### Fixed
+- Match co-applicant signatures to their saved legal name, allowing an unsigned invitee to correct an incomplete invitation name.
+- Limit invitations to the saved additional adult count, prevent incomplete rosters from signing, and require a fresh tenancy review when shared details change.
+- Remove excessive spacing in the co-applicant form and the obsolete pre-production draft notice.
+
 ## [0.2.7] - 2026-10-17
 ### Fixed
 - Create and publish rental listings without a street address; city remains required. Omitted addresses display cleanly on public pages, applications and viewing requests.

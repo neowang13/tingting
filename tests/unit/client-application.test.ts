@@ -57,7 +57,7 @@ async function uploadRequiredFiles() {
 function completeDraft() {
   return applicationDraftSchema.parse({
     personal: { legalFirstName: "Demo", legalLastName: "Applicant", phone: "6045550182", email: "client@example.test" },
-    tenancy: { desiredMoveInDate: "2026-09-01", leaseTerm: "one_year", occupantCount: 12, adultCount: 2, childCount: 1, needsShowing: "no" },
+    tenancy: { desiredMoveInDate: "2026-09-01", leaseTerm: "one_year", occupantCount: 12, adultCount: 1, childCount: 1, needsShowing: "no" },
     housing: { currentAddress: "10 Current Street, Vancouver", currentHousingSince: "2024-01", currentMonthlyRent: 2200, landlordName: "Current Landlord", landlordPhone: "6045550111", reasonForLeaving: "Need a different location." },
     employment: { employmentStatus: "employed", employerOrIncomeSource: "Example Company", occupation: "Designer", employmentSince: "2022-06", grossMonthlyIncome: 7200, contactName: "Manager Name", contactPhone: "6045550122" },
     references: { primary: { name: "Reference Person", relationship: "Former manager", phone: "6045550133" } },
@@ -206,7 +206,7 @@ describe("client application workflow", () => {
       activeStep: 2
     });
 
-    expect(saved.draft.tenancy).toMatchObject({ adultCount: 2, childCount: 1, occupantCount: 3 });
+    expect(saved.draft.tenancy).toMatchObject({ adultCount: 1, childCount: 1, occupantCount: 2 });
   });
 
   it("requires a file or valid explanation for each required category, both authorizations, and exact versions", async () => {
@@ -290,7 +290,8 @@ describe("client application workflow", () => {
       appBaseUrl: "https://silverkey.ca"
     });
     expect(submitted.status).toBe("submitted");
-    expect(submitted.consentedAt).toBe(submitted.submittedAt);
+    expect(submitted.consentedAt).not.toBeNull();
+    expect(new Date(submitted.consentedAt!).getTime()).toBeLessThanOrEqual(new Date(submitted.submittedAt!).getTime());
     expect(submitted.retainUntil).not.toBeNull();
     expect(submitted.files[0].scanStatus).toBe("manual_review_required");
     expect(send).toHaveBeenCalledOnce();

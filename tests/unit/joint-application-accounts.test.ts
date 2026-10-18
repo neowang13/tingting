@@ -72,15 +72,31 @@ describe("linked joint application accounts", () => {
   it("requires personal voluntary confirmation for an uploaded report and records it only at signing", async () => {
     const created = await invite();
     const session = await exchangeCoApplicantInvitation(created.invitationToken, context, second);
-    await saveGuestApplicantDraft(session.sessionToken, { draft: draft(second), activeStep: 5 }, context);
+    const creditOnlyDraft = draft(second);
+    creditOnlyDraft.documentExplanations = { rental_payment_history: "", employment_income_proof: "", credit_score_report: "" };
+    await saveGuestApplicantDraft(session.sessionToken, { draft: creditOnlyDraft, activeStep: 5 }, context);
     await uploadGuestApplicantFile(session.sessionToken, new File(["%PDF-1.4\n%%EOF"], "test-credit.pdf", { type: "application/pdf" }), "credit_score_report", context);
     const app = await getClientApplication(owner, id);
     const signature = { signatureLegalName: "Second Applicant", sharingAuthorization: true as const, screeningConsent: true as const, termsVersion: app.termsVersion, termsSha256: app.termsSha256, formVersion: app.formVersion, formSha256: app.formSha256 };
     await expect(signGuestApplicant(session.sessionToken, signature, context)).rejects.toMatchObject({ code: "CREDIT_REPORT_CONFIRMATION_REQUIRED" });
-    await saveGuestApplicantDraft(session.sessionToken, { draft: { ...draft(second), creditReportVoluntary: true }, activeStep: 6 }, context);
+    await saveGuestApplicantDraft(session.sessionToken, { draft: { ...creditOnlyDraft, creditReportVoluntary: true }, activeStep: 6 }, context);
     expect((await getGuestApplication(session.sessionToken)).applicant.creditReportVoluntaryAt).toBeNull();
     const signed = await signGuestApplicant(session.sessionToken, signature, context);
     expect(signed).toMatchObject({ userId: second.userId, creditReportConsentVersion: "2026-10-15.1", creditReportVoluntaryAt: expect.any(String) });
     expect((await getApplicationApplicants(owner, id))[0].creditReportVoluntaryAt).toBeUndefined();
+  });
+
+  it("still requires the co-applicant credit report category even when optional document explanations are present", async () => {
+    const created = await invite();
+    const session = await exchangeCoApplicantInvitation(created.invitationToken, context, second);
+    const candidate = draft(second);
+    candidate.documentExplanations.credit_score_report = "";
+    await saveGuestApplicantDraft(session.sessionToken, { draft: candidate, activeStep: 5 }, context);
+    const app = await getClientApplication(owner, id);
+    await expect(signGuestApplicant(session.sessionToken, {
+      signatureLegalName: "Second Applicant", sharingAuthorization: true, screeningConsent: true,
+      termsVersion: app.termsVersion, termsSha256: app.termsSha256,
+      formVersion: app.formVersion, formSha256: app.formSha256
+    }, context)).rejects.toMatchObject({ code: "APPLICATION_DOCUMENTS_REQUIRED" });
   });
 });

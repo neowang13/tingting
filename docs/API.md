@@ -69,12 +69,20 @@ by the MCP endpoint. See [MCP setup and tool contracts](./admin-mcp.md).
 | PATCH | `/api/client/applications/:id/draft` | Validate and save the authenticated owner's structured online application draft |
 | GET | `/api/client/applications/:id/form` | Download the authenticated client's paper fallback form |
 | POST | `/api/client/applications/:id/files` | Validate and store one supporting file privately |
-| POST | `/api/client/applications/:id/submit` | Verify authorizations, freeze consent/version evidence, and queue the completed applicant details and attachments for Admin email delivery |
+| POST | `/api/client/applications/:id/submit` | Verify authorizations and exact adult roster, seal the primary signature, and return waiting (`draft` + signed primary) or submitted; final signature atomically submits and queues Admin email |
 | GET | `/api/client/applications/:id/receipt` | Download the authenticated client's submission receipt |
 | GET/PATCH | `/api/admin/application-files/:id` | Download privately for approved screening / record a recent-AAL2 screening decision |
 | PATCH | `/api/admin/applications/:id` | Set needs_information, under_review, approved, declined, or withdrawn within the allowed workflow; received is no longer a target |
 | POST | `/api/admin/applications/:id` | Resend an approved notification to the verified account email; body `{ action: "resend_approval", deliveryId: UUID }`, Admin-only, same-origin and rate-limited |
 | POST | `/api/admin/applications/:id/tenant` | Convert an approved application with a signed lease PDF and `signedAgreementConfirmed: true` to a linked tenant |
+
+Joint submission requires an active co-applicant for every extra adult before anyone
+signs. An unsigned co-applicant does not block the primary from confirming their
+own submission. The response remains HTTP 202; inspect `data.status` and the primary
+applicant's signing status to show **Waiting for co-applicants**. The last required
+signature submits the whole application automatically, queues a durable notification
+once, and starts final retention. Form/terms approval, saved snapshot consistency,
+and signature ownership remain enforced. No final receipt is available while waiting.
 
 Application starts and draft writes are same-origin, rate-limited, owner-scoped, and
 rejected after submission. Starting an application accepts only a published rental

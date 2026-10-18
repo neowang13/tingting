@@ -1,7 +1,7 @@
 "use client";
 
 import { type FormEvent, useState } from "react";
-import type { ApplicationApplicantRecord } from "@/features/applications/contracts";
+import { coApplicantSlots, type ApplicationApplicantRecord } from "@/features/applications/contracts";
 
 export type CoApplicantStatus = "invited" | "in_progress" | "signed" | "expired" | "revoked";
 
@@ -32,6 +32,8 @@ const statusCopy: Record<CoApplicantStatus, { label: string; description: string
 
 interface CoApplicantPanelProps {
   applicants: CoApplicantSummary[];
+  adultCount: number | null;
+  rosterLocked?: boolean;
   busyApplicantId?: string | null;
   inviting?: boolean;
   onInvite: (input: { legalName: string; email: string }) => Promise<boolean>;
@@ -48,6 +50,8 @@ export function activeCoApplicantsSigned(applicants: CoApplicantSummary[]) {
 
 export function CoApplicantPanel({
   applicants,
+  adultCount,
+  rosterLocked = false,
   busyApplicantId = null,
   inviting = false,
   onInvite,
@@ -71,16 +75,23 @@ export function CoApplicantPanel({
   const activeApplicants = applicants.filter((applicant) => applicant.status !== "revoked");
   const signedCount = activeApplicants.filter((applicant) => applicant.status === "signed").length;
 
+  const slots = coApplicantSlots(adultCount);
+  const locked = rosterLocked || signedCount > 0;
+  const canInvite = slots > activeApplicants.length && !locked;
+  if (slots === 0 && applicants.length === 0) return null;
+
   return <section className="co-applicant-panel" aria-labelledby="co-applicant-heading">
     <div className="co-applicant-heading">
       <div>
         <p className="eyebrow">Joint application</p>
         <h2 id="co-applicant-heading">Other adult applicants</h2>
-        <p>Invite each adult who needs to be screened. They register or sign in with their own verified email, then complete and sign their part of this joint application.</p>
+        <p>{slots > 0
+          ? "Invite each additional adult who needs to be screened. They register or sign in with their own verified email, then complete and sign their own part of this joint application."
+          : "Invitations are available when Household & tenancy lists at least two adults, including you. Review any existing applicants below; changing the adult count does not revoke their access."}</p>
       </div>
       <div className="co-applicant-heading-actions">
         <button className="text-button" type="button" onClick={onRefresh}>Refresh status</button>
-        <button
+        {canInvite && <button
           className="button secondary"
           type="button"
           aria-expanded={showInviteForm}
@@ -88,11 +99,12 @@ export function CoApplicantPanel({
           onClick={() => setShowInviteForm((current) => !current)}
         >
           {showInviteForm ? "Cancel" : "Add co-applicant"}
-        </button>
+        </button>}
       </div>
     </div>
 
-    {showInviteForm && <form id="co-applicant-invite-form" className="co-applicant-invite-form" onSubmit={invite}>
+    {locked && <p className="field-hint">The applicant list and shared tenancy are locked because signing has started.</p>}
+    {canInvite && showInviteForm && <form id="co-applicant-invite-form" className="co-applicant-invite-form" onSubmit={invite}>
       <div className="application-form-grid">
         <label className="field" htmlFor="co-applicant-legal-name">
           <span>Legal name <span aria-hidden="true">*</span></span>
@@ -132,8 +144,8 @@ export function CoApplicantPanel({
         {applicants.map((applicant) => {
           const copy = statusCopy[applicant.status];
           const busy = busyApplicantId === applicant.id;
-          const canResend = applicant.status === "invited" || applicant.status === "expired" || (applicant.status === "in_progress" && applicant.invitationDeliveryStatus === "failed");
-          const canRevoke = applicant.status !== "signed" && applicant.status !== "revoked";
+          const canResend = slots > 0 && (applicant.status === "invited" || applicant.status === "expired" || (applicant.status === "in_progress" && applicant.invitationDeliveryStatus === "failed"));
+          const canRevoke = !locked && applicant.status !== "signed" && applicant.status !== "revoked";
           return <li key={applicant.id}>
             <div className="co-applicant-identity">
               <strong>{applicant.legalName}</strong>
@@ -159,7 +171,7 @@ export function CoApplicantPanel({
 
     {activeApplicants.length > 0 && <p className="co-applicant-progress" role="status" aria-live="polite">
       <strong>{signedCount} of {activeApplicants.length} co-applicants signed.</strong>{" "}
-      {signedCount < activeApplicants.length && "You can finish your own application now, but final submission stays locked until everyone signs."}
+      {signedCount < activeApplicants.length && (rosterLocked ? "The complete application will be submitted automatically after the remaining applicants sign." : "You can sign and submit your part now. The complete application will be submitted automatically after everyone signs.")}
     </p>}
   </section>;
 }

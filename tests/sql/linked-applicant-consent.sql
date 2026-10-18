@@ -27,6 +27,8 @@ do $$ begin
  exception when insufficient_privilege then null; end;
  if (select status from public.application_applicant_invitations where id='00000000-0000-4000-8000-000000000645') <> 'active' then raise exception 'wrong account consumed invitation'; end if;
 end $$;
+update public.application_applicants a set draft_payload = a.draft_payload || jsonb_build_object('tenancy', app.draft_payload->'tenancy')
+from public.client_applications app where app.id = a.application_id and a.id = '00000000-0000-4000-8000-000000000644';
 select public.claim_linked_applicant_invitation('00000000-0000-4000-8000-000000000641',repeat('6',64),repeat('7',64),now()+interval '12 hours','{}');
 update public.owner_notification_deliveries set status='delivered',provider_status='email.delivered' where notification_key='co-applicant-invite:00000000-0000-4000-8000-000000000645';
 insert into public.client_application_files(id,application_id,applicant_id,document_type,storage_path,original_filename,mime_type,byte_size,sha256,scan_status)

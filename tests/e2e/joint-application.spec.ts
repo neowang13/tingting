@@ -5,10 +5,13 @@ import { applicationDraftSchema } from '../../src/features/applications/schemas'
 const password = 'test-admin-password';
 const pdf = (name: string) => ({ name, mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n% FICTIONAL TEST ONLY\n%%EOF') });
 
-test('two verified User accounts accept, upload, personally confirm, sign and appear together for Admin', async ({ page, browser }) => {
+for (const signingOrder of ['co-first', 'primary-first'] as const) {
+test(`two verified User accounts complete a joint application in ${signingOrder} order`, async ({ page, browser }) => {
   test.setTimeout(120_000);
   page.setDefaultTimeout(10_000);
-  await page.goto('/client/apply/melville-street-two-bedroom');
+  const propertySlug = signingOrder === 'co-first' ? 'melville-street-two-bedroom' : 'howe-street-one-bedroom';
+  const propertyTitle = signingOrder === 'co-first' ? 'West End Two Bedroom' : 'Bright Downtown One Bedroom';
+  await page.goto(`/client/apply/${propertySlug}`);
   await page.getByLabel('Email', { exact: true }).fill('client@example.test');
   await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in securely' }).click();
@@ -35,13 +38,33 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await expect(page.getByRole('heading', { name: 'Review and submit', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Add co-applicant' }).click();
-  await page.getByLabel('Legal name', { exact: false }).first().fill('Second Applicant');
+  await page.getByLabel('Legal name', { exact: false }).first().fill('Second');
   await page.locator('#co-applicant-email').fill('second@example.test');
   const invitationResponse = page.waitForResponse(response => response.url().endsWith(`/applications/${id}/applicants`) && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Send secure invitation' }).click();
   const invitation = await (await invitationResponse).json();
   expect(invitation.data.invitationId).toBeTruthy();
   expect(invitation.data).not.toHaveProperty('invitationToken');
+  if (signingOrder === 'primary-first') {
+    await page.getByLabel(/I authorize the property manager/).check();
+    await page.getByLabel(/I consent to reference, housing and income verification/).check();
+    await page.getByLabel('Type your full legal name to sign *').fill('Primary Applicant');
+    await page.getByRole('button', { name: 'Submit application', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Waiting for co-applicants', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add co-applicant', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Revoke access', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Download submission receipt' })).toHaveCount(0);
+    await mkdir('.tmp/joint-form-qa', { recursive: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({ path: '.tmp/joint-form-qa/primary-waiting-desktop.png', fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.screenshot({ path: '.tmp/joint-form-qa/primary-waiting-mobile.png', fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Waiting for co-applicants', exact: true })).toBeVisible();
+  }
+
   const otherContext = await browser.newContext();
   const second = await otherContext.newPage();
   second.setDefaultTimeout(10_000);
@@ -51,6 +74,7 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await second.getByLabel('Password', { exact: true }).fill(password);
   await second.getByRole('button', { name: 'Sign in securely' }).click();
   await second.getByRole('button', { name: 'Accept invitation', exact: true }).click();
+  await second.getByLabel('Legal last name *', { exact: true }).fill('Applicant');
   await second.getByLabel('Phone number *', { exact: true }).fill('6045550198');
   await second.getByRole('button', { name: 'Save and continue', exact: true }).click();
   await expect(second.getByRole('heading', { name: 'Shared household and tenancy', exact: true })).toBeVisible();
@@ -79,12 +103,8 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await second.getByLabel('Relationship *', { exact: true }).last().fill('Sibling');
   await second.getByLabel('Phone number *', { exact: true }).fill('6045550194');
   await second.getByRole('button', { name: 'Save and continue', exact: true }).click();
-  for (const [label, name] of [
-    ['Rental payment history from current landlord','second-rent.pdf'], ['Credit score report','second-credit.pdf'], ['Recent pay stubs or current employment contract','second-income.pdf']
-  ]) {
-    await second.getByLabel(`Choose ${label} file`).setInputFiles(pdf(name));
-    await expect(second.getByText(name, { exact: true })).toBeVisible();
-  }
+  await second.getByLabel('Choose Credit score report file').setInputFiles(pdf('second-credit.pdf'));
+  await expect(second.getByText('second-credit.pdf', { exact: true })).toBeVisible();
   await second.getByRole('button', { name: 'Save and continue', exact: true }).click();
   await expect(second.getByRole('heading', { name: 'Your verification documents', exact: true })).toBeVisible();
   await expect(second.getByLabel('I confirm that I voluntarily provide this credit score report for assessment of my rental application.')).not.toBeChecked();
@@ -96,11 +116,15 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await second.getByRole('button', { name: 'Sign my application', exact: true }).click();
   await expect(second.getByRole('heading', { level: 1, name: 'Your part of the application is complete', exact: true })).toBeVisible();
   await second.goto(`${origin}/client/applications`);
-  await second.getByRole('link', { name: 'View my part of joint application' }).click();
+  await second.locator('.client-application-card').filter({ hasText: `Reference ${id}` }).getByRole('link', { name: 'View my part of joint application' }).click();
   await expect(second.getByRole('heading', { level: 1, name: 'Your part of the application is complete', exact: true })).toBeVisible();
 
+  if (signingOrder === 'co-first') {
   await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
   await expect(page.getByText('1 of 1 co-applicants signed.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add co-applicant', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: /Step 2 Household & tenancy/i }).click();
+  await expect(page.getByLabel('Adults *', { exact: true })).toBeDisabled();
   await page.getByRole('button', { name: /Step 3 Housing history/i }).click();
   await page.getByLabel('Current address *', { exact: true }).fill('Primary private address completed after co signed');
   await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
@@ -113,6 +137,11 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await page.getByLabel(/I consent to reference, housing and income verification/).check();
   await page.getByLabel('Type your full legal name to sign *').fill('Primary Applicant');
   await page.getByRole('button', { name: 'Submit application', exact: true }).click();
+  } else {
+    // The primary may already receive a refreshed server render after the co-applicant signs.
+    // Reload verifies the final persisted state without racing a disappearing waiting-screen button.
+    await page.reload();
+  }
   await expect(page.getByRole('link', { name: 'Download submission receipt' })).toBeVisible();
   await page.goto('/admin');
   await page.getByLabel('Email', { exact: true }).fill('admin@example.test');
@@ -121,7 +150,7 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await expect(page).toHaveURL(/\/admin\/properties$/);
   await page.setViewportSize({ width: 1440, height: 1400 });
   await page.goto(`/admin/applications?application=${id}`);
-  const dialog = page.getByRole('dialog', { name: 'West End Two Bedroom' });
+  const dialog = page.getByRole('dialog', { name: propertyTitle });
   await expect(dialog).toBeVisible();
   const tabs = dialog.getByRole('tablist', { name: 'Choose applicant' });
   const primaryTab = tabs.getByRole('tab', { name: 'Primary Applicant Primary applicant', exact: true });
@@ -132,7 +161,7 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   const panel = dialog.getByRole('tabpanel');
   await expect(panel.getByRole('article')).toHaveCount(1);
   await expect(panel.getByRole('heading', { name: 'Personal details', exact: true })).toBeVisible();
-  await expect(panel).toContainText('Primary private address completed after co signed');
+  await expect(panel).toContainText(signingOrder === 'co-first' ? 'Primary private address completed after co signed' : 'Primary private address');
   await expect(panel).not.toContainText('Second private address');
   await expect(panel.getByText('primary-credit.pdf', { exact: true })).toHaveCount(1);
   await expect(panel.getByRole('heading', { name: 'Signed declaration', exact: true })).toBeVisible();
@@ -169,6 +198,7 @@ test('two verified User accounts accept, upload, personally confirm, sign and ap
   await expect(secondTab).toHaveAttribute('aria-selected', 'true');
   await otherContext.close();
 });
+}
 
 test('three, four and five applicants use one detail panel with keyboard and mobile switching', async ({ page, browser }) => {
   test.setTimeout(90_000);
@@ -180,6 +210,8 @@ test('three, four and five applicants use one detail panel with keyboard and mob
   await expect(page).toHaveURL(/\/client\/applications\/[0-9a-f-]+$/);
   const id = page.url().split('/').pop()!;
   const origin = new URL(page.url()).origin;
+  const saved = await page.request.patch(`/api/client/applications/${id}/draft`, { headers: { origin }, data: { draft: applicationDraftSchema.parse({ tenancy: { adultCount: 5, childCount: 0 } }), activeStep: 2 } });
+  expect(saved.ok()).toBe(true);
   const adminContext = await browser.newContext();
   const adminPage = await adminContext.newPage();
   await adminPage.setViewportSize({ width: 1440, height: 1000 });
