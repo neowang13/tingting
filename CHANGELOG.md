@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.9] - 2026-10-17
+### Fixed
+- Keep primary action links white on green throughout the applicant portal, including My applications and co-applicant sign-in links. Ordinary link styling no longer overrides button labels.
+- Keep disabled action labels readable across Admin and applicant forms, using dark text on an opaque light background instead of fading the whole button. Selected calendar dates preserve their existing readable highlight.
+- Switch Admin delete-button foreground and background colors together so hover transitions cannot briefly hide the label.
+
 ## [0.2.8] - 2026-10-17
 ### Changed
 - Let the primary applicant sign and submit their part first, then automatically submit the joint application and queue the Admin notification after every declared adult signs. Show the waiting status and lock signed details and the applicant roster.
