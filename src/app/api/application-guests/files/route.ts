@@ -1,5 +1,5 @@
 import { requireClientRequest } from "@/lib/client-auth";
-import { assertGuestAccount } from "@/features/applications/applicant-signing";
+import { assertGuestAccount, getGuestApplication } from "@/features/applications/applicant-signing";
 import { ApiError, handleApiError, ok } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/auth";
 import { assertActionRateLimit } from "@/lib/rate-limit";
@@ -7,6 +7,19 @@ import { hashGuestToken, readGuestCookie } from "@/lib/application-guest-auth";
 import { isApplicationDocumentType } from "@/features/applications/contracts";
 import { uploadGuestApplicantFile } from "@/features/applications/applicant-signing";
 import { applicationRequestContext } from "@/features/applications/request-context";
+
+export async function GET(request: Request) {
+  const requestId = crypto.randomUUID();
+  try {
+    const identity = await requireClientRequest(request);
+    const session = readGuestCookie(request);
+    await assertGuestAccount(session, identity);
+    const view = await getGuestApplication(session);
+    const response = ok({ files: view.applicant.files }, requestId);
+    response.headers.set("cache-control", "no-store");
+    return response;
+  } catch (error) { return handleApiError(error, requestId); }
+}
 
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();

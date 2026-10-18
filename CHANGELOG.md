@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.11] - 2026-10-18
+### Fixed
+- Persist document removal, the audit event and a cleanup job atomically. Retry private storage cleanup after network or process failures, with leased workers and idempotent removal receipts.
+- Reconcile document lists after ambiguous deletion responses, reconnecting or returning to the page, while preserving unsaved application fields.
+
 ## [0.2.10] - 2026-10-17
 ### Added
 - Let primary and co-applicants remove their own uploaded documents before signing, confirm removal, and upload replacements. Recheck required categories and release upload slots immediately.

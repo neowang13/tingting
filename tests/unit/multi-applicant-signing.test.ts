@@ -70,7 +70,7 @@ describe("multi-applicant signing", () => {
     await removeGuestApplicantFile(session.sessionToken, guestFile.id, coUser, context);
     expect((await getGuestApplication(session.sessionToken)).applicant.files).toHaveLength(0);
     expect((await getClientApplication(owner, applicationId)).files).toHaveLength(1);
-    await expect(removeGuestApplicantFile(session.sessionToken, guestFile.id, coUser, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(removeGuestApplicantFile(session.sessionToken, guestFile.id, coUser, context)).resolves.toEqual({ removed: true });
     await expect(uploadGuestApplicantFile(session.sessionToken, pdf, "credit_score_report", context)).resolves.toMatchObject({ documentType: "credit_score_report" });
   });
   it("lets the verified invitee correct their legal name and requires the signature to match their saved details", async () => {

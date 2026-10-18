@@ -53,6 +53,8 @@ import type { EmailAttachment, EmailProvider } from "@/features/notifications/pr
 import {
   listLinkedApplicantMemberships,
   deleteStoredApplicantFile,
+  memoryApplicantFileRemoved,
+  recordMemoryApplicantFileRemoval,
   assertApplicationSignaturesUnlocked,
   getMemoryApplicationApplicants,
   getMemoryApplicationNotificationApplicants,
@@ -818,12 +820,14 @@ export async function uploadApplicationFile(
 
 export async function removeApplicationFile(identity: ClientIdentity, id: string, fileId: string, context: { requestId: string; userAgentHash: string; ipHash?: string }) {
   const application = await loadOwnedApplication(identity, id);
-  if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
   const primaryId = application.applicants.find(applicant => applicant.role === "primary")?.id;
   if (!primaryId) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
-  await assertApplicationSignaturesUnlocked(id, primaryId);
-  if (!application.files.some(file => file.id === fileId && file.applicantId === primaryId)) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
   if (process.env.DATA_BACKEND !== "supabase") {
+    if (memoryApplicantFileRemoved(id, primaryId, fileId)) return { removed: true };
+    if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "Files cannot be changed after submission.");
+    await assertApplicationSignaturesUnlocked(id, primaryId);
+    if (!application.files.some(file => file.id === fileId && file.applicantId === primaryId)) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
+    recordMemoryApplicantFileRemoval(id, primaryId, fileId);
     const stored = demoStore().get(id)!;
     stored.files = stored.files.filter(file => file.id !== fileId);
     syncMemoryPrimaryApplicantFiles(id, stored.files);

@@ -297,4 +297,87 @@ begin
   exception when sqlstate 'TT409' then if sqlerrm <> 'application_signatures_locked' then raise; end if; end;
   if has_table_privilege('authenticated','public.client_application_files','delete') then raise exception 'direct client deletion bypasses server ownership checks'; end if;
 end $$;
+-- Atomic, retryable document removal and recoverable worker leases.
+create function pg_temp.reject_removal_audit() returns trigger language plpgsql as $$
+begin
+  if new.action='application.file_removed' and new.request_context->>'forceAuditFailure'='true' then
+    raise check_violation using message='test_audit_failure';
+  end if;
+  return new;
+end $$;
+create trigger test_removal_audit_failure before insert on public.client_application_audit_events
+for each row execute function pg_temp.reject_removal_audit();
+
+do $$
+declare v_app uuid; v_primary uuid; v_co uuid; v_user uuid; v_owner uuid := '00000000-0000-4000-8000-000000000700';
+  v_file uuid; v_co_file uuid; v_locked uuid; v_co_locked uuid; v_bad uuid;
+  v_first public.application_file_cleanup_jobs%rowtype; v_second public.application_file_cleanup_jobs%rowtype; v_count integer;
+begin
+  v_app := pg_temp.waiting_application('2'); v_co := pg_temp.waiting_co(v_app);
+  select id into strict v_primary from public.application_applicants where application_id=v_app and role='primary';
+  select owner_user_id into strict v_user from public.application_applicants where id=v_co;
+  v_file := pg_temp.waiting_file(v_app,v_primary); v_locked := pg_temp.waiting_file(v_app,v_primary);
+  v_co_file := pg_temp.waiting_file(v_app,v_co); v_co_locked := pg_temp.waiting_file(v_app,v_co);
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_primary,v_file,v_user,null,'client-applications','{}');
+    raise exception 'wrong account removed primary file';
+  exception when sqlstate 'TT404' then null; end;
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_co,v_co_file,v_user,repeat('f',64),'client-applications','{}');
+    raise exception 'invalid guest session removed file';
+  exception when sqlstate 'TT401' then null; end;
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_primary,v_co_file,v_owner,null,'client-applications','{}');
+    raise exception 'primary removed private co-applicant file';
+  exception when sqlstate 'TT404' then null; end;
+  perform public.remove_unsigned_application_file(v_app,v_primary,v_file,v_owner,null,'client-applications','{}');
+  if exists(select 1 from public.client_application_files where id=v_file)
+    or not exists(select 1 from public.application_file_cleanup_jobs where file_id=v_file and storage_path='qa/'||v_file::text||'.pdf' and status='pending') then
+    raise exception 'cleanup locator and removal were not persisted together'; end if;
+  -- Lost responses and repeat requests reuse the receipt without duplicating work/audit.
+  perform public.remove_unsigned_application_file(v_app,v_primary,v_file,v_owner,null,'client-applications','{}');
+  if (select count(*) from public.client_application_audit_events where request_context->>'fileId'=v_file::text and action='application.file_removed') <> 1 then
+    raise exception 'repeated removal duplicated audit'; end if;
+  perform pg_temp.waiting_primary_sign(v_app,'{}',now());
+  perform public.remove_unsigned_application_file(v_app,v_primary,v_file,v_owner,null,'client-applications','{}');
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_primary,v_locked,v_owner,null,'client-applications','{}');
+    raise exception 'signed evidence was removed';
+  exception when sqlstate 'TT409' then null; end;
+  perform public.remove_unsigned_application_file(v_app,v_co,v_co_file,v_user,repeat(md5(v_co::text),2),'client-applications','{}');
+  perform pg_temp.waiting_co_sign(v_co,now());
+  perform public.remove_unsigned_application_file(v_app,v_co,v_co_file,v_user,repeat(md5(v_co::text),2),'client-applications','{}');
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_co,v_co_locked,v_user,repeat(md5(v_co::text),2),'client-applications','{}');
+    raise exception 'signed co-applicant evidence was removed';
+  exception when sqlstate 'TT409' then null; end;
+  select * into strict v_first from public.claim_application_file_cleanup(1,v_file);
+  if v_first.attempts <> 1 or v_first.lease_token is null then raise exception 'cleanup claim has no durable lease'; end if;
+  select count(*) into v_count from public.claim_application_file_cleanup(1,v_file);
+  if v_count <> 0 then raise exception 'live lease was double claimed'; end if;
+  -- Simulate a process dying after claiming work: a later worker can reclaim it.
+  update public.application_file_cleanup_jobs set locked_until=clock_timestamp()-interval '1 second' where file_id=v_file;
+  select * into strict v_second from public.claim_application_file_cleanup(1,v_file);
+  if v_second.attempts <> 2 or v_second.lease_token=v_first.lease_token then raise exception 'expired lease did not recover'; end if;
+  update public.application_file_cleanup_jobs set status='completed',storage_path=null where file_id=v_file and lease_token=v_first.lease_token;
+  get diagnostics v_count = row_count;
+  if v_count <> 0 then raise exception 'stale worker changed a newer lease'; end if;
+  update public.application_file_cleanup_jobs set status='completed',storage_path=null,lease_token=null,locked_until=null where file_id=v_file and lease_token=v_second.lease_token;
+  select count(*) into v_count from public.claim_application_file_cleanup(1,v_file);
+  if v_count <> 0 then raise exception 'completed cleanup was reclaimed'; end if;
+  -- Failure to write audit must roll back removal AND the job, not orphan bytes.
+  v_app := pg_temp.waiting_application('1');
+  select id into strict v_primary from public.application_applicants where application_id=v_app and role='primary';
+  v_bad := pg_temp.waiting_file(v_app,v_primary);
+  begin
+    perform public.remove_unsigned_application_file(v_app,v_primary,v_bad,v_owner,null,'client-applications','{"forceAuditFailure":true}');
+    raise exception 'audit failure did not abort removal';
+  exception when check_violation then if sqlerrm <> 'test_audit_failure' then raise; end if; end;
+  if not exists(select 1 from public.client_application_files where id=v_bad)
+    or exists(select 1 from public.application_file_cleanup_jobs where file_id=v_bad) then raise exception 'partial removal survived failed audit'; end if;
+  if has_table_privilege('authenticated','public.application_file_cleanup_jobs','select')
+    or has_function_privilege('authenticated','public.remove_unsigned_application_file(uuid,uuid,uuid,uuid,text,text,jsonb)','execute')
+    or has_function_privilege('anon','public.claim_application_file_cleanup(integer,uuid)','execute') then
+    raise exception 'private cleanup permissions are unsafe'; end if;
+end $$;
 rollback;

@@ -1,3 +1,4 @@
+import { processApplicationFileCleanup } from "@/features/applications/file-cleanup";
 import { handleApiError, ok, ApiError } from "@/lib/api";
 import { isDemoMode } from "@/lib/auth";
 import { getRepository } from "@/data/repository";
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
     if ((!expected || actual !== expected) && !demoAuthorized) {
       throw new ApiError(401, "INVALID_CRON_SECRET", "The Cron secret is invalid.");
     }
+    const applicationFileCleanup = processApplicationFileCleanup().catch(() => ({ claimed: 0, completed: 0, failed: 1 }));
     const repository = getRepository();
     const before = await repository.dashboard();
     const forcePaused = process.env.REMINDERS_FORCE_PAUSED !== "false";
@@ -45,6 +47,7 @@ export async function POST(request: Request) {
       requestId
     );
     return ok({
+      applicationFileCleanup: await applicationFileCleanup,
       worker,
       maintenance,
       weeklyTenantSummary,

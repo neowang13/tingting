@@ -34,6 +34,8 @@ test(`two verified User accounts complete a joint application in ${signingOrder}
   await page.getByLabel('Choose Credit score report file').setInputFiles(pdf('wrong-primary-credit.pdf'));
   const primaryRemove = page.getByRole('button', { name: 'Remove wrong-primary-credit.pdf', exact: true });
   await expect(primaryRemove).toBeVisible();
+  const unsavedExplanation = page.getByLabel('Explain why you cannot provide Rental payment history from current landlord', { exact: true });
+  await unsavedExplanation.fill('Unsaved explanation survives attachment synchronization.');
   page.once('dialog', dialog => dialog.dismiss());
   await primaryRemove.click();
   await expect(primaryRemove).toBeVisible();
@@ -44,9 +46,14 @@ test(`two verified User accounts complete a joint application in ${signingOrder}
   await expect(page.getByText('Test removal unavailable', { exact: true })).toBeVisible();
   await expect(primaryRemove).toBeVisible();
   await page.unroute('**/api/client/applications/*/files/*');
+  await page.route('**/api/client/applications/*/files/*', async route => {
+    expect((await route.fetch()).status()).toBe(200); // the deletion commits
+    await route.abort('failed'); // lose its response; GET reconciliation recovers
+  }, { times: 1 });
   page.once('dialog', dialog => dialog.accept());
   await primaryRemove.click();
   await expect(primaryRemove).toHaveCount(0);
+  await expect(unsavedExplanation).toHaveValue('Unsaved explanation survives attachment synchronization.');
   await page.reload();
   await page.getByRole('button', { name: /STEP 7 Documents/i }).click();
   await expect(page.getByRole('button', { name: 'Remove wrong-primary-credit.pdf', exact: true })).toHaveCount(0);
@@ -127,12 +134,22 @@ test(`two verified User accounts complete a joint application in ${signingOrder}
   await second.getByLabel('Choose Credit score report file').setInputFiles(pdf('wrong-second-credit.pdf'));
   const guestRemove = second.getByRole('button', { name: 'Remove wrong-second-credit.pdf', exact: true });
   await expect(guestRemove).toBeVisible();
+  await second.getByRole('button', { name: '1 Personal', exact: true }).click();
+  await second.getByLabel('Phone number *', { exact: true }).fill('6045550160');
+  await second.getByRole('button', { name: '5 Documents', exact: true }).click();
   await second.setViewportSize({ width: 390, height: 844 });
   await mkdir('.tmp/file-removal-qa', { recursive: true });
   await second.screenshot({ path: `.tmp/file-removal-qa/${signingOrder}-remove-mobile.png`, fullPage: true });
+  await second.route('**/api/application-guests/files/*', async route => {
+    expect((await route.fetch()).status()).toBe(200);
+    await route.abort('failed');
+  }, { times: 1 });
   second.once('dialog', dialog => dialog.accept());
   await guestRemove.click();
   await expect(guestRemove).toHaveCount(0);
+  await second.getByRole('button', { name: '1 Personal', exact: true }).click();
+  await expect(second.getByLabel('Phone number *', { exact: true })).toHaveValue('6045550160');
+  await second.getByRole('button', { name: '5 Documents', exact: true }).click();
   await second.goto(`${origin}/application/guest`);
   await second.getByRole('button', { name: '5 Documents', exact: true }).click();
   await expect(second.getByRole('button', { name: 'Remove wrong-second-credit.pdf', exact: true })).toHaveCount(0);

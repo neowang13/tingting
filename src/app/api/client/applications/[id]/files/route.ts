@@ -2,8 +2,19 @@ import { ApiError, handleApiError, ok } from "@/lib/api";
 import { assertSameOrigin } from "@/lib/auth";
 import { requireClientRequest } from "@/lib/client-auth";
 import { assertActionRateLimit } from "@/lib/rate-limit";
-import { uploadApplicationFile } from "@/features/applications/service";
+import { getClientApplication, uploadApplicationFile } from "@/features/applications/service";
 import { isApplicationDocumentType } from "@/features/applications/contracts";
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const requestId = crypto.randomUUID();
+  try {
+    const identity = await requireClientRequest(request);
+    const application = await getClientApplication(identity, (await params).id);
+    const response = ok({ files: application.files }, requestId);
+    response.headers.set("cache-control", "no-store");
+    return response;
+  } catch (error) { return handleApiError(error, requestId); }
+}
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const requestId = crypto.randomUUID();
