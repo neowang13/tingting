@@ -29,6 +29,9 @@ cross join public.application_terms_versions terms
 where form.is_active and terms.is_active
 limit 1;
 
+update public.client_applications set draft_payload = '{"tenancy":{"adultCount":2}}'::jsonb
+where id = '00000000-0000-4000-8000-000000000581';
+
 insert into public.application_applicants(
   id, application_id, role, legal_name, email, status, draft_payload, invitation_expires_at
 ) values (
@@ -38,6 +41,8 @@ insert into public.application_applicants(
   '{"personal":{"legalFirstName":"Wrong","legalLastName":"Person"}}'::jsonb,
   now() + interval '48 hours'
 );
+update public.application_applicants set draft_payload = draft_payload || '{"tenancy":{"adultCount":2}}'::jsonb
+where id = '00000000-0000-4000-8000-000000000582';
 
 insert into public.application_applicant_invitations(applicant_id, token_sha256, status, expires_at)
 values ('00000000-0000-4000-8000-000000000582', repeat('1', 64), 'used', now() + interval '48 hours');
@@ -89,7 +94,7 @@ begin
   end;
 
   update public.application_applicants
-  set draft_payload = '{"personal":{"legalFirstName":"Guest","legalLastName":"Applicant"}}'::jsonb
+  set draft_payload = '{"personal":{"legalFirstName":"Guest","legalLastName":"Applicant"},"tenancy":{"adultCount":2}}'::jsonb
   where id = '00000000-0000-4000-8000-000000000582';
   select draft_payload into v_draft from public.application_applicants where id = '00000000-0000-4000-8000-000000000582';
   perform public.sign_guest_application_applicant(

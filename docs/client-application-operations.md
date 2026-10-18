@@ -62,6 +62,46 @@ submission continue to fail closed if either approval is withdrawn.
 8. Applicant downloads a receipt showing the reference, files, status, versions,
    hashes, consent time, correction route, and retention-review date.
 
+Co-applicants enter their own legal name in Personal details; an invitation nickname
+or incomplete name does not lock that field. Saving a complete name updates their
+applicant name, and their signature must match those saved personal details.
+Verified email/account ownership still controls access. Their name and personal
+details lock when they sign, independently of other applicants' signatures.
+For co-applicants, only the credit score report category is required (upload a
+report or provide the existing unavailability explanation). Rental payment history,
+income proof, bank statements and other supporting documents are optional.
+An uploaded credit report still requires the applicant's own voluntary confirmation.
+The primary applicant's document requirements are unchanged.
+
+Deploying this correction requires migrations `202610180069_co_applicant_legal_name.sql`
+and `202610180070_joint_submission_waiting.sql`
+before the application release so an unsigned invitee can correct their name after
+another applicant has signed. Existing draft contents and signed evidence are preserved.
+
+The primary applicant sees Add co-applicant only after entering at least two adults
+in Household & tenancy, including themselves. Children do not enable invitations.
+With one adult or no adult count entered, the empty invitation panel is hidden.
+Existing applicants remain visible for status review and explicit revocation; reducing
+the adult count never silently revokes access or removes a signature. New invitations
+and resend controls are hidden while fewer than two adults are entered.
+
+Before anyone signs, the saved adult count must equal the primary plus all active
+co-applicants. Invitations are limited to those extra adult slots. Sending an
+invitation saves and validates the shared tenancy first. Any signature locks the
+roster and shared tenancy; each person's private details/files lock at their own
+signature. Unsigned applicants can still complete their own information.
+
+The primary may select Submit application before the co-applicants sign. This seals
+the primary's signature and shows **Waiting for co-applicants**, with no final receipt
+or Admin submission email yet. The final co-applicant signature automatically changes
+the whole application to `submitted` in the same database transaction and durably
+queues the Admin email. The primary need not submit again. Single-adult applications
+submit immediately. Primary consent time stays at their signature; final submission
+and the twelve-month retention period start when the last signature completes.
+Duplicate completion cannot create another submission or notification key. A withdrawn
+form/terms approval blocks completion. Shared tenancy changes discovered on a guest
+save return the guest to tenancy review before signing.
+
 ## Staff processing
 
 Use `/admin/applications`. This is a need-to-know queue and does not expose private

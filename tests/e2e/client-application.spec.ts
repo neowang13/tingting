@@ -1,6 +1,60 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
+test("co-applicant invitations appear only for two or more adults and existing invitations remain manageable", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.goto("/client/apply/howe-street-one-bedroom");
+  await page.getByLabel("Email", { exact: true }).fill("second@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("test-admin-password");
+  await page.getByRole("button", { name: "Sign in securely", exact: true }).click();
+  await page.getByRole("button", { name: "Start or continue application", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Bright Downtown One Bedroom", exact: true })).toBeVisible();
+  const add = page.getByRole("button", { name: "Add co-applicant", exact: true });
+  await expect(add).toHaveCount(0);
+  await page.getByRole("button", { name: /Step 2 Household & tenancy/i }).click();
+  const adults = page.getByLabel("Adults *", { exact: true });
+  await adults.fill("1");
+  await page.getByLabel("Children *", { exact: true }).fill("2");
+  await expect(add).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Other adult applicants", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: ".tmp/joint-form-qa/one-adult.png", fullPage: false });
+  await adults.fill("2");
+  await expect(add).toBeVisible();
+  await add.click();
+  await expect(page.getByRole("button", { name: "Send secure invitation", exact: true })).toBeVisible();
+  await adults.fill("1");
+  await expect(page.getByRole("button", { name: "Send secure invitation", exact: true })).toHaveCount(0);
+  await adults.fill("2");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.getByLabel("Desired move-in date *", { exact: true }).fill("2026-12-01");
+  await page.getByRole("combobox", { name: /^Preferred lease term/ }).selectOption("one_year");
+  await page.getByLabel("Children *", { exact: true }).fill("0");
+  await page.getByRole("combobox", { name: /^Do you still need a showing/ }).selectOption("no");
+  // Send while the tenancy edits are unsaved: the invitation flow must persist them first.
+  await add.click();
+  await page.locator("#co-applicant-legal-name").fill("Example Invitee");
+  await page.locator("#co-applicant-email").fill("client@example.test");
+  await page.getByRole("button", { name: "Send secure invitation", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Revoke access", exact: true })).toBeVisible();
+  await expect(add).toHaveCount(0);
+  await page.reload();
+  await page.getByRole("button", { name: /Step 2 Household & tenancy/i }).click();
+  await expect(adults).toHaveValue("2");
+  await adults.fill("1");
+  await expect(add).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Resend invitation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Revoke access", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save and continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Housing history", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(add).toHaveCount(0);
+  await expect(page.getByText("Example Invitee", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Revoke access", exact: true })).toBeVisible();
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Revoke access", exact: true }).click();
+  await expect(page.getByText("Access revoked", { exact: true })).toBeVisible();
+});
+
 test("client login, explanation-only application, affirmative consent, receipt, and staff queue", async ({ page, request }) => {
   test.setTimeout(60_000);
   const renderErrors: string[] = [];
@@ -35,7 +89,7 @@ test("client login, explanation-only application, affirmative consent, receipt, 
 
   await page.getByLabel("Desired move-in date *").fill("2026-09-01");
   await page.getByLabel("Preferred lease term *").selectOption("one_year");
-  await page.getByLabel("Adults *").fill("2");
+  await page.getByLabel("Adults *").fill("1");
   await page.getByLabel("Children *").fill("1");
   await page.getByLabel("Do you still need a showing? *").selectOption("no");
   await expect(page.getByLabel("Why does this home fit your needs? (optional)")).not.toHaveAttribute("required", "");
@@ -93,9 +147,9 @@ test("client login, explanation-only application, affirmative consent, receipt, 
 
   await page.getByRole("button", { name: "Save and continue" }).click();
   const householdReview = page.locator(".application-review-group").filter({ hasText: "Household & tenancy" });
-  await expect(householdReview).toContainText("Adults2");
+  await expect(householdReview).toContainText("Adults1");
   await expect(householdReview).toContainText("Children1");
-  await expect(householdReview).toContainText("Total occupants3");
+  await expect(householdReview).toContainText("Total occupants2");
   const documentReview = page.locator(".application-review-group").filter({ hasText: "Income and credit score verification" });
   await expect(documentReview).toContainText("My landlord cannot provide a rental payment history.");
   const sharing = page.getByLabel(/I authorize the property manager/);
@@ -138,9 +192,9 @@ test("client login, explanation-only application, affirmative consent, receipt, 
   const reviewDialog = page.getByRole("dialog", { name: "Bright Downtown One Bedroom" });
   await expect(reviewDialog).toBeVisible();
   const requestedTenancy = reviewDialog.getByRole("region", { name: "Joint application and linked users" });
-  await expect(requestedTenancy).toContainText("2 adults");
+  await expect(requestedTenancy).toContainText("1 adults");
   await expect(requestedTenancy).toContainText("1 children");
-  await expect(requestedTenancy).toContainText("3 occupants");
+  await expect(requestedTenancy).toContainText("2 occupants");
   await expect(reviewDialog.getByRole("heading", { name: "Personal details", exact: true })).toBeVisible();
   await expect(reviewDialog.getByText("No files uploaded.")).toBeVisible();
   await expect(reviewDialog.getByRole("button", { name: "View applicant details →" })).toHaveCount(0);

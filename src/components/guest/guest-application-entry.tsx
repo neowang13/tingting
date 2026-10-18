@@ -6,7 +6,7 @@ import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, u
 import {
   APPLICATION_DOCUMENT_LABELS,
   APPLICATION_DOCUMENT_TYPES,
-  APPLICATION_REQUIRED_DOCUMENT_TYPES,
+  CO_APPLICANT_REQUIRED_DOCUMENT_TYPES,
   applicationDocumentRequirementSatisfied,
   type ApplicationDocumentType,
   type ApplicationFileRecord
@@ -134,7 +134,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
   const [error, setError] = useState("");
   const [lastSaved, setLastSaved] = useState(initialData.applicant.draftUpdatedAt);
 
-  const documentsComplete = useMemo(() => APPLICATION_REQUIRED_DOCUMENT_TYPES.every(
+  const documentsComplete = useMemo(() => CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.every(
     (documentType) => applicationDocumentRequirementSatisfied(documentType, files, draft.documentExplanations)
   ), [draft.documentExplanations, files]);
 
@@ -156,7 +156,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
     }
     if (targetStep === 5 && files.some(file => file.documentType === "credit_score_report") && !draft.creditReportVoluntary) return "Confirm that you voluntarily provide your credit score report before continuing.";
     if (targetStep === 5 && !documentsComplete) {
-      const missing = APPLICATION_REQUIRED_DOCUMENT_TYPES.find(
+      const missing = CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.find(
         (documentType) => !applicationDocumentRequirementSatisfied(documentType, files, draft.documentExplanations)
       );
       return `Upload ${APPLICATION_DOCUMENT_LABELS[missing!].toLowerCase()} or provide an explanation of at least 10 characters.`;
@@ -174,12 +174,18 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ draft, activeStep: targetStep })
       });
-      const body = await readEnvelope<{ draftUpdatedAt?: string }>(response);
+      const body = await readEnvelope<{ draftUpdatedAt?: string; draft?: ApplicationDraft }>(response);
       if (!response.ok) {
         setError(accessError(response, body));
         return false;
       }
       setLastSaved(body.data?.draftUpdatedAt ?? new Date().toISOString());
+      if (body.data?.draft && JSON.stringify(body.data.draft.tenancy) !== JSON.stringify(draft.tenancy)) {
+        setDraft(body.data.draft);
+        setStep(2);
+        setError("The primary applicant updated the shared tenancy. Review the current household and tenancy details before continuing or signing.");
+        return false;
+      }
       setMessage("Your application draft was saved securely.");
       return true;
     } catch {
@@ -298,9 +304,9 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
       <p className="eyebrow">Invited co-applicant</p>
       <h1 id="guest-property-heading">{data.application.propertyTitle}</h1>
       <p>{data.application.propertyAddress}</p>
-      <dl><div><dt>Applicant</dt><dd>{data.applicant.legalName}</dd></div><div><dt>Email</dt><dd>{data.applicant.email}</dd></div></dl>
-      <p className="guest-security-note">This private link gives you access only to your own application information. No account or password is required.</p>
-      <p className="field-hint">Before you begin: we collect this information to assess the tenancy application, verify supporting details, and—only with your consent—request credit screening. See our <Link className="guest-privacy-link" href="/privacy">privacy notice</Link>.</p>
+      <dl><div><dt>Applicant</dt><dd>{`${draft.personal.legalFirstName} ${draft.personal.legalLastName}`.trim() || data.applicant.legalName}</dd></div><div><dt>Email</dt><dd>{data.applicant.email}</dd></div></dl>
+      <p className="guest-security-note">Your verified account gives you access only to your own application information.</p>
+      <p className="field-hint">Before you begin: we collect this information to assess the tenancy application and verify supporting details with your consent. We do not request credit checks from credit agencies. See our <Link className="guest-privacy-link" href="/privacy">privacy notice</Link>.</p>
     </section>
 
     <nav className="guest-stepper" aria-label="Application progress">
@@ -407,10 +413,10 @@ function DocumentsStep({ draft, files, busy, updateExplanation, updateCreditCons
   onBack: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
-  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Your verification documents</h2><p>Upload files that belong to you. The primary applicant cannot view your private files or screening details.</p><p className="field-hint">PDF, JPEG, or PNG; maximum 10 MB. Redact your SIN, account numbers, and login credentials.</p><div className="application-document-categories">
+  return <form onSubmit={onSubmit}><h2 id="guest-step-heading">Your verification documents</h2><p>Only the credit score report category is required; upload your report or explain why you cannot provide it. All other documents are optional. The primary applicant cannot view your private files or screening details.</p><p className="field-hint">PDF, JPEG, or PNG; maximum 10 MB. Redact your SIN, account numbers, and login credentials.</p><div className="application-document-categories">
     {APPLICATION_DOCUMENT_TYPES.map((documentType) => {
       const categoryFiles = files.filter((file) => file.documentType === documentType);
-      const requiredType = APPLICATION_REQUIRED_DOCUMENT_TYPES.find((type) => type === documentType);
+      const requiredType = CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.find((type) => type === documentType);
       const explanation = requiredType ? draft.documentExplanations[requiredType] : "";
       const explanationId = `guest-document-explanation-${documentType}`;
       return <section className="application-document-category" key={documentType}>
@@ -445,7 +451,7 @@ function ReviewSignStep({ data, draft, files, busy, onBack, onEdit, onSubmit }: 
   </div><div className="application-terms" tabIndex={0} aria-label="Application collection and consent notice">{data.application.termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p>
     <label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit to assess this application. *</span></label>
     <label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to reference, housing and income verification, and review of the documents I provide for my rental application. *</span></label>
-    <GuestField label="Type your full legal name to sign *" wide hint={`Enter your legal name as shown above: ${data.applicant.legalName}`}><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></GuestField>
+    <GuestField label="Type your full legal name to sign *" wide hint={`Enter your legal name as shown above: ${`${draft.personal.legalFirstName} ${draft.personal.legalLastName}`.trim()}`}><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></GuestField>
     <p className="guest-signature-notice">By selecting “Sign my application,” you confirm this typed name is your electronic signature and that the information you provided is accurate.</p>
     <div className="application-step-actions"><button className="button secondary" type="button" disabled={busy} onClick={onBack}>Back</button><button className="button" type="submit" disabled={busy}>{busy ? "Recording signature…" : "Sign my application"}</button></div>
   </form>;

@@ -48,35 +48,43 @@ function completeDraft(email = "guest@example.test") {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   process.env.DATA_BACKEND = "memory";
   process.env.APP_BASE_URL = "https://example.test";
   resetDemoApplicationsForTests();
+  await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 7 });
 });
 
 describe("multi-applicant signing", () => {
-  it("requires invited, draft, and typed guest legal names to identify the same person", async () => {
+  it("lets the verified invitee correct their legal name and requires the signature to match their saved details", async () => {
+    await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 7 });
     const invited = await createCoApplicantInvitation(owner, applicationId, {
       legalName: "Guest Applicant",
       email: "guest@example.test",
     }, context);
     const session = await exchangeCoApplicantInvitation(invited.invitationToken, context);
     const mismatchedDraft = completeDraft();
-    mismatchedDraft.personal.legalFirstName = "Different";
-    await expect(saveGuestApplicantDraft(session.sessionToken, { draft: mismatchedDraft, activeStep: 7 }, context))
-      .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_IDENTITY_MISMATCH" });
+    mismatchedDraft.personal.legalFirstName = "Corrected";
+    await saveGuestApplicantDraft(session.sessionToken, { draft: mismatchedDraft, activeStep: 1 }, context);
+    expect((await getGuestApplication(session.sessionToken)).applicant.legalName).toBe("Corrected Applicant");
 
-    await saveGuestApplicantDraft(session.sessionToken, { draft: completeDraft(), activeStep: 7 }, context);
     const application = await getClientApplication(owner, applicationId);
-    await expect(signGuestApplicant(session.sessionToken, {
-      signatureLegalName: "Different Person",
-      sharingAuthorization: true,
-      screeningConsent: true,
+    const signature = {
+      signatureLegalName: "Guest Applicant",
+      sharingAuthorization: true as const,
+      screeningConsent: true as const,
       termsVersion: application.termsVersion,
       termsSha256: application.termsSha256,
       formVersion: application.formVersion,
       formSha256: application.formSha256,
-    }, context)).rejects.toMatchObject({ code: "APPLICATION_SIGNATURE_NAME_MISMATCH" });
+    };
+    await expect(signGuestApplicant(session.sessionToken, signature, context))
+      .rejects.toMatchObject({ code: "APPLICATION_SIGNATURE_NAME_MISMATCH" });
+    await expect(signGuestApplicant(session.sessionToken, { ...signature, signatureLegalName: "  CORRECTED   Applicant  " }, context))
+      .resolves.toMatchObject({ legalName: "Corrected Applicant", status: "signed" });
+    await expect(saveGuestApplicantDraft(session.sessionToken, { draft: completeDraft(), activeStep: 1 }, context))
+      .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_SIGNED" });
+    expect((await getGuestApplication(session.sessionToken)).applicant.legalName).toBe("Corrected Applicant");
   });
 
   it("exchanges an invitation once, scopes the guest session, and supports revoke/resend", async () => {
@@ -167,21 +175,78 @@ describe("multi-applicant signing", () => {
     expect(adminSend.mock.calls[0][0].text.match(/Gross monthly income/g)).toHaveLength(2);
   });
 
-  it("refuses final submit while an active co-applicant is unsigned", async () => {
-    await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 7 });
-    await createCoApplicantInvitation(owner, applicationId, {
-      legalName: "Guest Applicant",
-      email: "guest@example.test",
+  it("records the primary signature, waits without notifying, then submits once the last co-applicant signs", async () => {
+    const household = completeDraft(owner.email); household.tenancy.adultCount = 3;
+    await saveApplicationDraft(owner, applicationId, { draft: household, activeStep: 2 });
+    const invited = await createCoApplicantInvitation(owner, applicationId, {
+      legalName: "Guest Applicant", email: "guest@example.test",
     }, context);
+    const thirdUser = { ...coUser, userId: "00000000-0000-4000-8000-000000000011", email: "third@example.test", displayName: "Third Applicant" };
+    const thirdInvite = await createCoApplicantInvitation(owner, applicationId, { legalName: "Third Applicant", email: thirdUser.email }, context);
+    const thirdSession = await exchangeInvitation(thirdInvite.invitationToken, context, thirdUser);
+    const session = await exchangeCoApplicantInvitation(invited.invitationToken, context);
     const application = await getClientApplication(owner, applicationId);
-    await expect(submitClientApplication(owner, applicationId, {
-      signatureLegalName: "Demo Applicant",
-      sharingAuthorization: true,
-      screeningConsent: true,
-      termsVersion: application.termsVersion,
-      termsSha256: application.termsSha256,
-      formVersion: application.formVersion,
-      formSha256: application.formSha256,
-    }, context)).rejects.toMatchObject({ code: "APPLICATION_CO_APPLICANTS_UNSIGNED" });
+    const signature = {
+      signatureLegalName: "Guest Applicant", sharingAuthorization: true as const, screeningConsent: true as const,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256,
+    };
+    const send = vi.fn<EmailProvider["send"]>().mockResolvedValue({ providerMessageId: "complete-application", status: "queued" });
+    const waiting = await submitClientApplication(owner, applicationId, signature, context, {
+      notifier: { send }, recipient: "admin@example.test",
+    });
+    expect(waiting.status).toBe("draft");
+    expect(waiting.submittedAt).toBeNull();
+    expect(waiting.applicants.find(a => a.role === "primary")).toMatchObject({ status: "signed", signedAt: expect.any(String) });
+    expect(send).not.toHaveBeenCalled();
+    await expect(saveApplicationDraft(owner, applicationId, {
+      draft: { ...completeDraft(owner.email), housing: { ...completeDraft().housing, currentAddress: "Changed after signing" } }, activeStep: 3,
+    })).rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
+    await expect(revokeCoApplicant(owner, applicationId, invited.applicant.id, context))
+      .rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
+    await expect(createCoApplicantInvitation(owner, applicationId, { legalName: "Extra Adult", email: "extra@example.test" }, context))
+      .rejects.toMatchObject({ code: "APPLICATION_SIGNATURES_LOCKED" });
+    await expect(submitClientApplication(owner, applicationId, signature, context)).resolves.toMatchObject({ status: "draft" });
+    expect(send).not.toHaveBeenCalled();
+    const thirdDraft = completeDraft(thirdUser.email); thirdDraft.personal.legalFirstName = "Third";
+    await saveGuestApplicantDraft(thirdSession.sessionToken, { draft: thirdDraft, activeStep: 6 }, context);
+    await signGuestApplicant(thirdSession.sessionToken, { ...signature, signatureLegalName: "Third Applicant" }, context);
+    expect((await getClientApplication(owner, applicationId)).status).toBe("draft");
+    expect(send).not.toHaveBeenCalled();
+    const corrected = completeDraft(); corrected.personal.legalFirstName = "Corrected";
+    corrected.documentExplanations.rental_payment_history = "";
+    corrected.documentExplanations.employment_income_proof = "";
+    await saveGuestApplicantDraft(session.sessionToken, { draft: corrected, activeStep: 6 }, context);
+    await signGuestApplicant(session.sessionToken, { ...signature, signatureLegalName: "Corrected Applicant" }, context);
+    const submitted = await getClientApplication(owner, applicationId);
+    expect(submitted).toMatchObject({ status: "submitted", submittedAt: expect.any(String) });
+    expect(submitted.applicants.every(a => a.status === "signed")).toBe(true);
+    expect(send).toHaveBeenCalledOnce();
+    expect(send.mock.calls[0][0].text).toContain("Corrected Applicant");
+    await expect(signGuestApplicant(session.sessionToken, { ...signature, signatureLegalName: "Corrected Applicant" }, context))
+      .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_SIGNED" });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("rejects missing adult places before anyone signs and limits invitations to saved capacity", async () => {
+    const application = await getClientApplication(owner, applicationId);
+    const signature = {
+      signatureLegalName: "Guest Applicant", sharingAuthorization: true as const, screeningConsent: true as const,
+      termsVersion: application.termsVersion, termsSha256: application.termsSha256,
+      formVersion: application.formVersion, formSha256: application.formSha256,
+    };
+    await expect(submitClientApplication(owner, applicationId, signature, context))
+      .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_COUNT_MISMATCH" });
+    const solo = completeDraft(owner.email); solo.tenancy.adultCount = 1;
+    await saveApplicationDraft(owner, applicationId, { draft: solo, activeStep: 2 });
+    await expect(createCoApplicantInvitation(owner, applicationId, { legalName: "Guest Applicant", email: "guest@example.test" }, context))
+      .rejects.toMatchObject({ code: "APPLICATION_ADULT_COUNT_REQUIRED" });
+    await saveApplicationDraft(owner, applicationId, { draft: completeDraft(owner.email), activeStep: 2 });
+    const invited = await createCoApplicantInvitation(owner, applicationId, { legalName: "Guest Applicant", email: "guest@example.test" }, context);
+    await expect(createCoApplicantInvitation(owner, applicationId, { legalName: "Extra Adult", email: "extra@example.test" }, context))
+      .rejects.toMatchObject({ code: "APPLICATION_APPLICANT_CAPACITY" });
+    await revokeCoApplicant(owner, applicationId, invited.applicant.id, context);
+    await expect(createCoApplicantInvitation(owner, applicationId, { legalName: "Replacement Adult", email: "replacement@example.test" }, context))
+      .resolves.toMatchObject({ applicant: { status: "invited" } });
   });
 });

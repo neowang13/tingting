@@ -19,6 +19,7 @@ import {
   APPLICATION_TERMS_VERSION,
   APPLICATION_UPLOAD_BUCKET,
   applicationDocumentRequirementSatisfied,
+  applicationRosterComplete,
   applicationFormText,
   applicationTermsText,
   type ApplicationApplicantRecord,
@@ -51,7 +52,6 @@ import {
 import type { EmailAttachment, EmailProvider } from "@/features/notifications/providers/types";
 import {
   listLinkedApplicantMemberships,
-  assertAllActiveCoApplicantsSigned,
   assertApplicationSignaturesUnlocked,
   getMemoryApplicationApplicants,
   getMemoryApplicationNotificationApplicants,
@@ -64,6 +64,9 @@ import {
   syncMemoryPrimaryApplicantFiles
 } from "@/features/applications/applicant-signing";
 import type { ApplicantSignatureInput } from "@/features/applications/schemas";
+
+type SubmissionOptions = { notifier?: EmailProvider; recipient?: string | null; appBaseUrl?: string };
+const pendingSubmissionOptions = new Map<string, SubmissionOptions>();
 
 const DEMO_APPLICATION_ID = "30000000-0000-4000-8000-000000000009";
 const APPLICATION_SELECT = `
@@ -484,17 +487,20 @@ async function startClientApplicationWithoutRpc(
   return loadOwnedApplication(identity, String(created.data.id));
 }
 
-type ClientApplicationSummary = Pick<ClientApplicationRecord, "id" | "propertyTitle" | "propertyAddress" | "status" | "assignedAt" | "propertySlug" | "participatingApplicantId">;
+type ClientApplicationSummary = Pick<ClientApplicationRecord, "id" | "propertyTitle" | "propertyAddress" | "status" | "assignedAt" | "propertySlug" | "participatingApplicantId"> & { awaitingCoApplicants?: boolean };
 
 export async function listClientApplications(identity: ClientIdentity): Promise<ClientApplicationSummary[]> {
   const memberships = await listLinkedApplicantMemberships(identity);
   if (process.env.DATA_BACKEND !== "supabase") {
     return [...demoStore().values()].filter(a => a.ownerUserId === identity.userId || memberships.some(m => m.applicationId === a.id))
-      .map(a => a.ownerUserId === identity.userId ? structuredClone(a) : ({ ...structuredClone(a), draft: applicationDraftSchema.parse({}), files: [], applicants: [], participatingApplicantId: memberships.find(m => m.applicationId === a.id)!.applicantId }));
+      .map(a => a.ownerUserId === identity.userId ? { ...structuredClone(a), awaitingCoApplicants: a.status === "draft" && getMemoryApplicationApplicants(a.id).some(applicant => applicant.role === "primary" && applicant.status === "signed") } : ({ ...structuredClone(a), draft: applicationDraftSchema.parse({}), files: [], applicants: [], participatingApplicantId: memberships.find(m => m.applicationId === a.id)!.applicantId }));
   }
   const owned = await supabaseService().from("client_applications").select(APPLICATION_SELECT).eq("owner_user_id", identity.userId).is("deleted_at", null).order("assigned_at", { ascending: false });
   if (owned.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Applications could not be loaded.");
-  const applications: ClientApplicationSummary[] = (owned.data ?? []).map(row => mapApplication(row as unknown as Record<string, unknown>));
+  const applications: ClientApplicationSummary[] = (owned.data ?? []).map(row => {
+    const application = mapApplication(row as unknown as Record<string, unknown>);
+    return { ...application, awaitingCoApplicants: application.status === "draft" && application.applicants.some(applicant => applicant.role === "primary" && applicant.status === "signed") };
+  });
   if (memberships.length) {
     const linked = await supabaseService().from("client_applications").select("id,property_title,property_address,status,assigned_at,rental_listings(slug)").in("id", memberships.map(m => m.applicationId)).is("deleted_at", null);
     if (linked.error) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Linked applications could not be loaded.");
@@ -819,6 +825,7 @@ export async function submitClientApplication(
   const application = await loadOwnedApplication(identity, id);
   assertApplicationMaterialsApproved(application);
   if (application.status !== "draft") throw new ApiError(409, "APPLICATION_ALREADY_SUBMITTED", "This application has already been submitted.");
+  if (application.applicants.some(applicant => applicant.role === "primary" && applicant.status === "signed")) return application;
   if (!input.sharingAuthorization || !input.screeningConsent) {
     throw new ApiError(400, "APPLICATION_CONSENT_REQUIRED", "Both affirmative application authorizations are required.");
   }
@@ -848,7 +855,9 @@ export async function submitClientApplication(
       input.formVersion !== application.formVersion || input.formSha256 !== application.formSha256) {
     throw new ApiError(409, "APPLICATION_VERSION_CHANGED", "The form or consent changed. Review the current version before submitting.");
   }
-  await assertAllActiveCoApplicantsSigned(id);
+  if (!applicationRosterComplete(application.draft.tenancy.adultCount, application.applicants)) {
+    throw new ApiError(409, "APPLICATION_APPLICANT_COUNT_MISMATCH", "Invite every additional adult before confirming your submission. The adult count must match the applicant list.");
+  }
   const now = new Date();
   const retainUntil = new Date(now);
   retainUntil.setUTCMonth(retainUntil.getUTCMonth() + APPLICATION_RETENTION_MONTHS);
@@ -861,6 +870,9 @@ export async function submitClientApplication(
     if (termsResult.error || !termsResult.data) throw new ApiError(503, "APPLICATION_SERVICE_UNAVAILABLE", "Consent evidence could not be loaded.");
     termsText = termsResult.data.displayed_text;
   }
+  const submissionRecipient = options.recipient === undefined
+    ? process.env.APPLICATION_TO_EMAIL ?? process.env.CONTACT_TO_EMAIL ?? process.env.ALERT_TO_EMAIL ?? process.env.LOCAL_ADMIN_EMAIL
+    : options.recipient;
   await recordPrimarySignatureAndCreditRequests({
     applicationId: id,
     identity,
@@ -869,7 +881,10 @@ export async function submitClientApplication(
     termsText,
     draft: application.draft,
     files: application.files,
-    context: requestContext,
+    context: { ...requestContext, submissionNotification: {
+      recipient: submissionRecipient ?? null,
+      appBaseUrl: options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000"
+    } },
     signedAt: timestamp,
     retainUntil: retainUntil.toISOString()
   });
@@ -877,18 +892,24 @@ export async function submitClientApplication(
   let submitted: ClientApplicationRecord;
   if (process.env.DATA_BACKEND !== "supabase") {
     const stored = demoStore().get(id)!;
-    stored.status = "submitted";
-    stored.submittedAt = timestamp;
     stored.consentedAt = timestamp;
-    stored.retainUntil = retainUntil.toISOString();
     stored.consentText = applicationTermsText;
-    stored.audit.push({ action: "application.submitted", createdAt: timestamp });
+    stored.audit.push({ action: "application.primary_signed_waiting", createdAt: timestamp });
     stored.applicants = getMemoryApplicationApplicants(id);
-    submitted = structuredClone(stored);
+    pendingSubmissionOptions.set(id, options);
+    await completePendingJointSubmission(id);
+    submitted = await loadOwnedApplication(identity, id);
   } else {
     submitted = await loadOwnedApplication(identity, id);
   }
 
+  if (submitted.status === "submitted" && process.env.DATA_BACKEND === "supabase") await deliverSubmittedApplicationNotification(submitted, options);
+
+  return submitted;
+}
+
+async function deliverSubmittedApplicationNotification(submitted: ClientApplicationRecord, options: SubmissionOptions = {}) {
+  const id = submitted.id;
   const recipient = options.recipient === undefined
     ? process.env.APPLICATION_TO_EMAIL ?? process.env.CONTACT_TO_EMAIL ?? process.env.ALERT_TO_EMAIL ?? process.env.LOCAL_ADMIN_EMAIL
     : options.recipient;
@@ -897,7 +918,7 @@ export async function submitClientApplication(
       const emailMode = resolveEmailProviderMode();
       const appBaseUrl = options.appBaseUrl ?? process.env.APP_BASE_URL ?? "http://localhost:3000";
       const notificationData = await loadApplicationSubmissionNotificationData(id);
-      const fileGroups = groupApplicationFilesForEmail(notificationData.application.files);
+      const fileGroups = groupApplicationFilesForEmail([...notificationData.application.files].sort((left, right) => left.id.localeCompare(right.id)));
       const repository = getRepository();
       const queuedParts: Array<{
         deliveryId: string;
@@ -992,7 +1013,30 @@ export async function submitClientApplication(
     }
   }
 
-  return submitted;
+}
+
+export async function completePendingJointSubmission(id: string) {
+  if (process.env.DATA_BACKEND === "supabase") return;
+  const stored = demoStore().get(id);
+  if (!stored || stored.status !== "draft") return;
+  const applicants = getMemoryApplicationNotificationApplicants(id);
+  const primary = applicants.find(applicant => applicant.role === "primary");
+  if (!primary?.signature || applicants.some(applicant => applicant.status !== "signed")) return;
+  if (!applicationRosterComplete(stored.draft.tenancy.adultCount, applicants)) return;
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const retainUntil = new Date(now);
+  retainUntil.setUTCMonth(retainUntil.getUTCMonth() + APPLICATION_RETENTION_MONTHS);
+  stored.status = "submitted";
+  stored.submittedAt = timestamp;
+  stored.consentedAt = primary.signature.signedAt;
+  stored.retainUntil = retainUntil.toISOString();
+  stored.consentText = primary.signature.termsText;
+  stored.applicants = getMemoryApplicationApplicants(id);
+  stored.audit.push({ action: "application.submitted", createdAt: timestamp });
+  const options = pendingSubmissionOptions.get(id) ?? {};
+  pendingSubmissionOptions.delete(id);
+  await deliverSubmittedApplicationNotification(structuredClone(stored), options);
 }
 
 export async function applicationReceipt(identity: ClientIdentity, id: string) {
@@ -1541,6 +1585,7 @@ export async function convertApprovedApplicationToTenant(
 }
 
 export function resetDemoApplicationsForTests() {
+  pendingSubmissionOptions.clear();
   globalThis.__tingtingClientApplications = undefined;
   globalThis.__tingtingClientApplicationFileBytes = undefined;
   globalThis.__tingtingClientApplicationLeaseBytes = undefined;

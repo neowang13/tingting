@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { CreditReportConsent } from "@/components/client/credit-report-consent";
 import { useRouter } from "next/navigation";
-import { type ChangeEvent, type FormEvent, type ReactNode, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   APPLICATION_DOCUMENT_LABELS,
   APPLICATION_DOCUMENT_TYPES,
   APPLICATION_REQUIRED_DOCUMENT_TYPES,
   applicationDocumentRequirementSatisfied,
+  applicationRosterComplete,
   type ApplicationDocumentType,
   type ApplicationApplicantRecord,
   type ApplicationFileRecord,
@@ -21,7 +22,7 @@ import {
   type ApplicationDraftSection
 } from "@/features/applications/schemas";
 import { PUBLIC_CONTACT_EMAIL } from "@/lib/site-contact";
-import { activeCoApplicantsSigned, CoApplicantPanel } from "@/components/client/co-applicant-panel";
+import { CoApplicantPanel } from "@/components/client/co-applicant-panel";
 
 const steps: ReadonlyArray<{ label: string; section?: ApplicationDraftSection }> = [
   { label: "Personal details", section: "personal" },
@@ -93,9 +94,17 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [lastSaved, setLastSaved] = useState(application.draftUpdatedAt);
-  const editable = application.status === "draft";
+  const primarySigned = application.applicants.some(applicant => applicant.role === "primary" && applicant.status === "signed");
+  const waiting = application.status === "draft" && primarySigned;
+  const editable = application.status === "draft" && !primarySigned;
+  useEffect(() => {
+    if (!waiting) return;
+    const interval = window.setInterval(() => router.refresh(), 20_000);
+    return () => window.clearInterval(interval);
+  }, [waiting, router]);
+  const sharedTenancyLocked = applicants.some(applicant => applicant.status === "signed");
   const coApplicants = applicants.filter((applicant) => applicant.role === "co_applicant");
-  const coApplicantsReady = activeCoApplicantsSigned(coApplicants);
+  const rosterComplete = applicationRosterComplete(draft.tenancy.adultCount, applicants);
   const requiredDocumentsComplete = useMemo(
     () => APPLICATION_REQUIRED_DOCUMENT_TYPES.every(
       (documentType) => applicationDocumentRequirementSatisfied(
@@ -217,6 +226,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     setError("");
     setMessage("");
     try {
+      if (!(await persistDraft({ step: 2, validate: true }))) return false;
       const response = await fetch(`/api/client/applications/${application.id}/applicants`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -300,8 +310,27 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
       })
     });
     if (!response.ok) setError(await responseMessage(response));
-    else { setMessage("Application submitted. Your receipt and status are now available."); router.refresh(); }
+    else {
+      const body = await response.json() as { data: ClientApplicationRecord };
+      setMessage(body.data.status === "draft" ? "Your signature is recorded. Waiting for the other applicants to sign." : "Application submitted. Your receipt and status are now available.");
+      router.refresh();
+    }
     setBusy(false);
+  }
+
+  if (waiting) {
+    return <div className="client-application-flow">
+      <ApplicationOverview application={application} completedCount={7} />
+      <section className="client-panel submission-receipt-panel">
+        <p className="eyebrow">Your signature is recorded</p>
+        <h2>Waiting for co-applicants</h2>
+        <p>Your part is complete and locked. The complete application will be submitted automatically after every other applicant signs. No further submission is needed from you.</p>
+        <p>The property manager will receive the complete application after everyone has signed.</p>
+      </section>
+      <CoApplicantPanel applicants={application.applicants.filter(applicant => applicant.role === "co_applicant")} adultCount={application.draft.tenancy.adultCount} rosterLocked busyApplicantId={busyApplicantId} onInvite={inviteCoApplicant} onResend={resendCoApplicant} onRevoke={revokeCoApplicant} onRefresh={() => router.refresh()} />
+      {error && <p role="alert">{error}</p>}{message && <p role="status">{message}</p>}
+      <ApplicationHelp />
+    </div>;
   }
 
   if (!editable) {
@@ -316,6 +345,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
     <ApplicationOverview application={{ ...application, files }} completedCount={completedCount} />
     <CoApplicantPanel
       applicants={coApplicants}
+      adultCount={draft.tenancy.adultCount}
       inviting={inviting}
       busyApplicantId={busyApplicantId}
       onInvite={inviteCoApplicant}
@@ -343,7 +373,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <Field label="Email address *" wide><input type="email" value={draft.personal.email} onChange={(event) => updateSection("personal", { email: event.target.value })} autoComplete="email" required /></Field>
         </div><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(1)} onExit={() => void persistDraft({ exit: true })} /></form>}
 
-        {activeStep === 2 && <form onSubmit={continueStep}><h2 id="application-step-title">Household and tenancy request</h2><p>Tell us what you need from this tenancy. Occupant count is collected for occupancy planning; do not include ages or protected personal characteristics.</p><div className="application-form-grid">
+        {activeStep === 2 && <form onSubmit={continueStep}><h2 id="application-step-title">Household and tenancy request</h2><p>Tell us what you need from this tenancy. Occupant count is collected for occupancy planning; do not include ages or protected personal characteristics.</p>{sharedTenancyLocked && <p className="field-hint">The shared tenancy is locked because signing has started.</p>}<fieldset className="application-form-grid application-tenancy-fields" disabled={sharedTenancyLocked}>
           <Field label="Desired move-in date *"><input type="date" value={draft.tenancy.desiredMoveInDate} onChange={(event) => updateSection("tenancy", { desiredMoveInDate: event.target.value })} required /></Field>
           <Field label="Preferred lease term *"><select value={draft.tenancy.leaseTerm} onChange={(event) => updateSection("tenancy", { leaseTerm: event.target.value })} required><option value="" disabled>Choose a term</option><option value="month_to_month">Month to month</option><option value="six_months">Six months</option><option value="one_year">One year</option><option value="other">Other</option></select></Field>
           <Field label="Adults *"><input type="number" min={1} max={12} value={draft.tenancy.adultCount ?? ""} onChange={(event) => updateSection("tenancy", { adultCount: event.target.value === "" ? null : Number(event.target.value) })} required /></Field>
@@ -352,7 +382,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <Field label="Housing needs" wide group><div className="application-inline-checks"><label><input type="checkbox" checked={draft.tenancy.hasPets} onChange={(event) => updateSection("tenancy", { hasPets: event.target.checked })} />I have pets</label><label><input type="checkbox" checked={draft.tenancy.needsParking} onChange={(event) => updateSection("tenancy", { needsParking: event.target.checked })} />I require parking</label></div></Field>
           {draft.tenancy.hasPets && <Field label="Pet details *" wide><input value={draft.tenancy.petDetails} onChange={(event) => updateSection("tenancy", { petDetails: event.target.value })} maxLength={300} required /></Field>}
           <Field label="Why does this home fit your needs? (optional)" wide><textarea rows={4} maxLength={500} value={draft.tenancy.reasonForChoosing} onChange={(event) => updateSection("tenancy", { reasonForChoosing: event.target.value })} /><small className="field-hint">{draft.tenancy.reasonForChoosing.length}/500</small></Field>
-        </div><DisclosureNotice /><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(1)} onExit={() => void persistDraft({ exit: true })} /></form>}
+        </fieldset><DisclosureNotice /><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(1)} onExit={() => void persistDraft({ exit: true })} /></form>}
 
         {activeStep === 3 && <form onSubmit={continueStep}><h2 id="application-step-title">Housing history</h2><p>Provide your current housing contact so the information can be verified with your authorization at submission.</p><div className="application-form-grid">
           <Field label="Current address *" wide><input value={draft.housing.currentAddress} onChange={(event) => updateSection("housing", { currentAddress: event.target.value })} autoComplete="street-address" required /></Field>
@@ -440,7 +470,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
           <form onSubmit={continueStep}><StepActions step={activeStep} busy={busy} onBack={() => setActiveStep(6)} onExit={() => void persistDraft({ exit: true })} /></form>
         </div>}
 
-        {activeStep === 8 && <form onSubmit={submitApplication}><h2 id="application-step-title">Review and submit</h2><p>Review every section before giving the required authorizations. You cannot edit the application after submission.</p><div className="application-review-list">
+        {activeStep === 8 && <form onSubmit={submitApplication}><h2 id="application-step-title">Review and submit</h2><p>Review every section before giving the required authorizations. Your signature covers your own information and the shared tenancy. Once you sign, your information is locked. If others have not signed yet, we will wait and automatically submit the complete application after everyone signs.</p><div className="application-review-list">
           <ReviewGroup title="Personal details" onEdit={() => setActiveStep(1)} rows={[["Legal name", `${draft.personal.legalFirstName} ${draft.personal.legalLastName}`], ["Phone", draft.personal.phone], ["Email", draft.personal.email]]} />
           <ReviewGroup title="Household & tenancy" onEdit={() => setActiveStep(2)} rows={[["Move-in date", draft.tenancy.desiredMoveInDate], ["Lease term", draft.tenancy.leaseTerm.replaceAll("_", " ")], ["Adults", draft.tenancy.adultCount === null ? "Not recorded" : String(draft.tenancy.adultCount)], ["Children", draft.tenancy.childCount === null ? "Not recorded" : String(draft.tenancy.childCount)], ["Total occupants", String(occupantTotal(draft.tenancy))], ["Showing required", draft.tenancy.needsShowing]]} />
           <ReviewGroup title="Housing history" onEdit={() => setActiveStep(3)} rows={[["Current address", draft.housing.currentAddress], ["Housing contact", draft.housing.landlordName], ["Current rent", `$${draft.housing.currentMonthlyRent.toLocaleString("en-CA")}`]]} />
@@ -454,7 +484,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
               return explanation ? [[`${APPLICATION_DOCUMENT_LABELS[documentType]} — explanation`, explanation]] : [];
             })
           ]} />
-        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to reference, housing and income verification, and review of the documents I provide for this rental application. *</span></label><Field label="Type your full legal name to sign *" wide hint="Typing your legal name and selecting Submit application creates your electronic signature."><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></Field><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7 || !coApplicantsReady}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}{!coApplicantsReady && <p className="field-hint" role="status">Every active co-applicant must sign before you can submit.</p>}</form>}
+        </div><div className="application-terms" tabIndex={0}>{termsText.split("\n").map((paragraph, index) => paragraph ? <p key={index}>{paragraph}</p> : null)}</div><p>Read the full <Link href="/terms/application" target="_blank">application terms</Link> and <Link href="/privacy" target="_blank">privacy notice</Link>.</p><label className="application-consent"><input name="sharingAuthorization" type="checkbox" value="yes" required /><span>I authorize the property manager to share my application information with the landlord of this unit for assessment of this application. *</span></label><label className="application-consent"><input name="screeningConsent" type="checkbox" value="yes" required /><span>I consent to reference, housing and income verification, and review of the documents I provide for this rental application. *</span></label><Field label="Type your full legal name to sign *" wide hint="Typing your legal name and selecting Submit application creates your electronic signature."><input name="signatureLegalName" autoComplete="name" maxLength={160} required /></Field><div className="application-step-actions"><button className="button secondary" type="button" onClick={() => setActiveStep(7)} disabled={busy}>Back</button><button className="text-button" type="button" onClick={() => void persistDraft({ exit: true })} disabled={busy}>Save and exit</button><button className="button" type="submit" disabled={busy || completedCount < 7 || !rosterComplete}>{busy ? "Submitting…" : "Submit application"}</button></div>{completedCount < 7 && <p className="field-hint">Complete all seven sections before submitting.</p>}{!rosterComplete && <p className="field-hint" role="status">Invite every additional adult before submitting your part. The adult count must match the applicant list.</p>}</form>}
 
         {message && <p className="form-status success" role="status" aria-live="polite">{message}</p>}
         {error && <p className="form-status error" role="alert" aria-live="assertive">{error}</p>}
@@ -465,7 +495,7 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
 }
 
 function ApplicationOverview({ application, completedCount }: { application: ClientApplicationRecord; completedCount: number }) {
-  return <section className="client-panel application-overview" aria-labelledby="application-overview"><div className="client-panel-heading"><div><p className="eyebrow">Application reference {application.id}</p><h1 id="application-overview">{application.propertyTitle}</h1><p>{application.propertyAddress}</p></div><span className={`application-status status-${application.status}`}>{statusLabel(application.status)}</span></div>{application.status === "draft" && <div className="application-progress" aria-label={`${completedCount} of 7 sections complete`}><span style={{ width: `${(completedCount / 7) * 100}%` }} /><small>{completedCount} of 7 sections ready</small></div>}{application.legalReviewStatus === "pending" && <p className="legal-review-warning" role="note">Pre-production draft: final legal, privacy, screening, and representation-disclosure approval is required before real applicant use.</p>}</section>;
+  return <section className="client-panel application-overview" aria-labelledby="application-overview"><div className="client-panel-heading"><div><p className="eyebrow">Application reference {application.id}</p><h1 id="application-overview">{application.propertyTitle}</h1><p>{application.propertyAddress}</p></div><span className={`application-status status-${application.status}`}>{application.status === "draft" && application.applicants.some(applicant => applicant.role === "primary" && applicant.status === "signed") ? "Waiting for co-applicants" : statusLabel(application.status)}</span></div>{application.status === "draft" && <div className="application-progress" aria-label={`${completedCount} of 7 sections complete`}><span style={{ width: `${(completedCount / 7) * 100}%` }} /><small>{completedCount} of 7 sections ready</small></div>}</section>;
 }
 
 function ReferenceFields({ title, value, required = false, onChange }: { title: string; value: ApplicationDraft["references"]["primary"]; required?: boolean; onChange: (patch: Record<string, string>) => void }) {
