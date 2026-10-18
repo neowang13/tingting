@@ -61,6 +61,55 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 describe("Admin-only OAuth connection", () => {
+  it("uses the fixed MCP resource when Muse omits it without bypassing Admin consent", async () => {
+    const clientId = await registered();
+    const url = new URL(authorizationUrl(clientId)); url.searchParams.delete("resource");
+    const anonymous = await oauthGET(new Request(url), "authorize");
+    expect(anonymous.status).toBe(307);
+    expect(new URL(anonymous.headers.get("location")!).pathname).toBe("/admin/login");
+    expect(globalThis.__tingtingMcpOAuth!.grants.size).toBe(0);
+    const response = await oauthGET(new Request(url, { headers: { cookie: adminCookie } }), "authorize") as NextResponse;
+    expect(response.status).toBe(307);
+    const id = new URL(response.headers.get("location")!).searchParams.get("id")!;
+    const cookie = `${adminCookie}; ${CONSENT_COOKIE}=${response.cookies.get(CONSENT_COOKIE)!.value}`;
+    const allowed = await oauthPOST(jsonRequest({ requestId: id, decision: "allow", scopes: ["rentals:read", "rentals:write"] }, cookie), "authorize");
+    expect(allowed.status).toBe(200);
+    const callbackUrl = new URL((await allowed.json()).redirectUri);
+    expect(callbackUrl.searchParams.get("state")).toBe(state);
+    const tokenResponse = await oauthPOST(tokenRequest({ grant_type: "authorization_code", client_id: clientId,
+      code: callbackUrl.searchParams.get("code")!, code_verifier: verifier, redirect_uri: callback }), "token");
+    expect(tokenResponse.status).toBe(200);
+    const tokens = await tokenResponse.json();
+    const identity = await authenticateMcp(new Request(resource, { headers: { authorization: `Bearer ${tokens.access_token}` } }));
+    expect(identity.scopes).toEqual(["rentals:read", "rentals:write"]);
+    expect([...globalThis.__tingtingMcpOAuth!.grants.values()][0].resource).toBe(resource);
+  });
+
+  it("exchanges and refreshes without resource while rejecting wrong targets and PKCE", async () => {
+    const clientId = await registered(); const code = await approved(clientId);
+    const body = { grant_type: "authorization_code", client_id: clientId, code, code_verifier: verifier, redirect_uri: callback };
+    expect((await oauthPOST(tokenRequest({ ...body, code_verifier: "q".repeat(43) }), "token")).status).toBe(400);
+    expect((await oauthPOST(tokenRequest({ ...body, resource: `${origin}/api/admin` }), "token")).status).toBe(400);
+    const response = await oauthPOST(tokenRequest(body), "token"); expect(response.status).toBe(200);
+    const first = await response.json();
+    const refresh = { grant_type: "refresh_token", client_id: clientId, refresh_token: first.refresh_token };
+    expect((await oauthPOST(tokenRequest({ ...refresh, resource: "" }), "token")).status).toBe(400);
+    const renewed = await oauthPOST(tokenRequest(refresh), "token"); expect(renewed.status).toBe(200);
+    const next = await renewed.json();
+    expect(next.refresh_token).not.toBe(first.refresh_token);
+    const identity = await authenticateMcp(new Request(resource, { headers: { authorization: `Bearer ${next.access_token}` } }));
+    expect(identity.scopes).toEqual(["rentals:read", "rentals:write"]);
+    expect([...globalThis.__tingtingMcpOAuth!.grants.values()][0].resource).toBe(resource);
+    expect((await oauthPOST(tokenRequest(refresh), "token")).status).toBe(400);
+    await expect(authenticateMcp(new Request(resource, { headers: { authorization: `Bearer ${next.access_token}` } }))).rejects.toMatchObject({ status: 401 });
+  });
+
+  it.each(["", `${origin}/api/admin`])("rejects an explicitly incorrect authorization resource %s", async target => {
+    const clientId = await registered();
+    expect((await oauthGET(new Request(authorizationUrl(clientId, { resource: target }), { headers: { cookie: adminCookie } }), "authorize")).status).toBe(400);
+    expect(globalThis.__tingtingMcpOAuth!.grants.size).toBe(0);
+  });
+
   it("interoperates with official SDK OAuth discovery, dynamic registration, PKCE and token exchange", async () => {
     let clientInfo: OAuthClientInformationMixed | undefined; let tokens: OAuthTokens | undefined;
     let codeVerifier = ""; let authorizationUrl: URL | undefined;

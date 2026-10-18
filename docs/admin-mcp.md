@@ -72,7 +72,7 @@ MCP：https://silverkey.ca/api/mcp，remote stateless Streamable HTTP。
 4. Muse 接入程序使用公开动态注册接口登记真实 HTTPS 回调，`token_endpoint_auth_method=none`。此实现不提供 client secret、密码授权或隐式授权，不获取 URL 型客户端 metadata，避免额外 SSRF 面。若 Muse 实际客户端不支持此 OAuth 流程，需要适配，不能跳过 Admin 登录或声称已连接。
 5. 在 Muse 实测工具发现、真实 Admin 授权和受控上下架，确认未经授权/撤销的连接无法访问。当前本地浏览器测试替代不了真实 Muse 账号验收。
 
-发现地址：`/.well-known/oauth-protected-resource/api/mcp`、`/.well-known/oauth-protected-resource`、`/.well-known/oauth-authorization-server`。OAuth 端点在 `/api/mcp/oauth/{register,authorize,token,revoke}`。授权/换令牌必须带准确 resource `https://silverkey.ca/api/mcp`。401 返回 resource metadata challenge。
+发现地址：`/.well-known/oauth-protected-resource/api/mcp`、`/.well-known/oauth-protected-resource`、`/.well-known/oauth-authorization-server`。OAuth 端点在 `/api/mcp/oauth/{register,authorize,token,revoke}`。MCP 客户端应在授权、换令牌及刷新时带准确 resource `https://silverkey.ca/api/mcp`。实际 Muse Custom Connector 授权请求可能省略该参数；服务器按照 RFC8707 的固定默认资源规则，将省略值绑定到这个唯一 MCP 地址。显式传入错误地址、空值或重复参数仍拒绝；Admin 登录、同意、回调匹配、PKCE、scope、令牌资源绑定及撤销检查均保留。401 返回 resource metadata challenge。
 
 服务器调用可以不带 Origin；存在的 Origin 必须在 APP_BASE_URL 或已确认的 `MCP_ALLOWED_ORIGINS` 中，不使用通配符或浏览器 CORS。生产不接受 memory 数据。关闭返回404，未连接/过期/撤销401，管理员/权限/Origin拒绝403，配置/存储不可用503。
 
