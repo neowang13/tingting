@@ -138,7 +138,9 @@ test(`two verified User accounts complete a joint application in ${signingOrder}
   await page.getByLabel('Type your full legal name to sign *').fill('Primary Applicant');
   await page.getByRole('button', { name: 'Submit application', exact: true }).click();
   } else {
-    await page.getByRole('button', { name: 'Refresh status', exact: true }).click();
+    // The primary may already receive a refreshed server render after the co-applicant signs.
+    // Reload verifies the final persisted state without racing a disappearing waiting-screen button.
+    await page.reload();
   }
   await expect(page.getByRole('link', { name: 'Download submission receipt' })).toBeVisible();
   await page.goto('/admin');
