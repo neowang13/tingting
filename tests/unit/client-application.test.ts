@@ -86,7 +86,7 @@ describe("client application workflow", () => {
     const updated = await getClientApplication(client, applicationId);
     expect(updated.files).toHaveLength(7);
     expect(applicationDocumentRequirementSatisfied("credit_score_report", updated.files, updated.draft.documentExplanations)).toBe(false);
-    await expect(removeApplicationFile(client, applicationId, files[0].id, context)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
+    await expect(removeApplicationFile(client, applicationId, files[0].id, context)).resolves.toEqual({ removed: true });
     await expect(getApplicationFileForStaff({ userId: "admin", displayName: "Admin", email: "admin@example.test", authenticatedAt: new Date().toISOString(), assuranceLevel: "aal1" }, files[0].id)).rejects.toMatchObject({ code: "APPLICATION_FILE_NOT_FOUND" });
     await expect(uploadApplicationFile(client, applicationId, pdfFile(), "credit_score_report")).resolves.toMatchObject({ documentType: "credit_score_report" });
   });

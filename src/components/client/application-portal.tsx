@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { CreditReportConsent } from "@/components/client/credit-report-consent";
 import { ApplicationFileList } from "@/components/client/application-file-list";
+import { removeAndReconcileFile, useApplicationFileSync } from "@/components/client/application-file-sync";
 import { useRouter } from "next/navigation";
 import { type ChangeEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
@@ -98,6 +99,8 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
   const primarySigned = application.applicants.some(applicant => applicant.role === "primary" && applicant.status === "signed");
   const waiting = application.status === "draft" && primarySigned;
   const editable = application.status === "draft" && !primarySigned;
+  const fileEndpoint = `/api/client/applications/${application.id}/files`;
+  useApplicationFileSync(fileEndpoint, busy || !editable, setFiles);
   useEffect(() => {
     if (!waiting) return;
     const interval = window.setInterval(() => router.refresh(), 20_000);
@@ -225,9 +228,10 @@ export function ApplicationPortal({ application, termsText }: { application: Cli
   async function removeFile(file: ApplicationFileRecord) {
     setBusy(true); setError(""); setMessage("");
     try {
-      const response = await fetch(`/api/client/applications/${application.id}/files/${file.id}`, { method: "DELETE" });
-      if (!response.ok) { setError(await responseMessage(response)); return; }
-      setFiles(current => current.filter(item => item.id !== file.id));
+      const result = await removeAndReconcileFile(fileEndpoint, file.id);
+      if (result.files) setFiles(result.files);
+      if (!result.removed) { setError(result.error || "The file could not be removed. Please try again."); return; }
+      if (!result.files) setFiles(current => current.filter(item => item.id !== file.id));
       setMessage(`${file.originalFilename} removed from your application.`);
     } catch {
       setError("The file could not be removed. Check your connection and try again.");

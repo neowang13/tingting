@@ -82,6 +82,7 @@ declare global {
   var __tingtingApplicationSignatures: Map<string, MemorySignature> | undefined;
   var __tingtingApplicationCreditRequests: Map<string, { applicantId: string; status: "pending"; idempotencyKey: string }> | undefined;
   var __tingtingGuestApplicationFileBytes: Map<string, Uint8Array> | undefined;
+  var __tingtingRemovedApplicantFiles: Map<string, { applicationId: string; applicantId: string }> | undefined;
 }
 
 function memoryStores() {
@@ -211,6 +212,17 @@ export function resetMemoryApplicantSigningForTests() {
   globalThis.__tingtingApplicationSignatures = new Map();
   globalThis.__tingtingApplicationCreditRequests = new Map();
   globalThis.__tingtingGuestApplicationFileBytes = new Map();
+  globalThis.__tingtingRemovedApplicantFiles = new Map();
+}
+
+export function memoryApplicantFileRemoved(applicationId: string, applicantId: string, fileId: string) {
+  const receipt = globalThis.__tingtingRemovedApplicantFiles?.get(fileId);
+  return receipt?.applicationId === applicationId && receipt.applicantId === applicantId;
+}
+
+export function recordMemoryApplicantFileRemoval(applicationId: string, applicantId: string, fileId: string) {
+  globalThis.__tingtingRemovedApplicantFiles ??= new Map();
+  globalThis.__tingtingRemovedApplicantFiles.set(fileId, { applicationId, applicantId });
 }
 
 export function getMemoryApplicationApplicants(applicationId: string) {
@@ -687,42 +699,33 @@ export async function uploadGuestApplicantFile(sessionToken: string, file: File,
   return record;
 }
 
-// Delete metadata first: the database trigger serializes this with signing and
-// rejects changes to signed evidence before any storage object is touched.
-export async function deleteStoredApplicantFile(applicationId: string, applicantId: string, fileId: string, userId: string, context: ApplicationRequestContext) {
-  const service = serviceClient();
-  const removed = await service.from("client_application_files").delete()
-    .eq("id", fileId).eq("application_id", applicationId).eq("applicant_id", applicantId)
-    .select("storage_path").maybeSingle();
-  if (removed.error?.code === "TT409") throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "Files cannot be changed while signing or after your signature is recorded. Refresh the application.");
-  if (removed.error) throw new ApiError(503, "APPLICATION_FILE_DELETE_UNAVAILABLE", "The file could not be removed. Please try again.");
-  if (!removed.data) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
-  const storagePath = String(removed.data.storage_path);
-  // A storage outage must not put the removed file back into the application.
-  // Retain the private cleanup locator in the audit trail for retry/reconciliation.
-  let cleanupPending = false;
-  try {
-    const cleanup = await service.storage.from(process.env.APPLICATION_UPLOAD_BUCKET || APPLICATION_UPLOAD_BUCKET).remove([storagePath]);
-    cleanupPending = Boolean(cleanup.error);
-  } catch { cleanupPending = true; }
-  const audit = await service.from("client_application_audit_events").insert({
-    application_id: applicationId, actor_user_id: userId, actor_type: "client", action: "application.file_removed",
-    request_context: { ...context, applicantId, fileId, ...(cleanupPending ? { storageCleanupPending: true, storagePath } : {}) }
+// This RPC atomically saves cleanup information, detaches the file and records
+// the audit. A lost response is safe to retry with the same verified identity.
+export async function deleteStoredApplicantFile(applicationId: string, applicantId: string, fileId: string, userId: string, context: ApplicationRequestContext, sessionToken?: string) {
+  const removed = await serviceClient().rpc("remove_unsigned_application_file", {
+    p_application_id: applicationId, p_applicant_id: applicantId, p_file_id: fileId, p_user_id: userId,
+    p_session_sha256: sessionToken ? hashGuestToken(sessionToken) : null,
+    p_storage_bucket: process.env.APPLICATION_UPLOAD_BUCKET || APPLICATION_UPLOAD_BUCKET, p_request_context: context
   });
-  if (cleanupPending || audit.error) console.error(JSON.stringify({ level: "error", message: "Application file removal needs reconciliation", requestId: context.requestId, fileId, cleanupPending, auditFailed: Boolean(audit.error) }));
+  if (removed.error?.code === "TT409") throw new ApiError(409, "APPLICATION_SIGNATURES_LOCKED", "Files cannot be changed while signing or after your signature is recorded. Refresh the application.");
+  if (removed.error?.code === "TT401") throw new ApiError(401, "APPLICATION_GUEST_SESSION_INVALID", "This guest application session is invalid or expired.");
+  if (removed.error?.code === "TT404") throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
+  if (removed.error || removed.data !== true) throw new ApiError(503, "APPLICATION_FILE_DELETE_UNAVAILABLE", "The file removal could not be confirmed. Reconnect and try again.");
 }
 
 export async function removeGuestApplicantFile(sessionToken: string, fileId: string, identity: ClientIdentity, context: ApplicationRequestContext) {
   await assertGuestAccount(sessionToken, identity);
   const view = await getGuestApplication(sessionToken);
-  if (view.applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "Files cannot be changed after signing.");
-  if (!view.applicant.files.some(file => file.id === fileId)) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
-  if (process.env.DATA_BACKEND !== "supabase") {
+  if (process.env.DATA_BACKEND === "supabase") {
+    await deleteStoredApplicantFile(view.application.id, view.applicant.id, fileId, identity.userId, context, sessionToken);
+  } else {
+    if (memoryApplicantFileRemoved(view.application.id, view.applicant.id, fileId)) return { removed: true };
+    if (view.applicant.status === "signed") throw new ApiError(409, "APPLICATION_APPLICANT_SIGNED", "Files cannot be changed after signing.");
+    if (!view.applicant.files.some(file => file.id === fileId)) throw new ApiError(404, "APPLICATION_FILE_NOT_FOUND", "File not found in your application.");
     const applicant = await memoryGuest(sessionToken);
+    recordMemoryApplicantFileRemoval(view.application.id, view.applicant.id, fileId);
     applicant.files = applicant.files.filter(file => file.id !== fileId);
     memoryStores().fileBytes.delete(fileId);
-  } else {
-    await deleteStoredApplicantFile(view.application.id, view.applicant.id, fileId, identity.userId, context);
   }
   return { removed: true };
 }

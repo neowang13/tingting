@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
 import { applicationGuestSecret, serializeGuestSessionCookie } from "@/lib/application-guest-auth";
 const mocks = vi.hoisted(() => ({ identity: vi.fn(), rateLimit: vi.fn(), primary: vi.fn(), guest: vi.fn() }));
+vi.mock("next/server", async (original) => ({ ...await original<typeof import("next/server")>(), after: vi.fn() }));
 vi.mock("@/lib/client-auth", () => ({ requireClientRequest: mocks.identity }));
 vi.mock("@/lib/rate-limit", () => ({ assertActionRateLimit: mocks.rateLimit }));
 vi.mock("@/features/applications/service", () => ({ removeApplicationFile: mocks.primary }));
