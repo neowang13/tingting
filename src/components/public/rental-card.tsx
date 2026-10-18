@@ -39,7 +39,7 @@ export function RentalCard({
         <strong className="rent-price">{formatRentalPrice(rental.monthlyRentCents)} <span>/ month</span></strong>
         <h3>{rental.title}</h3>
         <p className="rental-address">
-          {rental.addressLine}<br />
+          {rental.addressLine && <>{rental.addressLine}<br /></>}
           {formatRentalLocation(rental.neighbourhood, rental.city)}
         </p>
         <dl className="rental-card-facts">

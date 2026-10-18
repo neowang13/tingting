@@ -87,6 +87,14 @@ describe("Rental Listing V2 aggregate", () => {
     expect(publishRequirementPaths(parsed)).toEqual(["images", "images.cover"]);
   });
 
+  it.each([undefined, null, "   "])("allows an unspecified street address %s without blocking publication", streetAddress => {
+    const input = completeInput();
+    const parsed = rentalListingV2InputSchema.parse({ ...input, property: { ...input.property, streetAddress } });
+    expect(parsed.property.streetAddress).toBe("");
+    expect(publishRequirementPaths(parsed)).toEqual(["images", "images.cover"]);
+    expect(rentalListingV2InputSchema.safeParse({ ...input, property: { ...input.property, city: "" } }).success).toBe(false);
+  });
+
   it("allows all five optional publication fields to be blank", () => {
     const input = completeInput();
     const parsed = rentalListingV2InputSchema.parse({ ...input,

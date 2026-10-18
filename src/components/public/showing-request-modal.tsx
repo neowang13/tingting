@@ -1,6 +1,7 @@
 "use client";
 
 import { DateCalendar } from "@/components/shared/date-calendar";
+import { formatPropertyAddress } from "@/lib/property-address";
 import { formatCalendarDate } from "@/features/showings/calendar";
 import { CalendarCheck, X } from "lucide-react";
 import {
@@ -198,7 +199,7 @@ export function ShowingRequestModalProvider({
 
           <div className="showing-property" aria-label="Selected property">
             <CalendarCheck aria-hidden />
-            <div><strong>{property.title}</strong><span>{property.addressLine}, {property.city}</span></div>
+            <div><strong>{property.title}</strong><span>{formatPropertyAddress(property.addressLine, property.city)}</span></div>
           </div>
 
           <form className="contact-form showing-form" onSubmit={submit} noValidate>

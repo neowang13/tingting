@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatPropertyAddress } from "@/lib/property-address";
 import {
   Bath,
   BedDouble,
@@ -123,7 +124,7 @@ export function RentalDetailPage({
               <ChevronRight aria-hidden />
               <Link href="/rentals">Rentals</Link>
               <ChevronRight aria-hidden />
-              <span aria-current="page">{rental.addressLine}, {rental.city}</span>
+              <span aria-current="page">{formatPropertyAddress(rental.addressLine, rental.city)}</span>
             </nav>
             <div className="rental-gallery-stage">
               {availability && <span className="rental-status-badge">{availability}</span>}
@@ -138,7 +139,7 @@ export function RentalDetailPage({
               <header className="rental-listing-heading">
                 <div>
                   <h1 id="rental-title">{rental.title}</h1>
-                  <p className="rental-summary-address"><MapPin aria-hidden />{rental.addressLine}</p>
+                  {rental.addressLine && <p className="rental-summary-address"><MapPin aria-hidden />{rental.addressLine}</p>}
                   <p>{formatRentalLocation(rental.neighbourhood, rental.city)}</p>
                 </div>
                 <div className="rental-heading-price">

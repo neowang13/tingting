@@ -6,6 +6,7 @@ import {
 } from "@/features/tenants/contact-utils";
 
 const isoTimestampSchema = z.iso.datetime({ offset: true });
+const optionalStreetAddress = z.string().trim().max(160).nullish().transform(value => value ?? "");
 
 function isValidTimezone(value: string) {
   try {
@@ -24,7 +25,7 @@ export const rentalInputSchema = z
   .object({
     slug: z.string().trim().min(2).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     title: z.string().trim().min(1).max(120),
-    addressLine: z.string().trim().min(1).max(160),
+    addressLine: optionalStreetAddress,
     neighbourhood: z.string().trim().max(100).nullable().default(null),
     city: z.string().trim().min(1).max(100),
     monthlyRentCents: z.number().int().positive(),
@@ -87,7 +88,7 @@ export const rentalListingV2InputSchema = z.object({
     propertyType: propertyTypeSchema,
     buildingName: nullableTrimmed(120),
     unitNumber: nullableTrimmed(40),
-    streetAddress: z.string().trim().min(1).max(160),
+    streetAddress: optionalStreetAddress,
     neighbourhood: nullableTrimmed(100),
     city: z.string().trim().min(1).max(100),
     provinceCode: z.preprocess(

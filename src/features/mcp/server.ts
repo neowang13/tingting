@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ApiError } from "@/lib/api";
+import { formatPropertyAddress } from "@/lib/property-address";
 import { assertActionRateLimit } from "@/lib/rate-limit";
 import { getRepository } from "@/data/repository";
 import type { RentalListing } from "@/lib/contracts";
@@ -23,7 +24,7 @@ const writeFields = {
 const version = z.string().min(1).max(64);
 const appStatus = z.enum(["draft", "submitted", "received", "needs_information", "under_review", "approved", "declined", "withdrawn"]);
 function rentalSummary(r: RentalListing) {
-  return { id: r.id, propertyNumber: r.propertyNumber, slug: r.slug, title: r.title, address: `${r.addressLine}, ${r.city}`,
+  return { id: r.id, propertyNumber: r.propertyNumber, slug: r.slug, title: r.title, address: formatPropertyAddress(r.addressLine, r.city),
     status: r.status, updatedAt: r.updatedAt, monthlyRentCents: r.monthlyRentCents, currency: "CAD",
     bedrooms: r.bedrooms, bathrooms: r.bathrooms, publishedAt: r.publishedAt };
 }
@@ -95,14 +96,14 @@ export function createAdminMcpServer(principal: McpPrincipal) {
     template: v1ToV2({ slug: "new-property", title: "", addressLine: "", city: "Vancouver", neighbourhood: null,
       monthlyRentCents: 0, bedrooms: 0, bathrooms: 0, squareFeet: null, availableOn: null, petPolicy: null,
       description: "", sortOrder: 0, coverImageUrl: null, images: [] }),
-    note: "Fill in actual facts before saving. Publishing requires province, availability and at least one uploaded photo selected as cover. Unknown optional fields may remain null."
+    note: "Fill in actual facts before saving. Street address is optional and may be omitted, null or empty; never invent it. City is required. Publishing requires province, availability and at least one uploaded photo selected as cover. Unknown optional fields may remain null."
   }));
   register("list_rental_images", "rentals:read", "List uploaded site image IDs and descriptions for selecting rental photos. No file bytes or private storage URLs are returned.", { ...page }, false, async ({ offset, limit }) => {
     const rows = await listMediaAssets();
     return { items: rows.slice(offset, offset+limit).map(a => ({ id: a.id, altText: a.altText, originalFilename: a.originalFilename,
       width: a.width, height: a.height, state: a.state })), total: rows.length };
   });
-  register("upload_rental_image", "rentals:write", "WRITE. Upload an administrator-provided rental photo from the assistant's file attachment. Send the file's base64 programmatically, not by pasting its bytes into a conversation. Maximum decoded size 8 MiB; JPEG, PNG, WebP or AVIF. It is validated and optimized by the website. Returns mediaAssetId for create_rental/update_rental. Does not publish anything; do not fetch arbitrary external URLs.", {
+  register("upload_rental_image", "rentals:write", "WRITE. Upload a rental photo supplied or explicitly authorized by the administrator. For a user-provided Facebook/Marketplace listing, the assistant may use its authenticated browser to download the listing photos, then read the downloaded files and send base64 programmatically without exposing signed URLs or photo bytes in chat. If the Facebook connector hides image URLs, use browser file download rather than connector URL extraction. This server accepts file bytes only and does not fetch external URLs. Maximum decoded size 8 MiB; JPEG, PNG, WebP or AVIF. The website validates and optimizes the image. Returns mediaAssetId for create_rental/update_rental. Does not publish. If no photo file can be obtained, keep the rental as a draft and report that step instead of claiming publication.", {
     ...writeFields, filename: z.string().min(1).max(200).regex(/^[^/\\\x00-\x1f]+$/), altText: z.string().trim().min(1).max(160),
     base64: z.string().min(4).max(11184812).regex(/^[A-Za-z0-9+/]*={0,2}$/)
   }, true, async input => {

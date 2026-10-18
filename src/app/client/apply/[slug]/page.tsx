@@ -6,6 +6,7 @@ import { ClientPortalHeader } from "@/components/client/client-portal-header";
 import { ClientStartApplicationButton } from "@/components/client/client-start-application-button";
 import { getRepository } from "@/data/repository";
 import { requireClientPage } from "@/lib/client-auth";
+import { formatPropertyAddress } from "@/lib/property-address";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Start Rental Application | Ting Ting Xu", robots: { index: false, follow: false } };
@@ -24,7 +25,7 @@ export default async function ClientApplyPage({ params }: { params: Promise<{ sl
         <section className="client-panel client-apply-confirmation">
           <p className="eyebrow">Private online application</p>
           <h1>Apply for {rental.title}</h1>
-          <p className="client-apply-address"><strong>{rental.addressLine}, {rental.city}</strong></p>
+          <p className="client-apply-address"><strong>{formatPropertyAddress(rental.addressLine, rental.city)}</strong></p>
           <p>Confirm this is the home you want, then start a private application or continue the draft already connected to your account.</p>
           <div className="client-apply-facts">
             <div><span>Monthly rent</span><strong>${(rental.monthlyRentCents / 100).toLocaleString("en-CA")}</strong></div>

@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import type { showingRequestInputSchema } from "@/lib/schemas";
 import { formatViewingDate } from "@/features/showings/availability";
+import { formatPropertyAddress } from "@/lib/property-address";
 import { buildContactActionUris } from "@/features/contact/follow-up";
 import { createShowingContactUrl } from "@/features/showings/contact-link";
 
@@ -25,7 +26,7 @@ export function renderShowingRequestNotification(input: {
   const details = [
     "Status: DATE REGISTERED — TIME TO BE ARRANGED",
     `Property: ${input.property.title}`,
-    `Address: ${input.property.addressLine}, ${input.property.city}`,
+    `Address: ${formatPropertyAddress(input.property.addressLine, input.property.city)}`,
     `Listing: /rentals/${input.property.slug}`,
     `Viewing date: ${when}`,
     `Name: ${input.request.name}`,
