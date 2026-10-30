@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
+import sharp from "sharp";
 import { expect, test, type Page } from "@playwright/test";
 
 interface ApiResult<T> {
@@ -62,11 +63,9 @@ async function adminApi<T>(
 }
 
 async function uploadTestMedia(page: Page, runId: string) {
-  return page.evaluate(async (marker) => {
-    const bytes = new Uint8Array(24);
-    bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
-    new DataView(bytes.buffer).setUint32(16, 800);
-    new DataView(bytes.buffer).setUint32(20, 600);
+  const png = await sharp({ create: { width: 800, height: 600, channels: 3, background: "#80a090" } }).png().toBuffer();
+  return page.evaluate(async ({ marker, encoded }) => {
+    const bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
     const form = new FormData();
     form.set("file", new File([bytes], `${marker}.png`, { type: "image/png" }));
     form.set("altText", `Synthetic E2E cover ${marker}`);
@@ -76,7 +75,7 @@ async function uploadTestMedia(page: Page, runId: string) {
       credentials: "same-origin"
     });
     return { status: response.status, body: await response.json() };
-  }, runId) as Promise<ApiResult<{ id: string }>>;
+  }, { marker: runId, encoded: png.toString("base64") }) as Promise<ApiResult<{ id: string }>>;
 }
 
 async function uploadTestRentReceipt(page: Page, tenantId: string, period: string, runId: string) {
@@ -131,7 +130,8 @@ test("production Cookie authentication covers critical Supabase writes", async (
   await expect(page.getByLabel("Six-digit code")).toBeVisible();
   await page.getByLabel("Six-digit code").fill(currentTotp(totpSecret));
   await page.getByRole("button", { name: "Verify" }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
+  await expect(page).toHaveURL(/\/admin\/properties$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Properties", exact: true })).toBeVisible();
 
   const cookies = await page.context().cookies();
   expect(cookies.some((cookie) => cookie.name.startsWith("sb-") && cookie.name.includes("auth-token"))).toBe(true);
@@ -475,6 +475,7 @@ test("production Cookie authentication covers critical Supabase writes", async (
     providerMode: string;
     subject: string;
     body: string;
+    dueDate: string;
   }>(await adminApi(page, "/api/admin/notifications/test-preview", "POST", {
     tenantId: tenant.id,
     channel: "email",
@@ -486,7 +487,11 @@ test("production Cookie authentication covers critical Supabase writes", async (
     providerMode: "mock",
     subject: "Test reminder for 100 Test Only Street"
   });
-  expect(testPreview.body).toContain("August 1, 2026");
+  expect(testPreview.dueDate).toMatch(/^\d{4}-\d{2}-01$/);
+  const displayedDueDate = new Intl.DateTimeFormat("en-CA", {
+    month: "long", day: "numeric", year: "numeric", timeZone: "UTC"
+  }).format(new Date(`${testPreview.dueDate}T12:00:00Z`));
+  expect(testPreview.body).toContain(displayedDueDate);
   const testEvent = expectSuccess<{ id: string; source: string; destinationMasked: string }>(
     await adminApi(page, "/api/admin/notifications/test", "POST", {
       tenantId: tenant.id,

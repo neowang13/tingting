@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.12] - 2026-10-30
+### Fixed
+- Keep co-applicant sessions bound to the applicant displayed in each browser tab. Opening another application no longer redirects uploads, file synchronization, draft saves or signatures to that application.
+- Sign each applicant selector into its own HttpOnly cookie, require that context for file reads and all mutations, and reject stale unscoped clients before any application changes. Preserve the selected applicant on reload.
+
+### Tests
+- Add same-account, two-tab browser regressions in memory and local Supabase, including persisted application/applicant IDs, storage paths and file bytes, A-only signing, legacy-cookie upgrade and account/session boundaries.
+- Refresh the existing Supabase write suite's current Admin landing page, valid image fixture and date-independent reminder assertion.
+
 ## [0.2.11] - 2026-10-18
 ### Fixed
 - Persist document removal, the audit event and a cleanup job atomically. Retry private storage cleanup after network or process failures, with leased workers and idempotent removal receipts.
