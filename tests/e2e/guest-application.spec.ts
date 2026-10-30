@@ -153,16 +153,18 @@ test("signed-in co-applicant accepts the invitation and signs their own informat
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: bootstrap() }) });
   });
   await page.route("**/api/application-guests/draft", async (route) => {
+    expect(route.request().headers()["x-application-applicant-id"]).toBe(bootstrap().applicant.id);
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { draftUpdatedAt: "2026-08-26T18:25:00.000Z" } }) });
   });
   await page.route("**/api/application-guests/sign", async (route) => {
+    expect(route.request().headers()["x-application-applicant-id"]).toBe(bootstrap().applicant.id);
     signPayload = await route.request().postDataJSON();
     await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ data: { applicant: bootstrap("signed").applicant } }) });
   });
 
   await page.goto("/application/guest#token=one-time-token");
   await page.getByRole("button", { name: "Accept invitation", exact: true }).click();
-  await expect(page).toHaveURL(/\/client\/invitations$/);
+  await expect(page).toHaveURL(/\/client\/invitations\?applicant=40000000-0000-4000-8000-000000000001$/);
   await expect(page.getByRole("heading", { level: 1, name: "Bright Downtown One Bedroom" })).toBeVisible();
 
 

@@ -18,7 +18,9 @@ export async function POST(request: Request) {
     const input = schema.parse(await readJson(request));
     await assertActionRateLimit(identity.userId, "application-linked-exchange", 12, 60 * 60);
     const exchanged = "token" in input ? await exchangeCoApplicantInvitation(input.token, applicationRequestContext(request, requestId), identity) : "invitationId" in input ? await acceptCoApplicantInvitationById(input.invitationId, applicationRequestContext(request, requestId), identity) : await resumeCoApplicantApplication(identity, input.applicantId);
-    const response = ok(await getGuestApplication(exchanged.sessionToken), requestId);
+    const view = await getGuestApplication(exchanged.sessionToken);
+    const response = ok(view, requestId);
+    response.headers.append("set-cookie", serializeGuestSessionCookie(exchanged.sessionToken, applicationGuestSecret(), new Date(exchanged.expiresAt), view.applicant.id));
     response.headers.append("set-cookie", serializeGuestSessionCookie(exchanged.sessionToken, applicationGuestSecret(), new Date(exchanged.expiresAt)));
     response.headers.set("cache-control", "no-store");
     return response;
@@ -33,7 +35,13 @@ export async function GET(request: Request) {
     const identity = await requireClientRequest(request);
     const session = readGuestCookie(request);
     await assertGuestAccount(session, identity);
-    const response = ok(await getGuestApplication(session), requestId);
+    const view = await getGuestApplication(session);
+    const response = ok(view, requestId);
+    // Upgrade a context-free entry from an older browser session. The database
+    // session expiry remains authoritative even if this cookie outlives it.
+    if (!request.headers.has("x-application-applicant-id")) {
+      response.headers.append("set-cookie", serializeGuestSessionCookie(session, applicationGuestSecret(), new Date(Date.now() + 12 * 60 * 60_000), view.applicant.id));
+    }
     response.headers.set("cache-control", "no-store");
     return response;
   } catch (error) {

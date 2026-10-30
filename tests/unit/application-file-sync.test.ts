@@ -24,3 +24,15 @@ it("does not discard local files when both deletion and reconciliation are offli
   const result = await removeAndReconcileFile("/api/files", "file");
   expect(result.removed).toBe(false); expect(result.files).toBeUndefined();
 });
+
+it("keeps the displayed applicant context on deletion and lost-response reconciliation", async () => {
+  const headers = { "x-application-applicant-id": "40000000-0000-4000-8000-000000000001" };
+  const fetch = vi.fn().mockRejectedValueOnce(new Error("response lost"))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ data: { files: [] } })));
+  vi.stubGlobal("fetch", fetch);
+  expect(await removeAndReconcileFile("/api/application-guests/files", "file", headers)).toMatchObject({ removed: true, files: [] });
+  expect(fetch.mock.calls).toEqual([
+    ["/api/application-guests/files/file", { method: "DELETE", headers }],
+    ["/api/application-guests/files", { cache: "no-store", signal: undefined, headers }]
+  ]);
+});

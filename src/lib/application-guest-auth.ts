@@ -20,10 +20,14 @@ function signGuestCookieValue(token: string, secret: string) {
   return createHmac("sha256", secret).update(token, "utf8").digest("base64url");
 }
 
-export function serializeGuestSessionCookie(token: string, secret: string, expiresAt: Date) {
-  const value = `${token}.${signGuestCookieValue(token, secret)}`;
+export function serializeGuestSessionCookie(token: string, secret: string, expiresAt: Date, applicantId?: string) {
+  // Bind the selector inside the signature as well as the cookie name. Renaming
+  // another applicant's valid cookie must never authorize a different context.
+  const payload = applicantId ? `${applicantId}:${token}` : token;
+  const value = `${payload}.${signGuestCookieValue(payload, secret)}`;
+  const name = applicantId ? `${APPLICATION_GUEST_COOKIE}_${applicantId}` : APPLICATION_GUEST_COOKIE;
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
-  return `${APPLICATION_GUEST_COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${expiresAt.toUTCString()}`;
+  return `${name}=${value}; Path=/; HttpOnly; SameSite=Lax${secure}; Expires=${expiresAt.toUTCString()}`;
 }
 
 export function clearGuestSessionCookie() {
@@ -55,10 +59,20 @@ export function applicationGuestSecret() {
 }
 
 export function readGuestCookie(request: Request) {
+  const applicantId = request.headers.get("x-application-applicant-id");
+  // Only the initial, context-free bootstrap may read the legacy latest-session
+  // cookie. Old tabs must refresh before reading files or making any changes.
+  const bootstrap = request.method === "GET" && new URL(request.url).pathname === "/api/application-guests/session";
+  if ((!applicantId && !bootstrap) || (applicantId !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(applicantId))) {
+    throw new ApiError(409, "APPLICATION_GUEST_CONTEXT_REQUIRED", "Refresh this page and reopen the intended application before continuing.");
+  }
+  const name = applicantId ? `${APPLICATION_GUEST_COOKIE}_${applicantId}` : APPLICATION_GUEST_COOKIE;
   const raw = request.headers.get("cookie") ?? "";
-  const value = raw.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${APPLICATION_GUEST_COOKIE}=`))
-    ?.slice(APPLICATION_GUEST_COOKIE.length + 1);
-  const token = parseGuestSessionCookie(value, applicationGuestSecret());
-  if (!token) throw new ApiError(401, "APPLICATION_GUEST_SESSION_INVALID", "This guest application session is invalid or expired.");
-  return token;
+  const value = raw.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))
+    ?.slice(name.length + 1);
+  const payload = parseGuestSessionCookie(value, applicationGuestSecret());
+  if (!payload || (applicantId && !payload.startsWith(`${applicantId}:`))) {
+    throw new ApiError(401, "APPLICATION_GUEST_SESSION_INVALID", "This guest application session is invalid or expired. Reopen this application to continue.");
+  }
+  return applicantId ? payload.slice(applicantId.length + 1) : payload;
 }

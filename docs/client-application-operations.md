@@ -199,6 +199,37 @@ private `tenants` table or another Client's records.
 
 ## Production verification
 
+Co-applicant tabs identify their displayed applicant with
+`x-application-applicant-id`. Each applicant has a separate HttpOnly guest cookie;
+the signed cookie payload also binds that applicant ID to the session token.
+Opening a second application cannot change the session selected by the first tab.
+File reads, uploads, removal/reconciliation, draft saves, and signatures all require
+this context, followed by the existing verified-account and database-session checks.
+The legacy latest-session cookie is accepted only for the initial session GET.
+An older open tab without context receives `409 APPLICATION_GUEST_CONTEXT_REQUIRED`
+and must reopen the intended application. Successful entry stores the applicant ID
+in the page URL so reloads resume the same application. No database migration is needed.
+
+The local regression uses two tabs in one browser context, two properties, and
+fictional PDFs. It verifies two A uploads and one B upload stay with their respective
+applicants, including focus refresh, a lost deletion response, reload, and draft save:
+
+```bash
+LOCAL_CLIENT_SECONDARY_EMAIL=second@example.test pnpm exec playwright test tests/e2e/guest-application-isolation.spec.ts
+```
+
+Run this scenario in a fresh test-server process, separately from other login-heavy
+specs; the demo login limit is shared by requests from the same local IP address.
+
+`tests/e2e-supabase/guest-application-isolation.spec.ts` adds the same-account
+two-tab regression against a dedicated local Supabase project. It compares all
+three file rows' application IDs, applicant IDs and storage paths, downloads the
+actual private objects to compare bytes, and checks focus/reconnect synchronization,
+legacy-cookie upgrade, wrong-account rejection, A-only signing, expiry and revocation.
+Its synthetic accounts and application fixtures are restricted to localhost; never
+point this fixture or the write suite at production. Run it through the existing
+`pnpm test:e2e:supabase` configuration after local provisioning.
+
 Apply migrations, provision the private bucket, and run:
 
 ```bash

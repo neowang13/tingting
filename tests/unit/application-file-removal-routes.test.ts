@@ -11,7 +11,7 @@ import { DELETE as primary } from "@/app/api/client/applications/[id]/files/[fil
 import { DELETE as guest } from "@/app/api/application-guests/files/[fileId]/route";
 const id = "30000000-0000-4000-8000-000000000009", fileId = "40000000-0000-4000-8000-000000000001";
 const identity = { userId: "owner", email: "owner@example.test", displayName: "Owner" };
-function request(origin = "https://example.test") { return new Request("https://example.test/api/files", { method: "DELETE", headers: { origin, cookie: serializeGuestSessionCookie("b".repeat(43), applicationGuestSecret(), new Date(Date.now() + 60_000)).split(";")[0] } }); }
+function request(origin = "https://example.test") { return new Request("https://example.test/api/files", { method: "DELETE", headers: { origin, "x-application-applicant-id": id, cookie: serializeGuestSessionCookie("b".repeat(43), applicationGuestSecret(), new Date(Date.now() + 60_000), id).split(";")[0] } }); }
 beforeEach(() => { vi.clearAllMocks(); mocks.identity.mockResolvedValue(identity); mocks.primary.mockResolvedValue({ removed: true }); mocks.guest.mockResolvedValue({ removed: true }); });
 describe("file removal route boundaries", () => {
   for (const [name, call] of [

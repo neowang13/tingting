@@ -78,6 +78,7 @@ export function GuestApplicationEntry({ signedIn = false }: { signedIn?: boolean
       const body = await readEnvelope<GuestBootstrap>(response);
       if (!response.ok || !body.data) { setError(accessError(response, body)); return; }
       sessionStorage.removeItem("silverkey-pending-invitation");
+      window.history.replaceState({}, "", `/client/invitations?applicant=${encodeURIComponent(body.data.applicant.id)}`);
       setBootstrap(body.data); setInvitation(null);
     } catch { setError("We could not open the application. Check your connection and try again."); }
     finally { setLoading(false); }
@@ -104,7 +105,7 @@ export function GuestApplicationEntry({ signedIn = false }: { signedIn?: boolean
   if (loading) return <GuestShell><div className="guest-application-state" role="status"><h1>Opening your application…</h1></div></GuestShell>;
   if (invitation && !bootstrap) return <GuestShell><section className="client-panel"><p className="eyebrow">Joint application invitation</p><h1>Accept your invitation</h1><p>Your verified account must match the invited email address. You will fill in and sign only your own information.</p>{error && <p role="alert" className="form-status error">{error}</p>}<button className="button" onClick={() => void openApplication(invitation)}>Accept invitation</button>{" "}<Link href="/client/applications">My applications</Link></section></GuestShell>;
   if (!bootstrap) return <GuestShell><div className="guest-application-state" role="alert"><h1>We cannot open this application</h1><p>{error}</p><Link href="/client/applications">Return to my applications</Link><p>Contact <a href={`mailto:${PUBLIC_CONTACT_EMAIL}`}>{PUBLIC_CONTACT_EMAIL}</a> using only the property and application reference.</p></div></GuestShell>;
-  return <GuestShell><GuestApplicationPortal initialData={bootstrap} /></GuestShell>;
+  return <GuestShell><GuestApplicationPortal key={bootstrap.applicant.id} initialData={bootstrap} /></GuestShell>;
 }
 
 function GuestShell({ children }: { children: ReactNode }) {
@@ -135,7 +136,8 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [lastSaved, setLastSaved] = useState(initialData.applicant.draftUpdatedAt);
-  useApplicationFileSync("/api/application-guests/files", busy || data.applicant.status === "signed", setFiles);
+  const contextHeaders = useMemo(() => ({ "x-application-applicant-id": data.applicant.id }), [data.applicant.id]);
+  useApplicationFileSync("/api/application-guests/files", busy || data.applicant.status === "signed", setFiles, contextHeaders);
 
   const documentsComplete = useMemo(() => CO_APPLICANT_REQUIRED_DOCUMENT_TYPES.every(
     (documentType) => applicationDocumentRequirementSatisfied(documentType, files, draft.documentExplanations)
@@ -174,7 +176,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
     try {
       const response = await fetch("/api/application-guests/draft", {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...contextHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ draft, activeStep: targetStep })
       });
       const body = await readEnvelope<{ draftUpdatedAt?: string; draft?: ApplicationDraft }>(response);
@@ -223,7 +225,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
     setError("");
     setMessage("");
     try {
-      const response = await fetch("/api/application-guests/files", { method: "POST", body: formData });
+      const response = await fetch("/api/application-guests/files", { method: "POST", headers: contextHeaders, body: formData });
       const body = await readEnvelope<ApplicationFileRecord>(response);
       if (!response.ok || !body.data) {
         setError(accessError(response, body));
@@ -243,7 +245,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
   async function removeFile(file: ApplicationFileRecord) {
     setBusy(true); setError(""); setMessage("");
     try {
-      const result = await removeAndReconcileFile("/api/application-guests/files", file.id);
+      const result = await removeAndReconcileFile("/api/application-guests/files", file.id, contextHeaders);
       if (result.files) setFiles(result.files);
       if (!result.removed) { setError(result.error || "The file could not be removed. Please try again."); return; }
       if (!result.files) setFiles(current => current.filter(item => item.id !== file.id));
@@ -271,7 +273,7 @@ function GuestApplicationPortal({ initialData }: { initialData: GuestBootstrap }
     try {
       const response = await fetch("/api/application-guests/sign", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...contextHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({
           signatureLegalName: formData.get("signatureLegalName"),
           sharingAuthorization: formData.get("sharingAuthorization") === "yes",
