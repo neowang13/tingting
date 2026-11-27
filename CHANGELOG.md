@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.13] - 2026-11-26
+### Fixed
+- Refresh Google reviews from Places at most once a day instead of every five minutes, keeping the billed Place Details request inside Google's monthly free allowance. Failed responses are not cached, so reviews return on the next visit after Google access is restored.
+- Log why the homepage review section is hidden (missing configuration, Google rejection with its status, request error, or no reviews with text) without recording the API key, so a Google-side outage is visible in Render logs.
+
+### Tests
+- Cover the daily review cache and the logged Google rejection reason.
+
 ## [0.2.12] - 2026-10-30
 ### Fixed
 - Keep co-applicant sessions bound to the applicant displayed in each browser tab. Opening another application no longer redirects uploads, file synchronization, draft saves or signatures to that application.
